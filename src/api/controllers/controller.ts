@@ -1,0 +1,173 @@
+import { Request, Response } from "express";
+import { Logger } from "../../utils/logger.js";
+import { SdkManager } from "../../pool/sdkManager.js";
+import { IagonApiError } from "../../types/errors.js";
+
+/**
+ * Controller class that handles HTTP requests for Fireblocks operations.
+ *
+ * This controller serves as the interface between Express routes and the SdkManager,
+ * handling the four core operations:
+ * 1. Get vault account address
+ * 2. Get vault account addresses
+ * 3. Submit transaction
+ * 4. Get transaction history
+ *
+ * @class ApiController
+ * @example
+ * ```typescript
+ * const sdkManager = new SdkManager(config);
+ * const controller = new ApiController(sdkManager);
+ *
+ * app.use('/api', controller.getRouter());
+ * ```
+ */
+export class ApiController {
+  private sdkManager: SdkManager;
+  private readonly logger = new Logger("api:controller");
+
+  /**
+   * Creates an instance of ApiController.
+   *
+   * @param sdkManager - The SdkManager instance to use for SDK operations
+   */
+  constructor(sdkManager: SdkManager) {
+    this.sdkManager = sdkManager;
+  }
+
+  public getBalanceByAddress = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const groupByPolicy = req.query.groupByPolicy === "true";
+
+    try {
+      const result = await this.sdkManager.getBalanceByAddress(vaultAccountId, {
+        index,
+        groupByPolicy,
+      });
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getBalanceByAddress");
+    }
+  };
+
+  public getBalanceByCredential = async (req: Request, res: Response) => {
+    const { vaultAccountId, credential } = req.params;
+    const groupByPolicy = req.query.groupByPolicy === "true";
+
+    try {
+      const result = await this.sdkManager.getBalanceByCredential(vaultAccountId, {
+        credential,
+        groupByPolicy,
+      });
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getBalanceByCredential");
+    }
+  };
+
+  public getBalanceByStakeKey = async (req: Request, res: Response) => {
+    const { vaultAccountId, stakeKey } = req.params;
+    const groupByPolicy = req.query.groupByPolicy === "true";
+
+    try {
+      const result = await this.sdkManager.getBalanceByStakeKey(vaultAccountId, {
+        stakeKey,
+        groupByPolicy,
+      });
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getBalanceByStakeKey");
+    }
+  };
+
+  public getTransactionsHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+
+    try {
+      const result = await this.sdkManager.getTransactionsHistory(vaultAccountId, { index });
+      this.logger.info(`Transactions history retrieved successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getTransactionsHistory");
+    }
+  };
+
+  public transfer = async (req: Request, res: Response) => {
+    try {
+      const result = await this.sdkManager.transfer(req.body);
+      this.logger.info(`Transfer executed successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "transfer");
+    }
+  };
+
+  /**
+   * Handles errors that occur during API operations.
+   *
+   * This private method provides centralized error handling, distinguishing between
+   * IagonApiError instances (which have structured error information) and generic
+   * errors. It logs the error details and sends an appropriate HTTP response.
+   *
+   * @param error - The error that occurred
+   * @param res - Express response object
+   * @param endpoint - The name of the endpoint where the error occurred (for logging)
+   * @returns void
+   *
+   * @remarks
+   * For IagonApiError instances, returns a structured JSON response with statusCode,
+   * errorType, service, message, and additional error info.
+   * For generic errors, returns a 500 status with a simple error message.
+   */
+  /**
+   * Handles errors that occur during API operations.
+   *
+   * This private method provides centralized error handling, distinguishing between
+   * ApiError instances (which have structured error information) and generic
+   * errors. It logs the error details and sends an appropriate HTTP response.
+   *
+   * @param error - The error that occurred
+   * @param res - Express response object
+   * @param endpoint - The name of the endpoint where the error occurred (for logging)
+   * @returns void
+   *
+   * @remarks
+   * For ApiError instances, returns a structured JSON response with statusCode,
+   * errorType, service, message, and additional error info.
+   * For generic errors, returns a 500 status with a simple error message.
+   */
+  private handleError(error: unknown, res: Response, endpoint: string): void {
+    if (error instanceof IagonApiError) {
+      const statusCode = error.statusCode || 500;
+
+      this.logger.error(`${endpoint} - ApiError:`, {
+        statusCode: error.statusCode,
+        errorType: error.errorType,
+        service: error.service,
+        message: error.message,
+      });
+
+      res.status(statusCode).json({
+        success: false,
+        error: error.message,
+        statusCode: error.statusCode,
+        type: error.errorType,
+        info: error.errorInfo,
+        service: error.service,
+      });
+    } else {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      this.logger.error(`${endpoint} - Error:`, message);
+
+      res.status(500).json({
+        success: false,
+        error: error instanceof Error ? error.message : "Internal server error",
+      });
+    }
+  }
+}
