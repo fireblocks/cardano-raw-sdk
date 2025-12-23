@@ -90,10 +90,15 @@ export class ApiController {
   public getTransactionsHistory = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params;
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const options = {
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+    };
 
     try {
       const sdk = this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getTransactionsHistory(vaultAccountId, { index });
+      const result = await sdk.getTransactionsHistory(vaultAccountId, index, options);
       this.logger.info(`Transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {

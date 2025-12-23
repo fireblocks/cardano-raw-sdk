@@ -10,6 +10,7 @@ import {
   getBalanceByStakeKeyOpts,
   getTransactionsHistoryOpts,
   GroupedBalanceResponse,
+  TransactionsHistoryResponse,
   TransferResponse,
   UtxoIagonResponse,
 } from "../types/index.js";
@@ -146,9 +147,38 @@ export class IagonApiService {
     }
   };
 
-  public getTransactionsHistory = async (params: getTransactionsHistoryOpts): Promise<null> => {
+  public getTransactionsHistory = async (
+    params: getTransactionsHistoryOpts
+  ): Promise<TransactionsHistoryResponse> => {
     try {
-      return null;
+      const { address, limit, offset, fromSlot } = params;
+      const queryParams = new URLSearchParams();
+      if (limit !== undefined) {
+        queryParams.append("limit", limit.toString());
+      }
+      if (offset !== undefined) {
+        queryParams.append("offset", offset.toString());
+      }
+      if (fromSlot !== undefined) {
+        queryParams.append("fromSlot", fromSlot.toString());
+      }
+
+      const queryString = queryParams.toString();
+      const url = `${this.iagonBaseUrl}/v1/tx/address/${encodeURIComponent(address)}${
+        queryString ? `?${queryString}` : ""
+      }`;
+
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, "fetching transactions history");
     }

@@ -12,8 +12,8 @@ import { Logger } from "./utils/logger.js";
 
 import {
   BalanceResponse,
-  getTransactionsHistoryOpts,
   GroupedBalanceResponse,
+  TransactionsHistoryResponse,
   transferOpts,
 } from "./types/iagon.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
@@ -148,10 +148,13 @@ export class CardanoTokensSDK {
    */
   public getTransactionsHistory = async (
     vaultAccountId: string,
-    options: getTransactionsHistoryOpts = {}
-  ): Promise<null> => {
-    const { index = 0 } = options;
-
+    index: number = 0,
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+    }
+  ): Promise<TransactionsHistoryResponse> => {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       vaultAccountId,
       "ADA",
@@ -159,11 +162,17 @@ export class CardanoTokensSDK {
     );
     const address = addressData.address;
 
+    if (!address) {
+      throw new Error(
+        `AddressNotFound: No address found for vault account ${vaultAccountId} at index ${index}`
+      );
+    }
+
     this.logger.info(
       `Getting transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
     );
 
-    return await this.iagonApiService.getTransactionsHistory({});
+    return await this.iagonApiService.getTransactionsHistory({ address, ...options });
   };
 
   /**

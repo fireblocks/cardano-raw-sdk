@@ -128,7 +128,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * /api/transactions/{vaultAccountId}:
    *   get:
    *     summary: Get transaction history
-   *     description: Retrieves the transaction history for a vault account
+   *     description: Retrieves the transaction history for a vault account address with optional pagination and filtering
    *     tags: [Transactions]
    *     parameters:
    *       - in: path
@@ -142,7 +142,22 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         schema:
    *           type: integer
    *           default: 0
-   *         description: The address index
+   *         description: The address index to query transactions for
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Maximum number of transactions to return
+   *       - in: query
+   *         name: offset
+   *         schema:
+   *           type: integer
+   *         description: Number of transactions to skip for pagination
+   *       - in: query
+   *         name: fromSlot
+   *         schema:
+   *           type: integer
+   *         description: Filter transactions from this slot number onwards
    *     responses:
    *       200:
    *         description: Transaction history retrieved successfully
@@ -150,6 +165,13 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           application/json:
    *             schema:
    *               type: object
+   *               properties:
+   *                 transactions:
+   *                   type: array
+   *                   description: List of transactions
+   *                 total:
+   *                   type: integer
+   *                   description: Total number of transactions available
    *       500:
    *         description: Internal server error
    */
