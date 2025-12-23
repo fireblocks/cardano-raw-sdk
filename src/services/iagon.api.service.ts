@@ -20,7 +20,7 @@ export class IagonApiService {
   private readonly iagonApiKey: string | null = process.env.IAGON_API_KEY || null;
   private readonly errorHandler = new ErrorHandler("iagon-api", this.logger);
 
-  public getUtxosByAddress = async (address: string): Promise<UtxoIagonResponse[]> => {
+  public getUtxosByAddress = async (address: string): Promise<UtxoIagonResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/utxos/address/${encodeURIComponent(address)}`;
       const response = await axios.get(url, {
