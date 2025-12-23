@@ -41,7 +41,8 @@ export class ApiController {
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
-      const result = await this.sdkManager.getBalanceByAddress(vaultAccountId, {
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getBalanceByAddress(vaultAccountId, {
         index,
         groupByPolicy,
       });
@@ -57,7 +58,8 @@ export class ApiController {
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
-      const result = await this.sdkManager.getBalanceByCredential(vaultAccountId, {
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getBalanceByCredential(vaultAccountId, {
         credential,
         groupByPolicy,
       });
@@ -73,7 +75,8 @@ export class ApiController {
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
-      const result = await this.sdkManager.getBalanceByStakeKey(vaultAccountId, {
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getBalanceByStakeKey(vaultAccountId, {
         stakeKey,
         groupByPolicy,
       });
@@ -89,7 +92,8 @@ export class ApiController {
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
 
     try {
-      const result = await this.sdkManager.getTransactionsHistory(vaultAccountId, { index });
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getTransactionsHistory(vaultAccountId, { index });
       this.logger.info(`Transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -99,7 +103,9 @@ export class ApiController {
 
   public transfer = async (req: Request, res: Response) => {
     try {
-      const result = await this.sdkManager.transfer(req.body);
+      const { vaultAccountId } = req.body;
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.transfer(req.body);
       this.logger.info(`Transfer executed successfully`);
       res.status(200).json(result);
     } catch (error: any) {

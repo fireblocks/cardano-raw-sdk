@@ -1,40 +1,29 @@
 import { PoolConfig, SdkManagerMetrics } from "../types/index.js";
-import {
-  ConfigurationOptions,
-  VaultWalletAddress,
-  SignedMessageSignature,
-  TransactionRequest,
-} from "@fireblocks/ts-sdk";
+import { ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Logger } from "../utils/logger.js";
-import { FireblocksService } from "../services/fireblocks.service.js";
-import { IagonApiService } from "../services/iagon.api.service.js";
-import {
-  BalanceResponse,
-  GroupedBalanceResponse,
-  getTransactionsHistoryOpts,
-  transferOpts,
-  TransferResponse,
-} from "../types/iagon.js";
+
+// Forward declaration to avoid circular dependency
+import type { CardanoTokensSDK } from "../CardanoTokensSDK.js";
 
 /**
- * Pool item for FireblocksService instances
+ * Pool item for CardanoTokensSDK instances
  */
-interface ServicePoolItem {
-  service: FireblocksService;
+interface SdkPoolItem {
+  sdk: CardanoTokensSDK;
   lastUsed: Date;
   isInUse: boolean;
 }
 
 /**
- * Manages a pool of FireblocksService instances for efficient resource utilization.
+ * Manages a pool of CardanoTokensSDK instances for efficient resource utilization.
  *
- * The SdkManager implements connection pooling for Fireblocks service instances, allowing
- * reuse across multiple requests. This reduces initialization overhead and manages resource
+ * The SdkManager implements connection pooling for CardanoTokensSDK instances, allowing
+ * reuse across multiple API requests. This reduces initialization overhead and manages resource
  * limits effectively. The manager handles:
- * - Service instance creation and lifecycle management
+ * - CardanoTokensSDK instance creation and lifecycle management per vault account
  * - Automatic cleanup of idle connections
  * - Pool size limits and LRU eviction policies
- * - Per-vault-account service instance tracking
+ * - Per-vault-account SDK instance tracking
  *
  * @class SdkManager
  * @example
@@ -50,27 +39,31 @@ interface ServicePoolItem {
  *   idleTimeoutMs: 20 * 60 * 1000
  * });
  *
- * // Use with automatic resource management
- * await manager.withService('vault-123', async (service) => {
- *   return await service.getVaultAccountAddress('vault-123', 'BTC', 0);
- * });
+ * // Get SDK for a vault account
+ * const sdk = manager.getSdk('vault-123');
+ * const address = await sdk.getVaultAccountAddress('vault-123', 'BTC', 0);
  * ```
  */
 export class SdkManager {
-  private servicePool: Map<string, ServicePoolItem> = new Map();
+  private sdkPool: Map<string, SdkPoolItem> = new Map();
   private baseConfig: ConfigurationOptions;
   private poolConfig: PoolConfig;
   private cleanupInterval: NodeJS.Timeout;
   private readonly logger = new Logger("pool:sdk-manager");
-  private readonly iagonApiService = new IagonApiService();
+  private sdkFactory: (config: ConfigurationOptions) => CardanoTokensSDK;
 
   /**
    * Creates an instance of SdkManager with connection pooling.
    *
-   * @param baseConfig - Fireblocks SDK configuration used for all service instances
+   * @param baseConfig - Fireblocks SDK configuration used for all CardanoTokensSDK instances
    * @param poolConfig - Optional pool configuration settings
+   * @param sdkFactory - Factory function to create CardanoTokensSDK instances (used to avoid circular dependency)
    */
-  constructor(baseConfig: ConfigurationOptions, poolConfig?: Partial<PoolConfig>) {
+  constructor(
+    baseConfig: ConfigurationOptions,
+    poolConfig?: Partial<PoolConfig>,
+    sdkFactory?: (config: ConfigurationOptions) => CardanoTokensSDK
+  ) {
     this.baseConfig = baseConfig;
 
     this.poolConfig = {
@@ -81,69 +74,84 @@ export class SdkManager {
       retryAttempts: poolConfig?.retryAttempts || 3,
     };
 
+    // Store the factory function, will be set by CardanoTokensSDK
+    this.sdkFactory =
+      sdkFactory ||
+      (() => {
+        throw new Error("SDK factory not initialized. This should be set by CardanoTokensSDK.");
+      });
+
     this.cleanupInterval = setInterval(
-      () => this.cleanupIdleServices(),
+      () => this.cleanupIdleSdks(),
       this.poolConfig.cleanupIntervalMs
     );
   }
 
   /**
-   * Retrieves or creates a FireblocksService instance.
+   * Sets the SDK factory function (called by CardanoTokensSDK to avoid circular dependency)
+   * @param factory - Factory function to create CardanoTokensSDK instances
+   */
+  public setSdkFactory(factory: (config: ConfigurationOptions) => CardanoTokensSDK): void {
+    this.sdkFactory = factory;
+  }
+
+  /**
+   * Gets or creates a CardanoTokensSDK instance for a specific vault account.
    *
    * Implements pooling with LRU eviction for efficient resource management.
+   * Each vault account gets its own CardanoTokensSDK instance that can be reused across requests.
    *
    * @param vaultAccountId - The Fireblocks vault account ID (used as pool key)
-   * @returns A Promise resolving to a FireblocksService instance
-   * @private
+   * @returns A CardanoTokensSDK instance
+   *
+   * @example
+   * ```typescript
+   * const sdk = manager.getSdk('vault-123');
+   * const address = await sdk.getVaultAccountAddress('vault-123', 'BTC', 0);
+   * ```
    */
-  private async getService(vaultAccountId: string): Promise<FireblocksService> {
+  public getSdk(vaultAccountId: string): CardanoTokensSDK {
     const key = vaultAccountId;
-    const poolItem = this.servicePool.get(key);
+    const poolItem = this.sdkPool.get(key);
 
-    // Reuse existing idle service
-    if (poolItem && !poolItem.isInUse) {
-      this.logger.debug(`Reusing service for vault ${vaultAccountId}`);
+    // Reuse existing SDK
+    if (poolItem) {
+      this.logger.debug(`Reusing SDK for vault ${vaultAccountId}`);
       poolItem.lastUsed = new Date();
       poolItem.isInUse = true;
-      return poolItem.service;
+      return poolItem.sdk;
     }
 
     // Check pool capacity
-    if (this.servicePool.size >= this.poolConfig.maxPoolSize && !poolItem) {
-      const removed = await this.removeOldestIdleService();
+    if (this.sdkPool.size >= this.poolConfig.maxPoolSize) {
+      const removed = this.removeOldestIdleSdk();
       if (!removed) {
         throw new Error(
-          `Service pool at maximum capacity (${this.poolConfig.maxPoolSize}) with no idle connections`
+          `SDK pool at maximum capacity (${this.poolConfig.maxPoolSize}) with no idle connections`
         );
       }
     }
 
-    // Create new service if needed
-    if (!poolItem) {
-      const service = new FireblocksService(this.baseConfig);
-      this.servicePool.set(key, {
-        service,
-        lastUsed: new Date(),
-        isInUse: true,
-      });
-      this.logger.info(`Created new service for vault ${vaultAccountId}`);
-      return service;
-    }
+    // Create new SDK
+    this.logger.info(`Creating new SDK for vault ${vaultAccountId}`);
+    const sdk = this.sdkFactory(this.baseConfig);
 
-    // Mark existing as in-use
-    poolItem.lastUsed = new Date();
-    poolItem.isInUse = true;
-    return poolItem.service;
+    this.sdkPool.set(key, {
+      sdk,
+      lastUsed: new Date(),
+      isInUse: true,
+    });
+
+    return sdk;
   }
 
   /**
-   * Releases a service instance back to the pool.
+   * Releases an SDK instance back to the pool.
    *
    * @param vaultAccountId - The vault account ID
-   * @private
    */
-  private releaseService(vaultAccountId: string): void {
-    const poolItem = this.servicePool.get(vaultAccountId);
+  public releaseSdk(vaultAccountId: string): void {
+    const poolItem = this.sdkPool.get(vaultAccountId);
     if (poolItem) {
       poolItem.isInUse = false;
       poolItem.lastUsed = new Date();
@@ -151,16 +159,16 @@ export class SdkManager {
   }
 
   /**
-   * Removes the oldest idle service from the pool (LRU eviction).
+   * Removes the oldest idle SDK from the pool (LRU eviction).
    *
-   * @returns True if a service was removed, false otherwise
+   * @returns True if an SDK was removed, false otherwise
    * @private
    */
-  private async removeOldestIdleService(): Promise<boolean> {
+  private removeOldestIdleSdk(): boolean {
     let oldestKey: string | null = null;
     let oldestDate: Date = new Date();
 
-    for (const [key, value] of this.servicePool.entries()) {
+    for (const [key, value] of this.sdkPool.entries()) {
       if (!value.isInUse && value.lastUsed < oldestDate) {
         oldestDate = value.lastUsed;
         oldestKey = key;
@@ -168,8 +176,8 @@ export class SdkManager {
     }
 
     if (oldestKey) {
-      this.servicePool.delete(oldestKey);
-      this.logger.info(`Evicted idle service for vault ${oldestKey}`);
+      this.sdkPool.delete(oldestKey);
+      this.logger.info(`Evicted idle SDK for vault ${oldestKey}`);
       return true;
     }
 
@@ -177,14 +185,14 @@ export class SdkManager {
   }
 
   /**
-   * Performs periodic cleanup of idle services.
+   * Performs periodic cleanup of idle SDKs.
    * @private
    */
-  private async cleanupIdleServices(): Promise<void> {
+  private cleanupIdleSdks(): void {
     const now = new Date();
     const keysToRemove: string[] = [];
 
-    for (const [key, value] of this.servicePool.entries()) {
+    for (const [key, value] of this.sdkPool.entries()) {
       if (!value.isInUse) {
         const idleTime = now.getTime() - value.lastUsed.getTime();
         if (idleTime > this.poolConfig.idleTimeoutMs) {
@@ -194,215 +202,16 @@ export class SdkManager {
     }
 
     for (const key of keysToRemove) {
-      this.servicePool.delete(key);
-      this.logger.info(`Removed idle service for vault ${key}`);
-    }
-  }
-
-  /**
-   * Execute a function with automatic service lifecycle management.
-   *
-   * This method handles service acquisition and release automatically,
-   * ensuring proper resource management even if the function throws an error.
-   *
-   * @param vaultAccountId - The vault account ID
-   * @param fn - Function to execute with the service
-   * @returns Promise resolving to the function result
-   *
-   * @example
-   * ```typescript
-   * const address = await manager.withService('vault-123', async (service) => {
-   *   return await service.getVaultAccountAddress('vault-123', 'BTC', 0);
-   * });
-   * ```
-   */
-  public async withService<T>(
-    vaultAccountId: string,
-    fn: (service: FireblocksService) => Promise<T>
-  ): Promise<T> {
-    const service = await this.getService(vaultAccountId);
-    try {
-      return await fn(service);
-    } finally {
-      this.releaseService(vaultAccountId);
-    }
-  }
-
-  /**
-   * @deprecated Use withService instead. For backward compatibility with deprecated ApiService.
-   * Will be removed in v2.0.
-   */
-  public async withSdk<T>(
-    vaultAccountId: string,
-    fn: (service: FireblocksService) => Promise<T>
-  ): Promise<T> {
-    return await this.withService(vaultAccountId, fn);
-  }
-
-  /**
-   * Convenience method: Get vault account address
-   */
-  public async getVaultAccountAddress(
-    vaultAccountId: string,
-    assetId: string,
-    index: number = 0
-  ): Promise<VaultWalletAddress> {
-    return await this.withService(vaultAccountId, async (service) => {
-      return await service.getVaultAccountAddress(vaultAccountId, assetId, index);
-    });
-  }
-
-  /**
-   * Convenience method: Get all vault account addresses
-   */
-  public async getVaultAccountAddresses(
-    vaultAccountId: string,
-    assetId: string
-  ): Promise<VaultWalletAddress[]> {
-    return await this.withService(vaultAccountId, async (service) => {
-      return await service.getVaultAccountAddresses(vaultAccountId, assetId);
-    });
-  }
-
-  /**
-   * Convenience method: Submit transaction
-   */
-  public async submitTransaction(
-    vaultAccountId: string,
-    transactionRequest: TransactionRequest,
-    waitForCompletion: boolean = true
-  ): Promise<{
-    signature: SignedMessageSignature;
-    content?: string;
-    publicKey?: string;
-    algorithm?: string;
-  } | null> {
-    return await this.withService(vaultAccountId, async (service) => {
-      if (waitForCompletion) {
-        return await service.broadcastTransaction(transactionRequest);
-      } else {
-        throw new Error(
-          "Non-blocking transaction submission not yet implemented. Set waitForCompletion to true."
-        );
+      const poolItem = this.sdkPool.get(key);
+      if (poolItem) {
+        // Shutdown the SDK before removing
+        poolItem.sdk.shutdown().catch((err) => {
+          this.logger.error(`Error shutting down SDK for vault ${key}:`, err);
+        });
       }
-    });
-  }
-
-  /**
-   * Get balance by address for a vault account
-   */
-  public async getBalanceByAddress(
-    vaultAccountId: string,
-    options: { index?: number; groupByPolicy?: boolean } = {}
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> {
-    const { index = 0, groupByPolicy = false } = options;
-
-    return await this.withService(vaultAccountId, async (service) => {
-      const addressData = await service.getVaultAccountAddress(vaultAccountId, "ADA", index);
-
-      if (!addressData.address) {
-        throw new Error(`No address found for vault ${vaultAccountId} at index ${index}`);
-      }
-
-      const address = addressData.address;
-
-      this.logger.info(
-        `Getting balance for vault ${vaultAccountId} at index ${index} (address: ${address})`
-      );
-
-      return await this.iagonApiService.getBalanceByAddress({
-        address,
-        groupByPolicy,
-      });
-    });
-  }
-
-  /**
-   * Get balance by credential for a vault account
-   */
-  public async getBalanceByCredential(
-    vaultAccountId: string,
-    options: { credential: string; groupByPolicy?: boolean }
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> {
-    const { credential, groupByPolicy = false } = options;
-
-    this.logger.info(`Getting balance for credential ${credential} (vault: ${vaultAccountId})`);
-
-    return await this.iagonApiService.getBalanceByCredential({
-      credential,
-      groupByPolicy,
-    });
-  }
-
-  /**
-   * Get balance by stake key for a vault account
-   */
-  public async getBalanceByStakeKey(
-    vaultAccountId: string,
-    options: { stakeKey: string; groupByPolicy?: boolean }
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> {
-    const { stakeKey, groupByPolicy = false } = options;
-
-    this.logger.info(`Getting balance for stake key ${stakeKey} (vault: ${vaultAccountId})`);
-
-    return await this.iagonApiService.getBalanceByStakeKey({
-      stakeKey,
-      groupByPolicy,
-    });
-  }
-
-  /**
-   * Get transaction history for a vault account address
-   */
-  public async getTransactionsHistory(
-    vaultAccountId: string,
-    options: getTransactionsHistoryOpts = {}
-  ): Promise<null> {
-    const { index = 0 } = options;
-
-    return await this.withService(vaultAccountId, async (service) => {
-      const addressData = await service.getVaultAccountAddress(vaultAccountId, "ADA", index);
-      const address = addressData.address;
-
-      this.logger.info(
-        `Getting transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
-      );
-
-      return await this.iagonApiService.getTransactionsHistory({});
-    });
-  }
-
-  /**
-   * Execute a transfer
-   */
-  public async transfer(options: transferOpts): Promise<TransferResponse> {
-    const { vaultAccountId, index = 0 } = options;
-
-    return await this.withService(vaultAccountId, async (service) => {
-      const addressData = await service.getVaultAccountAddress(vaultAccountId, "ADA", index);
-      const senderAddress = addressData.address;
-
-      this.logger.info(
-        `Initiating transfer from vault ${vaultAccountId} at index ${index} (address: ${senderAddress})`
-      );
-
-      this.logger.warn("Transfer method not yet fully implemented");
-      throw new Error("Transfer method not yet fully implemented");
-    });
-  }
-
-  /**
-   * Get public key for a vault account address
-   */
-  public async getPublicKey(
-    vaultAccountId: string,
-    assetId: string,
-    change: number = 0,
-    addressIndex: number = 0
-  ): Promise<string> {
-    return await this.withService(vaultAccountId, async (service) => {
-      return await service.getAssetPublicKey(vaultAccountId, assetId, change, addressIndex);
-    });
+      this.sdkPool.delete(key);
+      this.logger.info(`Removed idle SDK for vault ${key}`);
+    }
   }
 
   /**
@@ -410,13 +219,13 @@ export class SdkManager {
    */
   public getMetrics(): SdkManagerMetrics {
     const metrics: SdkManagerMetrics = {
-      totalInstances: this.servicePool.size,
+      totalInstances: this.sdkPool.size,
       activeInstances: 0,
       idleInstances: 0,
       instancesByVaultAccount: {},
     };
 
-    for (const [key, value] of this.servicePool.entries()) {
+    for (const [key, value] of this.sdkPool.entries()) {
       if (value.isInUse) {
         metrics.activeInstances++;
       } else {
@@ -433,7 +242,16 @@ export class SdkManager {
    */
   public async shutdown(): Promise<void> {
     clearInterval(this.cleanupInterval);
-    this.servicePool.clear();
+
+    // Shutdown all SDKs in the pool
+    const shutdownPromises = Array.from(this.sdkPool.values()).map((item) =>
+      item.sdk.shutdown().catch((err) => {
+        this.logger.error("Error shutting down SDK:", err);
+      })
+    );
+
+    await Promise.all(shutdownPromises);
+    this.sdkPool.clear();
     this.logger.info("SDK manager shutdown complete");
   }
 }
