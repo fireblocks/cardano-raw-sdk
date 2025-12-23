@@ -2,7 +2,7 @@ import { Router } from "express";
 import { SdkManager } from "../pool/sdkManager.js";
 import { ApiController } from "./controllers/controller.js";
 
-export const createRouter = (sdkManager: SdkManager): Router => {
+export const configureRouter = (sdkManager: SdkManager): Router => {
   const router: Router = Router();
   const apiController = new ApiController(sdkManager);
 
