@@ -16,14 +16,12 @@ import {
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { toHex } from "./general.js";
 import { IagonApiService } from "../services/iagon.api.service.js";
-import { UtxoData } from "../types/iagon.js";
+import { createTransactionOutputsParams, UtxoData } from "../types/iagon.js";
 import { fetchAndSelectUtxosParams } from "../types/operations.js";
 import { Logger, LogLevel } from "./logger.js";
 
 const logLevel = "INFO";
-Logger.setLogLevel(
-  LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO
-);
+Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("utils:cardano");
 
 export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => {
@@ -99,13 +97,30 @@ export const fetchUtxos = async (
 ): Promise<UtxoData[]> => {
   try {
     logger.info(`Fetching UTXOs for address: ${address}`);
-    const responses = await iagonApiService.getUtxosByAddress(address);
+    const response = await iagonApiService.getUtxosByAddress(address);
 
-    // Flatten all UTXOs from responses
-    const utxos = responses.flatMap((response) => response.data || []);
-    return utxos;
+    logger.info(`API Response:`, JSON.stringify(response, null, 2));
+
+    if (response.success) {
+      const utxos = response.data;
+
+      if (!utxos || utxos.length === 0) {
+        logger.warn(`No UTXOs found for address: ${address}`);
+        return [];
+      }
+
+      logger.info(`Found ${utxos.length} UTXOs`);
+      if (utxos.length > 0) {
+        logger.info(`Sample UTXO assets:`, JSON.stringify(utxos[0].value.assets, null, 2));
+      }
+
+      return utxos;
+    } else {
+      logger.warn(`API returned success=false for address: ${address}`);
+      return [];
+    }
   } catch (error: any) {
-    logger.warn(`Address ${address} has no UTXOs or error occurred: ${error.message}`);
+    logger.error(`Error fetching UTXOs for ${address}: ${error.message}`, error.stack);
     return [];
   }
 };
@@ -115,11 +130,16 @@ export const calculateTokenAmount = (
   policyId: string,
   tokenName: string
 ): number => {
+  if (utxo.value && !Object.keys(utxo.value).includes("assets")) {
+    return 0;
+  }
+
   if (tokenName === "ADA" && policyId === "") {
     return utxo.value.lovelace;
   }
 
-  const assetUnit = policyId + Buffer.from(tokenName, "utf8").toString("hex");
+  // Token name is expected to be in hex format
+  const assetUnit = `${policyId}.${tokenName}`;
   return utxo.value.assets[assetUnit] || 0;
 };
 
@@ -133,9 +153,18 @@ export const filterUtxos = (
   tokenName: string
 ): UtxoData[] => {
   try {
+    logger.info(`Filtering ${utxos.length} UTXOs for token: ${tokenPolicyId}.${tokenName}`);
+
+    // Log all available asset keys in the first UTXO for debugging
+    if (utxos.length > 0 && utxos[0].value.assets) {
+      logger.info(`Available asset keys in first UTXO:`, Object.keys(utxos[0].value.assets));
+    }
+
     const filtered = utxos.filter(
       (utxo) => calculateTokenAmount(utxo, tokenPolicyId, tokenName) > 0
     );
+
+    logger.info(`Found ${filtered.length} UTXOs with the token`);
 
     if (filtered.length === 0) {
       throw new Error(
@@ -160,23 +189,25 @@ export const createTransactionInputs = (selectedUtxos: UtxoData[]): TransactionI
 };
 
 export const createTransactionOutputs = (
-  requiredLovelace: number,
-  fee: number,
-  recipientAddress: Address,
-  senderAddress: Address,
-  tokenPolicyId: string,
-  tokenName: string,
-  transferAmount: number,
-  selectedUtxos: UtxoData[]
+  params: createTransactionOutputsParams
 ): TransactionOutput[] => {
-  // Construct token unit correctly
-  const tokenNameHex = Buffer.from(tokenName, "utf8").toString("hex");
-  const tokenUnit = `${tokenPolicyId}${tokenNameHex}`;
+  const {
+    requiredLovelace,
+    fee,
+    recipientAddress,
+    senderAddress,
+    tokenPolicyId,
+    tokenName,
+    transferAmount,
+    selectedUtxos,
+  } = params;
+
+  // Token name is expected to be in hex format already
+  const tokenUnit = `${tokenPolicyId}.${tokenName}`;
 
   logger.info("=== TOKEN UNIT CONSTRUCTION ===");
   logger.info("Policy ID:", tokenPolicyId);
-  logger.info("Token Name:", tokenName);
-  logger.info("Token Name Hex:", tokenNameHex);
+  logger.info("Token Name (hex):", tokenName);
   logger.info("Constructed Unit:", tokenUnit);
 
   // Find the actual token unit in UTXOs
@@ -187,13 +218,14 @@ export const createTransactionOutputs = (
   selectedUtxos.forEach((utxo) => {
     totalLovelace += utxo.value.lovelace;
 
-    Object.entries(utxo.value.assets).forEach(([assetUnit, amount]) => {
-      if (assetUnit.startsWith(tokenPolicyId)) {
-        actualTokenUnit = assetUnit;
-        totalTokenAmount += amount;
-        logger.info(`Found token: ${assetUnit} = ${amount}`);
-      }
-    });
+    Object.keys(utxo.value).includes("assets") &&
+      Object.entries(utxo.value.assets).forEach(([assetUnit, amount]) => {
+        if (assetUnit.startsWith(tokenPolicyId)) {
+          actualTokenUnit = assetUnit;
+          totalTokenAmount += amount;
+          logger.info(`Found token: ${assetUnit} = ${amount}`);
+        }
+      });
   });
 
   logger.info("Actual token unit found:", actualTokenUnit);
@@ -218,7 +250,8 @@ export const createTransactionOutputs = (
   if (transferAmount > 0) {
     const recipientMultiAsset = MultiAsset.new();
     const policy = ScriptHash.from_hex(tokenPolicyId);
-    const assetName = AssetName.new(Buffer.from(tokenName, "utf8"));
+    // Token name is in hex format, convert to bytes
+    const assetName = AssetName.new(Buffer.from(tokenName, "hex"));
     const assets = Assets.new();
     assets.insert(assetName, BigNum.from_str(transferAmount.toString()));
     recipientMultiAsset.insert(policy, assets);
@@ -231,7 +264,8 @@ export const createTransactionOutputs = (
   if (changeTokenAmount > 0) {
     const changeMultiAsset = MultiAsset.new();
     const policy = ScriptHash.from_hex(tokenPolicyId);
-    const assetName = AssetName.new(Buffer.from(tokenName, "utf8"));
+    // Token name is in hex format, convert to bytes
+    const assetName = AssetName.new(Buffer.from(tokenName, "hex"));
     const assets = Assets.new();
     assets.insert(assetName, BigNum.from_str(changeTokenAmount.toString()));
     changeMultiAsset.insert(policy, assets);
