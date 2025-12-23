@@ -30,6 +30,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@emurgo/cardano-serialization-lib-nodejs": "^15.0.3",
     "@fireblocks/ts-sdk": "^12.1.1",
     "axios": "^1.10.0",
     "cardano-web3-js": "^2.3.4",
