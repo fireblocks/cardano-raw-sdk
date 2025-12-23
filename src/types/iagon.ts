@@ -21,7 +21,8 @@ export interface transferOpts {
   vaultAccountId: string;
   recipientAddress: string;
   tokenPolicyId: string;
-  tokenAmount: number;
+  tokenName: string;
+  requiredTokenAmount: number;
   minRecipientLovelace?: number;
   minChangeLovelace?: number;
   index?: number;
@@ -80,3 +81,5 @@ export interface TransferResponse {
     txHash: string;
   };
 }
+
+
