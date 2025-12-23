@@ -4,7 +4,7 @@ export * from "./api/controllers/controller.js";
 export * from "./services/index.js";
 export * from "./types/index.js";
 export * from "./utils/fireblocks.utils.js";
-// export * from "./utils/cardano.utils.js"; // Commented out - not used with Iagon API
+export * from "./utils/cardano.utils.js";
 export * from "./utils/general.js";
 export * from "./utils/logger.js";
 export * from "./utils/errorHandler.js";
