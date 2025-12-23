@@ -16,7 +16,10 @@ export interface getBalanceByStakeKeyOpts {
 }
 
 export interface getTransactionsHistoryOpts {
-  index?: number;
+  address: string;
+  limit?: number;
+  offset?: number;
+  fromSlot?: number;
 }
 
 export interface transferOpts {
@@ -82,6 +85,57 @@ export interface TransferResponse {
   data: {
     txHash: string;
   };
+}
+
+export interface TransactionValue {
+  lovelace: number;
+  assets?: Record<string, number>;
+}
+
+export interface TransactionInput {
+  tx_hash: string;
+  output_index: number;
+  address: string;
+  value: TransactionValue;
+}
+
+export interface TransactionOutput {
+  output_index: number;
+  address: string;
+  value: TransactionValue;
+}
+
+export interface Transaction {
+  tx_hash: string;
+  block_hash: string;
+  slot_no: number;
+  block_no: number;
+  block_time: string;
+  fee: number;
+  size: number;
+  inputs: TransactionInput[];
+  outputs: TransactionOutput[];
+}
+
+export interface TransactionPagination {
+  limit: number;
+  offset: number;
+  total: number;
+  hasMore: boolean;
+  next_cursor?: number;
+}
+
+export interface LastUpdated {
+  slot_no: number;
+  block_hash: string;
+  block_time: string;
+}
+
+export interface TransactionsHistoryResponse {
+  success: boolean;
+  data: Transaction[];
+  pagination: TransactionPagination;
+  last_updated: LastUpdated;
 }
 
 export interface createTransactionOutputsParams {
