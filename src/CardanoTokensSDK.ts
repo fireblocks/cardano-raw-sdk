@@ -348,8 +348,8 @@ export class CardanoTokensSDK {
       tokenPolicyId,
       tokenName,
       requiredTokenAmount,
-      minRecipientLovelace = 1_000_000,
-      minChangeLovelace = 1_000_000,
+      minRecipientLovelace = 1_200_000,
+      minChangeLovelace = 1_200_000,
     } = options;
 
     try {
