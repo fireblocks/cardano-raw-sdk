@@ -4,6 +4,8 @@ import {
   VaultWalletAddress,
   SignedMessageSignature,
   TransactionRequest,
+  TransactionOperation,
+  TransferPeerPathType,
 } from "@fireblocks/ts-sdk";
 
 import { Logger } from "./utils/logger.js";
@@ -13,10 +15,29 @@ import {
   getTransactionsHistoryOpts,
   GroupedBalanceResponse,
   transferOpts,
-  TransferResponse,
 } from "./types/iagon.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
+import { tokenTransactionFee } from "./constants.js";
+import {
+  buildTransaction,
+  calculateTtl,
+  createTransactionInputs,
+  createTransactionOutputs,
+  fetchAndSelectUtxos,
+  submitTransaction,
+} from "./utils/cardano.utils.js";
+import {
+  Address,
+  Ed25519Signature,
+  PublicKey,
+  Transaction,
+  TransactionWitnessSet,
+  Vkey,
+  Vkeywitness,
+  Vkeywitnesses,
+} from "@emurgo/cardano-serialization-lib-nodejs";
+import { blake2b } from "blakejs";
 
 export interface SDKConfig {
   /** Fireblocks API key */
@@ -55,7 +76,6 @@ export class CardanoTokensSDK {
       secretKey: config.secretKey,
       basePath: config.basePath || BasePath.US,
     };
-
     this.fireblocksService = new FireblocksService(baseConfig);
     this.iagonApiService = new IagonApiService();
 
@@ -71,21 +91,17 @@ export class CardanoTokensSDK {
   ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { index = 0, groupByPolicy = false } = options;
 
-    const addressData = await this.fireblocksService.getVaultAccountAddress(
-      vaultAccountId,
-      "ADA",
-      index
-    );
-
-    if (!addressData.address) {
-      throw new Error(`No address found for vault ${vaultAccountId} at index ${index}`);
-    }
+    const addressData = await this.getVaultAccountAddress(vaultAccountId, "ADA", index);
 
     const address = addressData.address;
 
-    this.logger.info(
-      `Getting balance for vault ${vaultAccountId} at index ${index} (address: ${address})`
-    );
+    if (!address) {
+      throw new Error(
+        `AddressNotFound: No address found for vault account ${vaultAccountId} at index ${index}`
+      );
+    }
+
+    this.logger.info(`Getting balance for address ${address} (vault: ${vaultAccountId})`);
 
     return await this.iagonApiService.getBalanceByAddress({
       address,
@@ -151,24 +167,246 @@ export class CardanoTokensSDK {
   };
 
   /**
-   * Execute a transfer
+   * Fetches the sender address from Fireblocks vault account
    */
-  public transfer = async (options: transferOpts): Promise<TransferResponse> => {
-    const { vaultAccountId, index = 0 } = options;
-
+  private async fetchSenderAddress(vaultAccountId: string, index: number): Promise<string> {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       vaultAccountId,
       "ADA",
       index
     );
-    const senderAddress = addressData.address;
 
-    this.logger.info(
-      `Initiating transfer from vault ${vaultAccountId} at index ${index} (address: ${senderAddress})`
+    if (!addressData.address) {
+      throw new Error(
+        `AddressNotFound: No address found for vault account ${vaultAccountId} at index ${index}`
+      );
+    }
+
+    this.logger.info(`Sender address: ${addressData.address}`);
+    return addressData.address;
+  }
+
+  /**
+   * Selects and validates UTXOs for the transaction
+   */
+  private async selectAndValidateUtxos(params: {
+    address: string;
+    tokenPolicyId: string;
+    tokenName: string;
+    requiredTokenAmount: number;
+    transactionFee: number;
+    minRecipientLovelace: number;
+    minChangeLovelace: number;
+  }) {
+    const utxoResult = await fetchAndSelectUtxos({
+      iagonApiService: this.iagonApiService,
+      ...params,
+    });
+
+    if (!utxoResult) {
+      throw new Error("UtxoSelectionFailed: No suitable UTXOs found for this transaction");
+    }
+
+    const { selectedUtxos, accumulatedAda, accumulatedTokenAmount } = utxoResult;
+    const adaTarget = params.minRecipientLovelace + params.transactionFee;
+
+    if (accumulatedTokenAmount < params.requiredTokenAmount || accumulatedAda < adaTarget) {
+      const error = new Error("InsufficientBalance: Insufficient balance for token or ADA");
+      (error as any).code = "INSUFFICIENT_BALANCE";
+      (error as any).details = {
+        requiredTokenAmount: params.requiredTokenAmount,
+        accumulatedTokenAmount,
+        requiredAda: adaTarget,
+        accumulatedAda,
+      };
+      throw error;
+    }
+
+    return { selectedUtxos, accumulatedAda, accumulatedTokenAmount };
+  }
+
+  /**
+   * Builds the Cardano transaction body
+   */
+  private async buildTransactionBody(params: {
+    selectedUtxos: any[];
+    recipientAddress: string;
+    senderAddress: string;
+    tokenPolicyId: string;
+    tokenName: string;
+    requiredTokenAmount: number;
+    minRecipientLovelace: number;
+    transactionFee: number;
+  }) {
+    const txInputs = createTransactionInputs(params.selectedUtxos);
+    const recipientAddrObj = Address.from_bech32(params.recipientAddress);
+    const senderAddrObj = Address.from_bech32(params.senderAddress);
+
+    const txOutputs = createTransactionOutputs(
+      params.minRecipientLovelace,
+      params.transactionFee,
+      recipientAddrObj,
+      senderAddrObj,
+      params.tokenPolicyId,
+      params.tokenName,
+      params.requiredTokenAmount,
+      params.selectedUtxos
     );
 
-    this.logger.warn("Transfer method not yet fully implemented");
-    throw new Error("Transfer method not yet fully implemented");
+    const ttl = await calculateTtl(2600);
+    return buildTransaction({
+      txInputs,
+      txOutputs,
+      fee: params.transactionFee,
+      ttl,
+    });
+  }
+
+  /**
+   * Calculates the transaction hash from transaction body
+   */
+  private calculateTransactionHash(txBody: any): string {
+    const txBodyBytes = txBody.to_bytes();
+    const hashBytes = blake2b(txBodyBytes, undefined, 32);
+    return Buffer.from(hashBytes).toString("hex");
+  }
+
+  /**
+   * Creates Fireblocks transaction payload for signing
+   */
+  private createFireblocksTransactionPayload(
+    vaultAccountId: string,
+    txHashHex: string
+  ): TransactionRequest {
+    return {
+      assetId: "ADA",
+      operation: TransactionOperation.Raw,
+      source: {
+        type: TransferPeerPathType.VaultAccount,
+        id: vaultAccountId,
+      },
+      note: "Transfer of Cardano tokens via CardanoTokensSDK",
+      extraParameters: {
+        rawMessageData: {
+          messages: [
+            {
+              content: txHashHex,
+            },
+          ],
+        },
+      },
+    };
+  }
+
+  /**
+   * Signs the transaction using Fireblocks and creates witness set
+   */
+  private async signTransaction(txBody: any, vaultAccountId: string) {
+    const txHashHex = this.calculateTransactionHash(txBody);
+    const transactionPayload = this.createFireblocksTransactionPayload(vaultAccountId, txHashHex);
+
+    const signatureResponse = await this.fireblocksService.broadcastTransaction(transactionPayload);
+
+    if (!signatureResponse?.publicKey || !signatureResponse?.signature?.fullSig) {
+      throw new Error("SigningFailed: Invalid signature response from Fireblocks");
+    }
+
+    const publicKeyBytes = Uint8Array.from(Buffer.from(signatureResponse.publicKey, "hex"));
+    const signatureBytes = Uint8Array.from(Buffer.from(signatureResponse.signature.fullSig, "hex"));
+
+    const cardanoPubKey = Vkey.new(PublicKey.from_bytes(publicKeyBytes));
+    const cardanoSig = Ed25519Signature.from_bytes(signatureBytes);
+
+    const witness = Vkeywitness.new(cardanoPubKey, cardanoSig);
+    const witnesses = Vkeywitnesses.new();
+    witnesses.add(witness);
+
+    const witnessSet = TransactionWitnessSet.new();
+    witnessSet.set_vkeys(witnesses);
+
+    return Transaction.new(txBody, witnessSet);
+  }
+
+  /**
+   * Execute a transfer of Cardano tokens
+   *
+   * @param options - Transfer configuration options
+   * @returns Transaction result with hash, sender address, and token name
+   * @throws Error if any step of the transfer process fails
+   */
+  public transfer = async (
+    options: transferOpts
+  ): Promise<{
+    txHash: string;
+    senderAddress: string;
+    tokenName: string;
+  }> => {
+    const {
+      vaultAccountId,
+      index = 0,
+      recipientAddress,
+      tokenPolicyId,
+      tokenName,
+      requiredTokenAmount,
+      minRecipientLovelace = 1_000_000,
+      minChangeLovelace = 1_000_000,
+    } = options;
+
+    try {
+      this.logger.info(
+        `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${recipientAddress}`
+      );
+
+      // Fetch sender address
+      const senderAddress = await this.fetchSenderAddress(vaultAccountId, index);
+
+      // Select and validate UTXOs
+      const { selectedUtxos } = await this.selectAndValidateUtxos({
+        address: senderAddress,
+        tokenPolicyId,
+        tokenName,
+        requiredTokenAmount,
+        transactionFee: tokenTransactionFee,
+        minRecipientLovelace,
+        minChangeLovelace,
+      });
+
+      // Build transaction body
+      const txBody = await this.buildTransactionBody({
+        selectedUtxos,
+        recipientAddress,
+        senderAddress,
+        tokenPolicyId,
+        tokenName,
+        requiredTokenAmount,
+        minRecipientLovelace,
+        transactionFee: tokenTransactionFee,
+      });
+
+      // Sign transaction with Fireblocks
+      const signedTransaction = await this.signTransaction(txBody, vaultAccountId);
+
+      // Submit transaction to blockchain
+      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+
+      this.logger.info(`Transfer successful: ${txHash}`);
+
+      return {
+        txHash,
+        senderAddress,
+        tokenName,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Transfer failed: ${errorMessage}`);
+
+      // Re-throw the original error to preserve error codes and details
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      throw new Error(`TransferFailed: ${errorMessage}`);
+    }
   };
 
   /**
@@ -179,9 +417,10 @@ export class CardanoTokensSDK {
    * @throws Error if the retrieval fails.
    */
   public getVaultAccountAddresses = async (
-    vaultAccountId: string
+    vaultAccountId: string,
+    assetId: string = "ADA"
   ): Promise<VaultWalletAddress[]> => {
-    return await this.fireblocksService.getVaultAccountAddresses(vaultAccountId, "ADA");
+    return await this.fireblocksService.getVaultAccountAddresses(vaultAccountId, assetId);
   };
 
   /**
@@ -198,7 +437,7 @@ export class CardanoTokensSDK {
     assetId: string = "ADA",
     index: number = 0
   ): Promise<VaultWalletAddress> => {
-    return await this.fireblocksService.getVaultAccountAddress(vaultAccountId, assetId, index);
+    return await this.fireblocksService.getVaultAccountAddress(vaultAccountId, "ADA", index);
   };
 
   /**
