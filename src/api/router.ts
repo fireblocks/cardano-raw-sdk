@@ -170,24 +170,35 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *             type: object
    *             required:
    *               - vaultAccountId
-   *               - destinationAddress
-   *               - amount
+   *               - recipientAddress
+   *               - tokenPolicyId
+   *               - tokenName
+   *               - requiredTokenAmount
    *             properties:
    *               vaultAccountId:
    *                 type: string
    *                 description: The source vault account ID
-   *               destinationAddress:
+   *               recipientAddress:
    *                 type: string
-   *                 description: The destination address
-   *               amount:
+   *                 description: The recipient address to send tokens to
+   *               tokenPolicyId:
    *                 type: string
-   *                 description: The amount to transfer
+   *                 description: The policy ID of the token to transfer
    *               tokenName:
    *                 type: string
-   *                 description: The token name (optional, for native tokens)
+   *                 description: The token name (asset name)
    *               requiredTokenAmount:
-   *                 type: string
-   *                 description: Required token amount (optional)
+   *                 type: number
+   *                 description: The amount of tokens to transfer
+   *               minRecipientLovelace:
+   *                 type: number
+   *                 description: Minimum lovelace to send to recipient (optional)
+   *               minChangeLovelace:
+   *                 type: number
+   *                 description: Minimum lovelace for change output (optional)
+   *               index:
+   *                 type: number
+   *                 description: Address index to use (optional, defaults to 0)
    *     responses:
    *       200:
    *         description: Transfer executed successfully
@@ -195,6 +206,14 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           application/json:
    *             schema:
    *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     txHash:
+   *                       type: string
    *       500:
    *         description: Internal server error
    */
