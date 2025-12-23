@@ -5,6 +5,7 @@ import {
   SignedMessageSignature,
 } from "@fireblocks/ts-sdk";
 import { TransactionType } from "./enums.js";
+import { IagonApiService } from "../services/iagon.api.service.js";
 
 /**
  * Options for getting a single vault account address by index
@@ -63,6 +64,17 @@ export interface TransactionHistoryResponse {
   total: number;
   /** Whether there are more results available */
   hasMore: boolean;
+}
+
+export interface fetchAndSelectUtxosParams {
+  iagonApiService: IagonApiService;
+  address: string;
+  tokenPolicyId: string;
+  requiredTokenAmount: number;
+  transactionFee: number;
+  tokenName: string;
+  minRecipientLovelace: number;
+  minChangeLovelace: number;
 }
 
 /**
