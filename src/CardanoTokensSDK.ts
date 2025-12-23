@@ -242,16 +242,16 @@ export class CardanoTokensSDK {
     const recipientAddrObj = Address.from_bech32(params.recipientAddress);
     const senderAddrObj = Address.from_bech32(params.senderAddress);
 
-    const txOutputs = createTransactionOutputs(
-      params.minRecipientLovelace,
-      params.transactionFee,
-      recipientAddrObj,
-      senderAddrObj,
-      params.tokenPolicyId,
-      params.tokenName,
-      params.requiredTokenAmount,
-      params.selectedUtxos
-    );
+    const txOutputs = createTransactionOutputs({
+      requiredLovelace: params.minRecipientLovelace,
+      fee: params.transactionFee,
+      recipientAddress: recipientAddrObj,
+      senderAddress: senderAddrObj,
+      tokenPolicyId: params.tokenPolicyId,
+      tokenName: params.tokenName,
+      transferAmount: params.requiredTokenAmount,
+      selectedUtxos: params.selectedUtxos,
+    });
 
     const ttl = await calculateTtl(2600);
     return buildTransaction({

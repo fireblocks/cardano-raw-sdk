@@ -1,3 +1,5 @@
+import { Address } from "@emurgo/cardano-serialization-lib-nodejs";
+
 export interface getBalanceByAddressOpts {
   address: string;
   groupByPolicy: boolean;
@@ -82,4 +84,13 @@ export interface TransferResponse {
   };
 }
 
-
+export interface createTransactionOutputsParams {
+  requiredLovelace: number;
+  fee: number;
+  recipientAddress: Address;
+  senderAddress: Address;
+  tokenPolicyId: string;
+  tokenName: string;
+  transferAmount: number;
+  selectedUtxos: UtxoData[];
+}
