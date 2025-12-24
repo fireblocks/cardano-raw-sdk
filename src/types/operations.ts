@@ -6,6 +6,7 @@ import {
 } from "@fireblocks/ts-sdk";
 import { TransactionType } from "./enums.js";
 import { IagonApiService } from "../services/iagon.api.service.js";
+import { TransactionHistoryResponse } from "./iagon.js";
 
 /**
  * Options for getting a single vault account address by index
@@ -35,35 +36,15 @@ export interface SubmitTransactionOpts {
   waitForCompletion?: boolean;
 }
 
-/**
- * Options for getting transaction history
- */
-export interface getDetailedTxHistoryOpts {
-  /** Optional: Filter by asset ID */
-  assetId?: string;
+export interface GetTransactionHistoryOpts {
+  /** address for which to fetch transaction history */
+  address: string;
   /** Optional: Limit number of results */
   limit?: number;
   /** Optional: Offset for pagination */
   offset?: number;
-  /** Optional: Filter by transaction status */
-  status?: string;
-  /** Optional: Filter by start date (ISO 8601 format) */
-  startDate?: string;
-  /** Optional: Filter by end date (ISO 8601 format) */
-  endDate?: string;
-}
-
-/**
- * Response from getting transaction history
- * Uses Fireblocks Transaction type from SDK
- */
-export interface TransactionHistoryResponse {
-  /** Array of transactions from Fireblocks */
-  transactions: Transaction[];
-  /** Total count of transactions matching the query */
-  total: number;
-  /** Whether there are more results available */
-  hasMore: boolean;
+  /** Optional: Start slot for filtering transactions */
+  fromSlot?: number;
 }
 
 export interface fetchAndSelectUtxosParams {
@@ -106,7 +87,7 @@ export type OperationRequest =
     }
   | {
       type: TransactionType.GET_TRANSACTIONS_HISTORY;
-      params: getDetailedTxHistoryOpts;
+      params: GetTransactionHistoryOpts;
     }
   | {
       type: TransactionType.TRANSFER;

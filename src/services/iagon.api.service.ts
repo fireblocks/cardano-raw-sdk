@@ -8,11 +8,11 @@ import {
   getBalanceByAddressOpts,
   getBalanceByCredentialOpts,
   getBalanceByStakeKeyOpts,
-  getDetailedTxHistoryOpts,
   GroupedBalanceResponse,
   DetailedTxHistoryResponse,
   TransferResponse,
   UtxoIagonResponse,
+  GetTransactionHistoryOpts,
 } from "../types/index.js";
 
 export class IagonApiService {
@@ -147,24 +147,39 @@ export class IagonApiService {
     }
   };
 
-  public getDetailedTxHistory = async (
-    params: getDetailedTxHistoryOpts
-  ): Promise<DetailedTxHistoryResponse> => {
-    try {
-      const { address, limit, offset, fromSlot } = params;
-      const queryParams = new URLSearchParams();
-      if (limit !== undefined) {
-        queryParams.append("limit", limit.toString());
-      }
-      if (offset !== undefined) {
-        queryParams.append("offset", offset.toString());
-      }
-      if (fromSlot !== undefined) {
-        queryParams.append("fromSlot", fromSlot.toString());
-      }
+  /**
+   * Helper method to build query parameters for transaction history requests
+   */
+  private buildTransactionHistoryQueryParams(params: GetTransactionHistoryOpts): URLSearchParams {
+    const { limit, offset, fromSlot } = params;
+    const queryParams = new URLSearchParams();
 
+    if (limit !== undefined) {
+      queryParams.append("limit", limit.toString());
+    }
+    if (offset !== undefined) {
+      queryParams.append("offset", offset.toString());
+    }
+    if (fromSlot !== undefined) {
+      queryParams.append("fromSlot", fromSlot.toString());
+    }
+
+    return queryParams;
+  }
+
+  /**
+   * Helper method to fetch transaction history from a specific endpoint
+   */
+  private async fetchTransactionHistory(
+    endpoint: string,
+    params: GetTransactionHistoryOpts,
+    operationName: string
+  ): Promise<DetailedTxHistoryResponse> {
+    try {
+      const { address } = params;
+      const queryParams = this.buildTransactionHistoryQueryParams(params);
       const queryString = queryParams.toString();
-      const url = `${this.iagonBaseUrl}/v1/tx/address/${encodeURIComponent(address)}${
+      const url = `${this.iagonBaseUrl}${endpoint}${encodeURIComponent(address)}${
         queryString ? `?${queryString}` : ""
       }`;
 
@@ -180,8 +195,22 @@ export class IagonApiService {
       }
       throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "fetching transactions history");
+      throw this.errorHandler.handleApiError(error, operationName);
     }
+  }
+
+  public getTransactionHistory = async (
+    params: GetTransactionHistoryOpts
+  ): Promise<DetailedTxHistoryResponse> => {
+    const endpoint = "/v1/tx/history/";
+    return this.fetchTransactionHistory(endpoint, params, "fetching transactions history");
+  };
+
+  public getDetailedTxHistory = async (
+    params: GetTransactionHistoryOpts
+  ): Promise<DetailedTxHistoryResponse> => {
+    const endpoint = "/v1/tx/address/";
+    return this.fetchTransactionHistory(endpoint, params, "fetching detailed transactions history");
   };
 
   public submitTransfer = async (

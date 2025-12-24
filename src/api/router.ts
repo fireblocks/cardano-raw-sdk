@@ -125,6 +125,107 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/tx/history/{vaultAccountId}:
+   *   get:
+   *     summary: Get transaction history
+   *     description: Retrieves basic transaction history for a vault account address with pagination and filtering
+   *     tags: [Transactions]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *       - in: query
+   *         name: index
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *         description: The address index to query transactions for
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Maximum number of transactions to return per page
+   *       - in: query
+   *         name: offset
+   *         schema:
+   *           type: integer
+   *         description: Number of transactions to skip for pagination
+   *       - in: query
+   *         name: fromSlot
+   *         schema:
+   *           type: integer
+   *         description: Filter transactions from this slot number onwards
+   *     responses:
+   *       200:
+   *         description: Transaction history retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                 data:
+   *                   type: array
+   *                   description: Array of basic transaction objects
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       tx_hash:
+   *                         type: string
+   *                         description: Transaction hash
+   *                       block_hash:
+   *                         type: string
+   *                         description: Block hash where transaction was included
+   *                       slot_no:
+   *                         type: integer
+   *                         description: Slot number
+   *                       block_no:
+   *                         type: integer
+   *                         description: Block number
+   *                       block_time:
+   *                         type: string
+   *                         description: Block timestamp
+   *                 pagination:
+   *                   type: object
+   *                   description: Pagination metadata
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                       description: Items per page
+   *                     offset:
+   *                       type: integer
+   *                       description: Current offset
+   *                     total:
+   *                       type: integer
+   *                       description: Total number of transactions
+   *                     hasMore:
+   *                       type: boolean
+   *                       description: Whether more results are available
+   *                     next_cursor:
+   *                       type: integer
+   *                       description: Cursor for next page (optional)
+   *                 last_updated:
+   *                   type: object
+   *                   description: Last update information
+   *                   properties:
+   *                     slot_no:
+   *                       type: integer
+   *                     block_hash:
+   *                       type: string
+   *                     block_time:
+   *                       type: string
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/tx/history/:vaultAccountId", apiController.getTransactionHistory);
+
+  /**
+   * @swagger
    * /api/tx/address/{vaultAccountId}:
    *   get:
    *     summary: Get detailed transaction history

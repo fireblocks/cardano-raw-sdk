@@ -87,7 +87,10 @@ export class ApiController {
     }
   };
 
-  public getDetailedTxHistory = async (req: Request, res: Response) => {
+  /**
+   * Helper method to parse transaction history query parameters
+   */
+  private parseTransactionHistoryParams(req: Request) {
     const { vaultAccountId } = req.params;
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const options = {
@@ -96,13 +99,32 @@ export class ApiController {
       fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
     };
 
+    return { vaultAccountId, index, options };
+  }
+
+  public getDetailedTxHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+
     try {
       const sdk = this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getDetailedTxHistory(vaultAccountId, index, options);
-      this.logger.info(`Detailed ransactions history retrieved successfully`);
+      this.logger.info(`Detailed transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
       this.handleError(error, res, "getDetailedTxHistory");
+    }
+  };
+
+  public getTransactionHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+
+    try {
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getTransactionHistory(vaultAccountId, index, options);
+      this.logger.info(`Transactions history retrieved successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getTransactionHistory");
     }
   };
 

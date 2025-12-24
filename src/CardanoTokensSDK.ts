@@ -15,7 +15,8 @@ import {
   GroupedBalanceResponse,
   DetailedTxHistoryResponse,
   transferOpts,
-} from "./types/iagon.js";
+  TransactionHistoryResponse,
+} from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
 import { tokenTransactionFee } from "./constants.js";
@@ -144,17 +145,9 @@ export class CardanoTokensSDK {
   };
 
   /**
-   * Get detailed transaction history for a vault account address
+   * Helper method to fetch and validate address for a vault account
    */
-  public getDetailedTxHistory = async (
-    vaultAccountId: string,
-    index: number = 0,
-    options: {
-      limit?: number;
-      offset?: number;
-      fromSlot?: number;
-    }
-  ): Promise<DetailedTxHistoryResponse> => {
+  private async getAddressForVault(vaultAccountId: string, index: number): Promise<string> {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       vaultAccountId,
       "ADA",
@@ -168,8 +161,43 @@ export class CardanoTokensSDK {
       );
     }
 
+    return address;
+  }
+
+  public getTransactionHistory = async (
+    vaultAccountId: string,
+    index: number = 0,
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+    }
+  ): Promise<TransactionHistoryResponse> => {
+    const address = await this.getAddressForVault(vaultAccountId, index);
+
     this.logger.info(
       `Getting transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
+    );
+
+    return await this.iagonApiService.getTransactionHistory({ address, ...options });
+  };
+
+  /**
+   * Get detailed transaction history for a vault account address
+   */
+  public getDetailedTxHistory = async (
+    vaultAccountId: string,
+    index: number = 0,
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+    }
+  ): Promise<DetailedTxHistoryResponse> => {
+    const address = await this.getAddressForVault(vaultAccountId, index);
+
+    this.logger.info(
+      `Getting detailed transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });

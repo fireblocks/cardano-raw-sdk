@@ -3,7 +3,7 @@ import {
   GetVaultAccountAddressOpts,
   GetVaultAccountAddressesOpts,
   SubmitTransactionOpts,
-  getDetailedTxHistoryOpts,
+  GetTransactionHistoryOpts,
 } from "./operations.js";
 
 /**
@@ -19,5 +19,5 @@ export interface ExecuteTransactionOpts {
     | GetVaultAccountAddressOpts
     | GetVaultAccountAddressesOpts
     | SubmitTransactionOpts
-    | getDetailedTxHistoryOpts;
+    | GetTransactionHistoryOpts;
 }

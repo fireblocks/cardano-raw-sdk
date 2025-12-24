@@ -15,13 +15,6 @@ export interface getBalanceByStakeKeyOpts {
   groupByPolicy: boolean;
 }
 
-export interface getDetailedTxHistoryOpts {
-  address: string;
-  limit?: number;
-  offset?: number;
-  fromSlot?: number;
-}
-
 export interface transferOpts {
   vaultAccountId: string;
   recipientAddress: string;
@@ -90,6 +83,35 @@ export interface TransferResponse {
 export interface TransactionValue {
   lovelace: number;
   assets?: Record<string, number>;
+}
+
+export interface TransactionHistoryItem {
+  tx_hash: string;
+  block_hash: string;
+  slot_no: number;
+  block_no: number;
+  block_time: string;
+}
+
+export interface TransactionPagination {
+  limit: number;
+  offset: number;
+  total: number;
+  hasMore: boolean;
+  next_cursor?: number;
+}
+
+export interface LastUpdated {
+  slot_no: number;
+  block_hash: string;
+  block_time: string;
+}
+
+export interface TransactionHistoryResponse {
+  success: boolean;
+  data: TransactionHistoryItem[];
+  pagination: TransactionPagination;
+  last_updated: LastUpdated;
 }
 
 export interface TransactionInput {
