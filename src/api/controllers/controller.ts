@@ -87,6 +87,19 @@ export class ApiController {
     }
   };
 
+  public getTransactionDetails = async (req: Request, res: Response) => {
+    const { hash } = req.params;
+
+    try {
+      const sdk = this.sdkManager.getSdk("0"); // Using a default vaultAccountId as hash is global
+      const result = await sdk.getTransactionDetails(hash);
+      this.logger.info(`Transaction details retrieved successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getTransactionDetails");
+    }
+  };
+
   /**
    * Helper method to parse transaction history query parameters
    */
@@ -102,19 +115,6 @@ export class ApiController {
     return { vaultAccountId, index, options };
   }
 
-  public getDetailedTxHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
-
-    try {
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getDetailedTxHistory(vaultAccountId, index, options);
-      this.logger.info(`Detailed transactions history retrieved successfully`);
-      res.status(200).json(result);
-    } catch (error: any) {
-      this.handleError(error, res, "getDetailedTxHistory");
-    }
-  };
-
   public getTransactionHistory = async (req: Request, res: Response) => {
     const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
 
@@ -125,6 +125,19 @@ export class ApiController {
       res.status(200).json(result);
     } catch (error: any) {
       this.handleError(error, res, "getTransactionHistory");
+    }
+  };
+
+  public getDetailedTxHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+
+    try {
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getDetailedTxHistory(vaultAccountId, index, options);
+      this.logger.info(`Detailed transactions history retrieved successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getDetailedTxHistory");
     }
   };
 

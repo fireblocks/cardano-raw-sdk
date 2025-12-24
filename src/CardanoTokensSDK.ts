@@ -16,6 +16,7 @@ import {
   DetailedTxHistoryResponse,
   transferOpts,
   TransactionHistoryResponse,
+  TransactionDetailsResponse,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -164,6 +165,16 @@ export class CardanoTokensSDK {
     return address;
   }
 
+  /**
+   * Get transaction details by hash
+   */
+  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
+    return await this.iagonApiService.getTransactionDetails(hash);
+  };
+
+  /**
+   * Get transaction history for a vault account address
+   */
   public getTransactionHistory = async (
     vaultAccountId: string,
     index: number = 0,

@@ -123,6 +123,8 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    */
   router.get("/balance/address/:vaultAccountId", apiController.getBalanceByAddress);
 
+  router.get("/tx/hash/:hash", apiController.getTransactionDetails);
+
   /**
    * @swagger
    * /api/tx/history/{vaultAccountId}:

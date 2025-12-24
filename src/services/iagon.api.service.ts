@@ -13,6 +13,7 @@ import {
   TransferResponse,
   UtxoIagonResponse,
   GetTransactionHistoryOpts,
+  TransactionDetailsResponse,
 } from "../types/index.js";
 
 export class IagonApiService {
@@ -198,6 +199,25 @@ export class IagonApiService {
       throw this.errorHandler.handleApiError(error, operationName);
     }
   }
+
+  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/tx/${encodeURIComponent(hash)}`;
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching transaction ${hash} details`);
+    }
+  };
 
   public getTransactionHistory = async (
     params: GetTransactionHistoryOpts

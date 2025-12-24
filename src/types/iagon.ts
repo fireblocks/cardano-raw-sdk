@@ -107,6 +107,11 @@ export interface LastUpdated {
   block_time: string;
 }
 
+export interface TransactionDetailsResponse {
+  success: boolean;
+  data: TransactionHistoryItem;
+}
+
 export interface TransactionHistoryResponse {
   success: boolean;
   data: TransactionHistoryItem[];
