@@ -15,7 +15,7 @@ export interface getBalanceByStakeKeyOpts {
   groupByPolicy: boolean;
 }
 
-export interface getTransactionsHistoryOpts {
+export interface getDetailedTxHistoryOpts {
   address: string;
   limit?: number;
   offset?: number;
@@ -105,7 +105,7 @@ export interface TransactionOutput {
   value: TransactionValue;
 }
 
-export interface Transaction {
+export interface DetailedTransaction {
   tx_hash: string;
   block_hash: string;
   slot_no: number;
@@ -131,9 +131,9 @@ export interface LastUpdated {
   block_time: string;
 }
 
-export interface TransactionsHistoryResponse {
+export interface DetailedTxHistoryResponse {
   success: boolean;
-  data: Transaction[];
+  data: DetailedTransaction[];
   pagination: TransactionPagination;
   last_updated: LastUpdated;
 }

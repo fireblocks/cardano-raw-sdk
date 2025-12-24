@@ -87,7 +87,7 @@ export class ApiController {
     }
   };
 
-  public getTransactionsHistory = async (req: Request, res: Response) => {
+  public getDetailedTxHistory = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params;
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const options = {
@@ -98,11 +98,11 @@ export class ApiController {
 
     try {
       const sdk = this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getTransactionsHistory(vaultAccountId, index, options);
-      this.logger.info(`Transactions history retrieved successfully`);
+      const result = await sdk.getDetailedTxHistory(vaultAccountId, index, options);
+      this.logger.info(`Detailed ransactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
-      this.handleError(error, res, "getTransactionsHistory");
+      this.handleError(error, res, "getDetailedTxHistory");
     }
   };
 

@@ -13,7 +13,7 @@ import { Logger } from "./utils/logger.js";
 import {
   BalanceResponse,
   GroupedBalanceResponse,
-  TransactionsHistoryResponse,
+  DetailedTxHistoryResponse,
   transferOpts,
 } from "./types/iagon.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
@@ -144,9 +144,9 @@ export class CardanoTokensSDK {
   };
 
   /**
-   * Get transaction history for a vault account address
+   * Get detailed transaction history for a vault account address
    */
-  public getTransactionsHistory = async (
+  public getDetailedTxHistory = async (
     vaultAccountId: string,
     index: number = 0,
     options: {
@@ -154,7 +154,7 @@ export class CardanoTokensSDK {
       offset?: number;
       fromSlot?: number;
     }
-  ): Promise<TransactionsHistoryResponse> => {
+  ): Promise<DetailedTxHistoryResponse> => {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       vaultAccountId,
       "ADA",
@@ -172,7 +172,7 @@ export class CardanoTokensSDK {
       `Getting transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
     );
 
-    return await this.iagonApiService.getTransactionsHistory({ address, ...options });
+    return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
   };
 
   /**

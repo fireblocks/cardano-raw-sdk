@@ -38,7 +38,7 @@ export interface SubmitTransactionOpts {
 /**
  * Options for getting transaction history
  */
-export interface GetTransactionsHistoryOpts {
+export interface getDetailedTxHistoryOpts {
   /** Optional: Filter by asset ID */
   assetId?: string;
   /** Optional: Limit number of results */
@@ -106,7 +106,7 @@ export type OperationRequest =
     }
   | {
       type: TransactionType.GET_TRANSACTIONS_HISTORY;
-      params: GetTransactionsHistoryOpts;
+      params: getDetailedTxHistoryOpts;
     }
   | {
       type: TransactionType.TRANSFER;

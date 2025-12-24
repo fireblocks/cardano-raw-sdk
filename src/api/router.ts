@@ -125,10 +125,10 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
-   * /api/transactions/{vaultAccountId}:
+   * /api/tx/address/{vaultAccountId}:
    *   get:
-   *     summary: Get transaction history
-   *     description: Retrieves the transaction history for a vault account address with optional pagination and filtering
+   *     summary: Get detailed transaction history
+   *     description: Retrieves detailed transaction history for a vault account address with full input/output information, pagination, and filtering
    *     tags: [Transactions]
    *     parameters:
    *       - in: path
@@ -147,7 +147,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         name: limit
    *         schema:
    *           type: integer
-   *         description: Maximum number of transactions to return
+   *         description: Maximum number of transactions to return per page
    *       - in: query
    *         name: offset
    *         schema:
@@ -160,22 +160,115 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Filter transactions from this slot number onwards
    *     responses:
    *       200:
-   *         description: Transaction history retrieved successfully
+   *         description: Detailed transaction history retrieved successfully
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 transactions:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                 data:
    *                   type: array
-   *                   description: List of transactions
-   *                 total:
-   *                   type: integer
-   *                   description: Total number of transactions available
+   *                   description: Array of detailed transaction objects
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       tx_hash:
+   *                         type: string
+   *                         description: Transaction hash
+   *                       block_hash:
+   *                         type: string
+   *                         description: Block hash where transaction was included
+   *                       slot_no:
+   *                         type: integer
+   *                         description: Slot number
+   *                       block_no:
+   *                         type: integer
+   *                         description: Block number
+   *                       block_time:
+   *                         type: string
+   *                         description: Block timestamp
+   *                       fee:
+   *                         type: integer
+   *                         description: Transaction fee in lovelace
+   *                       size:
+   *                         type: integer
+   *                         description: Transaction size in bytes
+   *                       inputs:
+   *                         type: array
+   *                         description: Transaction inputs
+   *                         items:
+   *                           type: object
+   *                           properties:
+   *                             tx_hash:
+   *                               type: string
+   *                             output_index:
+   *                               type: integer
+   *                             address:
+   *                               type: string
+   *                             value:
+   *                               type: object
+   *                               properties:
+   *                                 lovelace:
+   *                                   type: integer
+   *                                 assets:
+   *                                   type: object
+   *                                   additionalProperties:
+   *                                     type: integer
+   *                       outputs:
+   *                         type: array
+   *                         description: Transaction outputs
+   *                         items:
+   *                           type: object
+   *                           properties:
+   *                             output_index:
+   *                               type: integer
+   *                             address:
+   *                               type: string
+   *                             value:
+   *                               type: object
+   *                               properties:
+   *                                 lovelace:
+   *                                   type: integer
+   *                                 assets:
+   *                                   type: object
+   *                                   additionalProperties:
+   *                                     type: integer
+   *                 pagination:
+   *                   type: object
+   *                   description: Pagination metadata
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                       description: Items per page
+   *                     offset:
+   *                       type: integer
+   *                       description: Current offset
+   *                     total:
+   *                       type: integer
+   *                       description: Total number of transactions
+   *                     hasMore:
+   *                       type: boolean
+   *                       description: Whether more results are available
+   *                     next_cursor:
+   *                       type: integer
+   *                       description: Cursor for next page (optional)
+   *                 last_updated:
+   *                   type: object
+   *                   description: Last update information
+   *                   properties:
+   *                     slot_no:
+   *                       type: integer
+   *                     block_hash:
+   *                       type: string
+   *                     block_time:
+   *                       type: string
    *       500:
    *         description: Internal server error
    */
-  router.get("/transactions/:vaultAccountId", apiController.getTransactionsHistory);
+  router.get("/tx/address/:vaultAccountId", apiController.getDetailedTxHistory);
 
   /**
    * @swagger

@@ -8,9 +8,9 @@ import {
   getBalanceByAddressOpts,
   getBalanceByCredentialOpts,
   getBalanceByStakeKeyOpts,
-  getTransactionsHistoryOpts,
+  getDetailedTxHistoryOpts,
   GroupedBalanceResponse,
-  TransactionsHistoryResponse,
+  DetailedTxHistoryResponse,
   TransferResponse,
   UtxoIagonResponse,
 } from "../types/index.js";
@@ -147,9 +147,9 @@ export class IagonApiService {
     }
   };
 
-  public getTransactionsHistory = async (
-    params: getTransactionsHistoryOpts
-  ): Promise<TransactionsHistoryResponse> => {
+  public getDetailedTxHistory = async (
+    params: getDetailedTxHistoryOpts
+  ): Promise<DetailedTxHistoryResponse> => {
     try {
       const { address, limit, offset, fromSlot } = params;
       const queryParams = new URLSearchParams();
