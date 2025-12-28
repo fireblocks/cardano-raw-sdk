@@ -1,6 +1,6 @@
 {
   "name": "cardano-raw-sdk",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "main": "app.js",
   "type": "module",
   "scripts": {
@@ -38,8 +38,10 @@
     "@emurgo/cardano-serialization-lib-nodejs": "^15.0.3",
     "@fireblocks/ts-sdk": "^12.1.1",
     "axios": "^1.10.0",
+    "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cardano-web3-js": "^2.3.4",
+    "cbor": "^10.0.11",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
