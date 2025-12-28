@@ -17,6 +17,7 @@ import {
   transferOpts,
   TransactionHistoryResponse,
   TransactionDetailsResponse,
+  SupportedAssets,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -89,11 +90,12 @@ export class CardanoTokensSDK {
    */
   public getBalanceByAddress = async (
     vaultAccountId: string,
+    assetId: SupportedAssets = SupportedAssets.ADA,
     options: { index?: number; groupByPolicy?: boolean } = {}
   ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { index = 0, groupByPolicy = false } = options;
 
-    const addressData = await this.getVaultAccountAddress(vaultAccountId, "ADA", index);
+    const addressData = await this.getVaultAccountAddress(vaultAccountId, assetId, index);
 
     const address = addressData.address;
 
@@ -148,10 +150,14 @@ export class CardanoTokensSDK {
   /**
    * Helper method to fetch and validate address for a vault account
    */
-  private async getAddressForVault(vaultAccountId: string, index: number): Promise<string> {
+  private async getAddressForVault(
+    vaultAccountId: string,
+    assetId: SupportedAssets,
+    index: number
+  ): Promise<string> {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       vaultAccountId,
-      "ADA",
+      assetId,
       index
     );
     const address = addressData.address;
@@ -177,6 +183,7 @@ export class CardanoTokensSDK {
    */
   public getTransactionHistory = async (
     vaultAccountId: string,
+    assetId: SupportedAssets,
     index: number = 0,
     options: {
       limit?: number;
@@ -184,10 +191,9 @@ export class CardanoTokensSDK {
       fromSlot?: number;
     }
   ): Promise<TransactionHistoryResponse> => {
-    const address = await this.getAddressForVault(vaultAccountId, index);
-
+    const address = await this.getAddressForVault(vaultAccountId, assetId, index);
     this.logger.info(
-      `Getting transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
+      `Getting transaction history for vault ${vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getTransactionHistory({ address, ...options });
@@ -198,6 +204,7 @@ export class CardanoTokensSDK {
    */
   public getDetailedTxHistory = async (
     vaultAccountId: string,
+    assetId: SupportedAssets,
     index: number = 0,
     options: {
       limit?: number;
@@ -205,10 +212,10 @@ export class CardanoTokensSDK {
       fromSlot?: number;
     }
   ): Promise<DetailedTxHistoryResponse> => {
-    const address = await this.getAddressForVault(vaultAccountId, index);
+    const address = await this.getAddressForVault(vaultAccountId, assetId, index);
 
     this.logger.info(
-      `Getting detailed transaction history for vault ${vaultAccountId} at index ${index} (address: ${address})`
+      `Getting detailed transaction history for vault ${vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
@@ -217,10 +224,14 @@ export class CardanoTokensSDK {
   /**
    * Fetches the sender address from Fireblocks vault account
    */
-  private async fetchSenderAddress(vaultAccountId: string, index: number): Promise<string> {
+  private async fetchSenderAddress(
+    vaultAccountId: string,
+    assetId: SupportedAssets,
+    index: number
+  ): Promise<string> {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       vaultAccountId,
-      "ADA",
+      assetId,
       index
     );
 
@@ -324,10 +335,11 @@ export class CardanoTokensSDK {
    */
   private createFireblocksTransactionPayload(
     vaultAccountId: string,
+    assetId: SupportedAssets,
     txHashHex: string
   ): TransactionRequest {
     return {
-      assetId: "ADA",
+      assetId,
       operation: TransactionOperation.Raw,
       source: {
         type: TransferPeerPathType.VaultAccount,
@@ -349,9 +361,17 @@ export class CardanoTokensSDK {
   /**
    * Signs the transaction using Fireblocks and creates witness set
    */
-  private async signTransaction(txBody: any, vaultAccountId: string) {
+  private async signTransaction(
+    txBody: any,
+    vaultAccountId: string,
+    assetId: SupportedAssets = SupportedAssets.ADA
+  ): Promise<Transaction> {
     const txHashHex = this.calculateTransactionHash(txBody);
-    const transactionPayload = this.createFireblocksTransactionPayload(vaultAccountId, txHashHex);
+    const transactionPayload = this.createFireblocksTransactionPayload(
+      vaultAccountId,
+      assetId,
+      txHashHex
+    );
 
     const signatureResponse = await this.fireblocksService.broadcastTransaction(transactionPayload);
 
@@ -391,6 +411,7 @@ export class CardanoTokensSDK {
   }> => {
     const {
       vaultAccountId,
+      assetId = SupportedAssets.ADA,
       index = 0,
       recipientAddress,
       tokenPolicyId,
@@ -406,7 +427,7 @@ export class CardanoTokensSDK {
       );
 
       // Fetch sender address
-      const senderAddress = await this.fetchSenderAddress(vaultAccountId, index);
+      const senderAddress = await this.fetchSenderAddress(vaultAccountId, assetId, index);
 
       // Select and validate UTXOs
       const { selectedUtxos } = await this.selectAndValidateUtxos({
@@ -466,7 +487,7 @@ export class CardanoTokensSDK {
    */
   public getVaultAccountAddresses = async (
     vaultAccountId: string,
-    assetId: string = "ADA"
+    assetId: SupportedAssets = SupportedAssets.ADA
   ): Promise<VaultWalletAddress[]> => {
     return await this.fireblocksService.getVaultAccountAddresses(vaultAccountId, assetId);
   };
@@ -482,10 +503,10 @@ export class CardanoTokensSDK {
    */
   public getVaultAccountAddress = async (
     vaultAccountId: string,
-    assetId: string = "ADA",
+    assetId: SupportedAssets = SupportedAssets.ADA,
     index: number = 0
   ): Promise<VaultWalletAddress> => {
-    return await this.fireblocksService.getVaultAccountAddress(vaultAccountId, "ADA", index);
+    return await this.fireblocksService.getVaultAccountAddress(vaultAccountId, assetId, index);
   };
 
   /**
@@ -493,7 +514,7 @@ export class CardanoTokensSDK {
    */
   public getPublicKey = async (
     vaultAccountId: string,
-    assetId: string = "ADA",
+    assetId: SupportedAssets = SupportedAssets.ADA,
     change: number = 0,
     addressIndex: number = 0
   ): Promise<string> => {

@@ -100,6 +100,13 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           type: string
    *         description: The vault account ID
    *       - in: query
+   *         name: assetId
+   *         schema:
+   *           type: string
+   *           enum: [ADA, ADA_TEST]
+   *           default: ADA
+   *         description: The asset ID for the blockchain
+   *       - in: query
    *         name: index
    *         schema:
    *           type: integer
@@ -123,6 +130,67 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    */
   router.get("/balance/address/:vaultAccountId", apiController.getBalanceByAddress);
 
+  /**
+   * @swagger
+   * /api/tx/hash/{hash}:
+   *   get:
+   *     summary: Get transaction details by hash
+   *     description: Retrieves detailed information about a specific transaction using its hash
+   *     tags: [Transactions]
+   *     parameters:
+   *       - in: path
+   *         name: hash
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The transaction hash
+   *     responses:
+   *       200:
+   *         description: Transaction details retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                 data:
+   *                   type: object
+   *                   description: Detailed transaction information
+   *                   properties:
+   *                     tx_hash:
+   *                       type: string
+   *                       description: Transaction hash
+   *                     block_hash:
+   *                       type: string
+   *                       description: Block hash where transaction was included
+   *                     slot_no:
+   *                       type: integer
+   *                       description: Slot number
+   *                     block_no:
+   *                       type: integer
+   *                       description: Block number
+   *                     block_time:
+   *                       type: string
+   *                       description: Block timestamp
+   *                     fee:
+   *                       type: integer
+   *                       description: Transaction fee in lovelace
+   *                     size:
+   *                       type: integer
+   *                       description: Transaction size in bytes
+   *                     inputs:
+   *                       type: array
+   *                       description: Transaction inputs
+   *                     outputs:
+   *                       type: array
+   *                       description: Transaction outputs
+   *       404:
+   *         description: Transaction not found
+   *       500:
+   *         description: Internal server error
+   */
   router.get("/tx/hash/:hash", apiController.getTransactionDetails);
 
   /**
@@ -396,6 +464,10 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *               vaultAccountId:
    *                 type: string
    *                 description: The source vault account ID
+   *               assetId:
+   *                 type: string
+   *                 enum: [ADA, ADA_TEST]
+   *                 description: The asset ID for the blockchain (optional)
    *               recipientAddress:
    *                 type: string
    *                 description: The recipient address to send tokens to

@@ -202,7 +202,7 @@ export class IagonApiService {
 
   public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
     try {
-      const url = `${this.iagonBaseUrl}/v1/tx/${encodeURIComponent(hash)}`;
+      const url = `${this.iagonBaseUrl}/v1/tx/hash/${encodeURIComponent(hash)}`;
       const response = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${this.iagonApiKey}`,

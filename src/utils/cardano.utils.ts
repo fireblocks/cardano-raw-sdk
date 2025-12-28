@@ -19,6 +19,7 @@ import { IagonApiService } from "../services/iagon.api.service.js";
 import { createTransactionOutputsParams, UtxoData } from "../types/iagon.js";
 import { fetchAndSelectUtxosParams } from "../types/operations.js";
 import { Logger, LogLevel } from "./logger.js";
+import { SupportedAssets } from "../types/enums.js";
 
 const logLevel = "INFO";
 Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
@@ -32,8 +33,8 @@ export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => 
     requiredTokenAmount,
     transactionFee,
     tokenName,
-    minRecipientLovelace = 1_000_000,
-    minChangeLovelace = 1_000_000,
+    minRecipientLovelace = 1_200_000,
+    minChangeLovelace = 1_200_000,
   } = params;
   try {
     const utxos = await fetchUtxos(iagonApiService, address);
@@ -130,7 +131,10 @@ export const calculateTokenAmount = (
   policyId: string,
   tokenName: string
 ): number => {
-  if (utxo.value && !Object.keys(utxo.value).includes("assets")) {
+  if (
+    (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
+    policyId === ""
+  ) {
     return 0;
   }
 

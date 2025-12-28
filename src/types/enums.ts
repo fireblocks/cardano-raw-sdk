@@ -5,3 +5,8 @@ export enum TransactionType {
   GET_TRANSACTIONS_HISTORY = "getTransactionsHistory",
   TRANSFER = "TRANSFER",
 }
+
+export enum SupportedAssets {
+  ADA = "ADA",
+  ADA_TEST = "ADA_TEST",
+}
