@@ -178,6 +178,19 @@ export class ApiController {
     }
   };
 
+  public enrichWebhookPayload = async (req: Request, res: Response) => {
+    try {
+      const payload = req.body;
+      const vaultAccountId = payload.data.destination.id;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.enrichWebhookPayload(payload);
+      this.logger.info(`Webhook enrichment executed successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "enrichWebhookPayload");
+    }
+  };
+
   /**
    * Handles errors that occur during API operations.
    *

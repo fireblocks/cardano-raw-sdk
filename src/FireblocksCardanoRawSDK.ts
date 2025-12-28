@@ -26,6 +26,7 @@ import {
   transferOpts,
   TransactionHistoryResponse,
   TransactionDetailsResponse,
+  WebhookPayloadData,
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
@@ -634,6 +635,54 @@ export class FireblocksCardanoRawSDK {
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, assetId);
+  };
+
+  /**
+   *
+   * @param payload -
+   * @returns
+   */
+
+  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
+    const transactionAsset = payload.data.assetId;
+    if (transactionAsset !== SupportedAssets.ADA && transactionAsset !== SupportedAssets.ADA_TEST) {
+      this.logger.info(
+        `Webhook received for non-ADA asset: ${transactionAsset}, skipping enrichment.`
+      );
+      return payload;
+    }
+    const txHash = payload.data.txHash;
+    if (!txHash) {
+      this.logger.warn("Webhook payload missing txHash, cannot enrich.");
+      return payload;
+    }
+
+    this.logger.info(`Enriching webhook payload for ADA transaction: ${txHash}`);
+
+    const detailedTx = await this.iagonApiService.getTransactionDetails(txHash);
+
+    if (!detailedTx.success) {
+      this.logger.warn(`Failed to fetch detailed transaction for hash: ${txHash}`);
+      return payload;
+    }
+
+    const filteredInputs = detailedTx.data.inputs.filter((input) => input.value.assets);
+
+    if (filteredInputs.length === 0) {
+      this.logger.info(`No asset inputs found in transaction: ${txHash}`);
+      return payload;
+    }
+
+    const enrichedPayload = {
+      ...payload,
+      data: {
+        ...payload.data,
+        cardanoTokensData: detailedTx.data,
+      },
+    };
+
+    this.logger.info(`Webhook payload enriched for transaction: ${txHash}`);
+    return enrichedPayload;
   };
 
   /**
