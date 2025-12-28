@@ -14,6 +14,10 @@ import {
   TransactionDetailsResponse,
   Networks,
   IagonApiError,
+  StakeAccountRewardsResponse,
+  StakeAccountInfoResponse,
+  CurrentEpochResponse,
+  PoolInfoResponse,
 } from "../types/index.js";
 
 export class IagonApiService {
@@ -259,6 +263,102 @@ export class IagonApiService {
       throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `submitting transfer`);
+    }
+  };
+
+  /**
+   * Get staking rewards for a stake address
+   */
+  public getStakeAccountRewards = async (
+    stakeAddress: string
+  ): Promise<StakeAccountRewardsResponse> => {
+    try {
+      const url = "";
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching rewards for stake address ${stakeAddress}`
+      );
+    }
+  };
+
+  /**
+   * Get stake account information
+   */
+  public getStakeAccountInfo = async (stakeAddress: string): Promise<StakeAccountInfoResponse> => {
+    try {
+      const url = "";
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching info for stake address ${stakeAddress}`
+      );
+    }
+  };
+
+  /**
+   * Get current epoch and slot information
+   */
+  public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
+    try {
+      const url = "";
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching current epoch`);
+    }
+  };
+
+  /**
+   * Get pool information by pool ID
+   */
+  public getPoolInfo = async (poolId: string): Promise<PoolInfoResponse> => {
+    try {
+      const url = "";
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching pool info for ${poolId}`);
     }
   };
 }

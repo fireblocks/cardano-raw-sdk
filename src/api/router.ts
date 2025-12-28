@@ -779,6 +779,17 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.post("/webhook", apiController.enrichWebhookPayload);
+  router.post("/staking/register", apiController.registerStaking);
+
+  router.post("/staking/delegate", apiController.delegateToPool);
+
+  router.post("/staking/deregister", apiController.deregisterStaking);
+
+  router.post("/staking/withdraw-rewards", apiController.withdrawRewards);
+
+  router.get("/staking/rewards/:vaultAccountId", apiController.queryStakingRewards);
+
+  router.post("/governance/delegate-drep", apiController.delegateToDRep);
 
   return router;
 };

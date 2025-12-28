@@ -243,3 +243,81 @@ export interface createTransactionOutputsParams {
   transferAmount: number;
   selectedUtxos: UtxoData[];
 }
+
+/**
+ * Staking-related Iagon API types
+ */
+
+export interface StakeAccountReward {
+  epoch: number;
+  amount: string;
+  pool_id: string;
+}
+
+export interface StakeAccountWithdrawal {
+  tx_hash: string;
+  amount: string;
+}
+
+export interface StakeAccountInfo {
+  stake_address: string;
+  active: boolean;
+  active_epoch: number | null;
+  controlled_amount: string;
+  rewards_sum: string;
+  withdrawals_sum: string;
+  reserves_sum: string;
+  treasury_sum: string;
+  withdrawable_amount: string;
+  pool_id: string | null;
+}
+
+export interface StakeAccountRewardsResponse {
+  success: boolean;
+  data: {
+    rewards: StakeAccountReward[];
+    withdrawals: StakeAccountWithdrawal[];
+    available_rewards: number;
+    total_rewards: number;
+    total_withdrawals: number;
+  };
+}
+
+export interface StakeAccountInfoResponse {
+  success: boolean;
+  data: StakeAccountInfo;
+}
+
+export interface CurrentEpochResponse {
+  success: boolean;
+  data: {
+    epoch: number;
+    slot: number;
+    block_no: number;
+  };
+}
+
+export interface PoolInfoResponse {
+  success: boolean;
+  data: {
+    pool_id: string;
+    hex: string;
+    vrf_key: string;
+    blocks_minted: number;
+    blocks_epoch: number;
+    live_stake: string;
+    live_size: number;
+    live_saturation: number;
+    live_delegators: number;
+    active_stake: string;
+    active_size: number;
+    declared_pledge: string;
+    live_pledge: string;
+    margin_cost: number;
+    fixed_cost: string;
+    reward_account: string;
+    owners: string[];
+    registration: string[];
+    retirement: string[];
+  };
+}

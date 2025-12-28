@@ -6,3 +6,4 @@ export * from "./fireblocks.js";
 export * from "./iagon.js";
 export * from "./operations.js";
 export * from "./transactions.js";
+export * from "./staking.js";

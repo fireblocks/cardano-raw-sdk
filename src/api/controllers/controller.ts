@@ -191,6 +191,224 @@ export class ApiController {
     }
   };
 
+  // ======================
+  // Staking Operations
+  // ======================
+
+  /**
+   * Register staking credential for a vault account
+   * POST /api/staking/register
+   */
+  public registerStaking = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, index, depositAmount, fee } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.registerStakingCredential({
+        vaultAccountId,
+        index,
+        depositAmount,
+        fee,
+      });
+
+      this.logger.info(`Staking registration successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "registerStaking");
+    }
+  };
+
+  /**
+   * Delegate to a stake pool
+   * POST /api/staking/delegate
+   */
+  public delegateToPool = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, poolId, index, fee } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      if (!poolId) {
+        return res.status(400).json({
+          success: false,
+          error: "poolId is required",
+        });
+      }
+
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.delegateToPool({
+        vaultAccountId,
+        poolId,
+        index,
+        fee,
+      });
+
+      this.logger.info(`Pool delegation successful for vault ${vaultAccountId} to pool ${poolId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "delegateToPool");
+    }
+  };
+
+  /**
+   * Deregister staking credential
+   * POST /api/staking/deregister
+   */
+  public deregisterStaking = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, index, fee } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.deregisterStakingCredential({
+        vaultAccountId,
+        index,
+        fee,
+      });
+
+      this.logger.info(`Staking deregistration successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "deregisterStaking");
+    }
+  };
+
+  /**
+   * Withdraw staking rewards
+   * POST /api/staking/withdraw-rewards
+   */
+  public withdrawRewards = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, limit, index, fee } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.withdrawRewards({
+        vaultAccountId,
+        limit,
+        index,
+        fee,
+      });
+
+      this.logger.info(`Reward withdrawal successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "withdrawRewards");
+    }
+  };
+
+  /**
+   * Query staking rewards for a vault account
+   * GET /api/staking/rewards/:vaultAccountId
+   */
+  public queryStakingRewards = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.params;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.queryStakingRewards(vaultAccountId);
+
+      this.logger.info(`Staking rewards queried successfully for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "queryStakingRewards");
+    }
+  };
+
+  /**
+   * Delegate to a DRep (Conway governance)
+   * POST /api/governance/delegate-drep
+   */
+  public delegateToDRep = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, drepAction, drepId, index, fee } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      if (!drepAction) {
+        return res.status(400).json({
+          success: false,
+          error: "drepAction is required (always-abstain, always-no-confidence, or custom-drep)",
+        });
+      }
+
+      if (drepAction === "custom-drep" && !drepId) {
+        return res.status(400).json({
+          success: false,
+          error: "drepId is required when drepAction is custom-drep",
+        });
+      }
+
+      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.delegateToDRep({
+        vaultAccountId,
+        drepAction,
+        drepId,
+        index,
+        fee,
+      });
+
+      this.logger.info(`DRep delegation successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "delegateToDRep");
+    }
+  };
+
   /**
    * Handles errors that occur during API operations.
    *
