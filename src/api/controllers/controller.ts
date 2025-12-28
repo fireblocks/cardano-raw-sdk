@@ -131,7 +131,7 @@ export class ApiController {
    * Helper method to parse transaction history query parameters
    */
   private parseTransactionHistoryParams(req: Request) {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId, assetId } = req.params;
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
@@ -139,7 +139,7 @@ export class ApiController {
       fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
     };
 
-    return { vaultAccountId, index, options };
+    return { vaultAccountId, assetId, index, options };
   }
 
   public getTransactionHistory = async (req: Request, res: Response) => {
