@@ -23,6 +23,7 @@ import {
   SupportedAssets,
 } from "../types/index.js";
 import { Logger, LogLevel } from "./logger.js";
+import { SupportedAssets } from "../types/enums.js";
 
 const logLevel = "INFO";
 Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
@@ -141,7 +142,10 @@ export const calculateTokenAmount = (
     return 0;
   }
 
-  if (tokenName === "ADA" && policyId === "") {
+  if (
+    (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
+    policyId === ""
+  ) {
     return utxo.value.lovelace;
   }
 
