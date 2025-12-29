@@ -45,5 +45,5 @@ export const config: {
     secretKey: getSecretKey(),
     basePath: validateBasePath(process.env.BASE_PATH || ""),
   },
-  APP_NAME: process.env.APP_NAME || "Fireblocks SDK",
+  APP_NAME: process.env.APP_NAME || "Iagon",
 };
