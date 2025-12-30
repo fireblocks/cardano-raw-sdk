@@ -1,3 +1,9 @@
+export enum Networks {
+  MAINNET = "mainnet",
+  PREPROD = "preprod",
+  PREVIEW = "preview",
+}
+
 export enum TransactionType {
   GET_BLALANCE_BY_ADDRESS = "checkBalanceByAddress",
   GET_BLALNCE_BY_CREDENTIAL_ID = "getBalanceByCredential",

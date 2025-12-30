@@ -45,8 +45,8 @@ export class ApiController {
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getBalanceByAddress(vaultAccountId, assetId, {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getBalanceByAddress(assetId, {
         index,
         groupByPolicy,
       });
@@ -62,8 +62,8 @@ export class ApiController {
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getBalanceByCredential(vaultAccountId, {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getBalanceByCredential({
         credential,
         groupByPolicy,
       });
@@ -79,8 +79,8 @@ export class ApiController {
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getBalanceByStakeKey(vaultAccountId, {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getBalanceByStakeKey({
         stakeKey,
         groupByPolicy,
       });
@@ -94,7 +94,7 @@ export class ApiController {
   public getTransactionDetails = async (req: Request, res: Response) => {
     const { hash } = req.params;
     try {
-      const sdk = this.sdkManager.getSdk("0"); // Using a default vaultAccountId as hash is global
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId as hash is global
       const result = await sdk.getTransactionDetails(hash);
       this.logger.info(`Transaction details retrieved successfully`);
       res.status(200).json(result);
@@ -122,9 +122,9 @@ export class ApiController {
     const { vaultAccountId, assetId, index, options } = this.parseTransactionHistoryParams(req);
 
     try {
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const reqAssetId = (assetId as SupportedAssets) ?? SupportedAssets.ADA;
-      const result = await sdk.getTransactionHistory(vaultAccountId, reqAssetId, index, options);
+      const result = await sdk.getTransactionHistory(reqAssetId, index, options);
       this.logger.info(`Transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -135,9 +135,9 @@ export class ApiController {
   public getDetailedTxHistory = async (req: Request, res: Response) => {
     const { vaultAccountId, assetId, index, options } = this.parseTransactionHistoryParams(req);
     try {
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const reqAssetId = (assetId as SupportedAssets) ?? SupportedAssets.ADA;
-      const result = await sdk.getDetailedTxHistory(vaultAccountId, reqAssetId, index, options);
+      const result = await sdk.getDetailedTxHistory(reqAssetId, index, options);
       this.logger.info(`Detailed transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -148,7 +148,7 @@ export class ApiController {
   public transfer = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.transfer(req.body);
       this.logger.info(`Transfer executed successfully`);
       res.status(200).json(result);

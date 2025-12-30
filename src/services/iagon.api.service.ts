@@ -14,13 +14,19 @@ import {
   UtxoIagonResponse,
   GetTransactionHistoryOpts,
   TransactionDetailsResponse,
+  Networks,
 } from "../types/index.js";
 
 export class IagonApiService {
   private readonly logger = new Logger("services:iagon-api-service");
+  private network: Networks;
   private readonly iagonBaseUrl = iagonBaseUrl;
   private readonly iagonApiKey: string | null = process.env.IAGON_API_KEY || null;
   private readonly errorHandler = new ErrorHandler("iagon-api", this.logger);
+
+  constructor(network: Networks = Networks.MAINNET) {
+    this.network = network;
+  }
 
   public getUtxosByAddress = async (address: string): Promise<UtxoIagonResponse> => {
     try {

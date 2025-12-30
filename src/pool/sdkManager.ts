@@ -1,6 +1,7 @@
 import { PoolConfig, SdkManagerMetrics } from "../types/index.js";
 import { ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Logger } from "../utils/logger.js";
+import { Networks } from "../types/enums.js";
 
 // Forward declaration to avoid circular dependency
 import type { CardanoTokensSDK } from "../CardanoTokensSDK.js";
@@ -24,24 +25,40 @@ interface SdkPoolItem {
  * - Automatic cleanup of idle connections
  * - Pool size limits and LRU eviction policies
  * - Per-vault-account SDK instance tracking
+ * - Each SDK instance is initialized with its vaultAccountId, eliminating repeated Fireblocks API calls
  *
  * @class SdkManager
  * @example
  * ```typescript
+ * import { CardanoTokensSDK } from './CardanoTokensSDK.js';
+ * import { Networks } from './types/enums.js';
+ *
  * const config: ConfigurationOptions = {
  *   apiKey: 'your-api-key',
  *   secretKey: 'your-secret-key',
  *   basePath: BasePath.US
  * };
  *
- * const manager = new SdkManager(config, {
- *   maxPoolSize: 50,
- *   idleTimeoutMs: 20 * 60 * 1000
- * });
+ * const network = Networks.MAINNET;
  *
- * // Get SDK for a vault account
- * const sdk = manager.getSdk('vault-123');
- * const address = await sdk.getVaultAccountAddress('vault-123', 'BTC', 0);
+ * const manager = new SdkManager(
+ *   config,
+ *   network,
+ *   {
+ *     maxPoolSize: 50,
+ *     idleTimeoutMs: 20 * 60 * 1000
+ *   },
+ *   async (vaultAccountId, fireblocksConfig, network) =>
+ *     CardanoTokensSDK.createInstance({
+ *       fireblocksConfig,
+ *       vaultAccountId,
+ *       network
+ *     })
+ * );
+ *
+ * // Get SDK for a vault account (async)
+ * const sdk = await manager.getSdk('vault-123');
+ * const balance = await sdk.getBalanceByAddress();
  * ```
  */
 export class SdkManager {
@@ -50,21 +67,25 @@ export class SdkManager {
   private poolConfig: PoolConfig;
   private cleanupInterval: NodeJS.Timeout;
   private readonly logger = new Logger("pool:sdk-manager");
-  private sdkFactory: (config: ConfigurationOptions) => CardanoTokensSDK;
+  private sdkFactory: (vaultAccountId: string, config: ConfigurationOptions, network: Networks) => Promise<CardanoTokensSDK>;
+  private network: Networks;
 
   /**
    * Creates an instance of SdkManager with connection pooling.
    *
    * @param baseConfig - Fireblocks SDK configuration used for all CardanoTokensSDK instances
+   * @param network - The Cardano network to use (mainnet, preprod, preview)
    * @param poolConfig - Optional pool configuration settings
    * @param sdkFactory - Factory function to create CardanoTokensSDK instances (used to avoid circular dependency)
    */
   constructor(
     baseConfig: ConfigurationOptions,
+    network: Networks,
     poolConfig?: Partial<PoolConfig>,
-    sdkFactory?: (config: ConfigurationOptions) => CardanoTokensSDK
+    sdkFactory?: (vaultAccountId: string, config: ConfigurationOptions, network: Networks) => Promise<CardanoTokensSDK>
   ) {
     this.baseConfig = baseConfig;
+    this.network = network;
 
     this.poolConfig = {
       maxPoolSize: poolConfig?.maxPoolSize || 100,
@@ -77,7 +98,7 @@ export class SdkManager {
     // Store the factory function, will be set by CardanoTokensSDK
     this.sdkFactory =
       sdkFactory ||
-      (() => {
+      (async () => {
         throw new Error("SDK factory not initialized. This should be set by CardanoTokensSDK.");
       });
 
@@ -91,7 +112,7 @@ export class SdkManager {
    * Sets the SDK factory function (called by CardanoTokensSDK to avoid circular dependency)
    * @param factory - Factory function to create CardanoTokensSDK instances
    */
-  public setSdkFactory(factory: (config: ConfigurationOptions) => CardanoTokensSDK): void {
+  public setSdkFactory(factory: (vaultAccountId: string, config: ConfigurationOptions, network: Networks) => Promise<CardanoTokensSDK>): void {
     this.sdkFactory = factory;
   }
 
@@ -100,17 +121,21 @@ export class SdkManager {
    *
    * Implements pooling with LRU eviction for efficient resource management.
    * Each vault account gets its own CardanoTokensSDK instance that can be reused across requests.
+   * The SDK instance is initialized with the vaultAccountId, so methods don't need to fetch
+   * vault-specific data from Fireblocks repeatedly.
    *
    * @param vaultAccountId - The Fireblocks vault account ID (used as pool key)
-   * @returns A CardanoTokensSDK instance
+   * @returns A Promise that resolves to a CardanoTokensSDK instance
    *
    * @example
    * ```typescript
-   * const sdk = manager.getSdk('vault-123');
-   * const address = await sdk.getVaultAccountAddress('vault-123', 'BTC', 0);
+   * const sdk = await manager.getSdk('vault-123');
+   * // SDK is pre-initialized with vault-123, no need to pass vaultAccountId again
+   * const balance = await sdk.getBalanceByAddress();
+   * const publicKey = await sdk.getPublicKey();
    * ```
    */
-  public getSdk(vaultAccountId: string): CardanoTokensSDK {
+  public async getSdk(vaultAccountId: string): Promise<CardanoTokensSDK> {
     const key = vaultAccountId;
     const poolItem = this.sdkPool.get(key);
 
@@ -134,7 +159,7 @@ export class SdkManager {
 
     // Create new SDK
     this.logger.info(`Creating new SDK for vault ${vaultAccountId}`);
-    const sdk = this.sdkFactory(this.baseConfig);
+    const sdk = await this.sdkFactory(vaultAccountId, this.baseConfig, this.network);
 
     this.sdkPool.set(key, {
       sdk,

@@ -17,7 +17,6 @@ export interface getBalanceByStakeKeyOpts {
 }
 
 export interface transferOpts {
-  vaultAccountId: string;
   assetId?: SupportedAssets;
   recipientAddress: string;
   tokenPolicyId: string;

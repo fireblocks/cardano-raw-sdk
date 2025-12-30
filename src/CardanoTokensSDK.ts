@@ -18,6 +18,7 @@ import {
   TransactionHistoryResponse,
   TransactionDetailsResponse,
   SupportedAssets,
+  Networks,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -43,19 +44,17 @@ import {
 import { blake2b } from "blakejs";
 
 export interface SDKConfig {
-  /** Fireblocks API key */
-  apiKey: string;
-  /** Fireblocks secret key */
-  secretKey: string;
-  /** Fireblocks API base path (defaults to US) */
-  basePath?: BasePath;
-  /** Optional custom logger instance */
-  logger?: Logger;
+  vaultAccountId: string;
+  fireblocksService: FireblocksService;
+  iagonApiService: IagonApiService;
+  logger: Logger;
 }
 
 export class CardanoTokensSDK {
   private readonly fireblocksService: FireblocksService;
   private readonly iagonApiService: IagonApiService;
+  private vaultAccountId: string;
+  private addresses: Map<number, string> = new Map();
   private readonly logger: Logger;
 
   /**
@@ -64,49 +63,78 @@ export class CardanoTokensSDK {
    * @param config - SDK configuration
    */
   constructor(config: SDKConfig) {
-    // Validate config
-    if (!config.apiKey || typeof config.apiKey !== "string" || !config.apiKey.trim()) {
-      throw new Error("InvalidConfig: apiKey must be a non-empty string");
-    }
-    if (!config.secretKey || typeof config.secretKey !== "string" || !config.secretKey.trim()) {
-      throw new Error("InvalidConfig: secretKey must be a non-empty string");
-    }
+    this.logger = config.logger;
 
-    this.logger = config.logger ?? new Logger("CardanoTokensSDK");
+    this.fireblocksService = config.fireblocksService;
+    this.iagonApiService = config.iagonApiService;
 
-    const baseConfig: ConfigurationOptions = {
-      apiKey: config.apiKey,
-      secretKey: config.secretKey,
-      basePath: config.basePath || BasePath.US,
-    };
-    this.fireblocksService = new FireblocksService(baseConfig);
-    this.iagonApiService = new IagonApiService();
+    this.vaultAccountId = config.vaultAccountId;
 
     this.logger.info("CardanoTokensSDK initialized successfully");
   }
+
+  public static createInstance = async (params: {
+    fireblocksConfig: ConfigurationOptions;
+    vaultAccountId: string;
+    network: Networks;
+  }): Promise<CardanoTokensSDK> => {
+    try {
+      const logger = new Logger(`app:fireblocks-iagon-sdk`);
+
+      const { fireblocksConfig, vaultAccountId, network } = params;
+
+      if (network === Networks.PREVIEW) {
+        throw new Error(`Unsupported network: ${network}`);
+      }
+
+      const fireblocksService = new FireblocksService(fireblocksConfig);
+      const iagonApiService = new IagonApiService(network);
+      const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+      const wallet = await fireblocksService.getVaultAccountAddress(vaultAccountId, assetId);
+
+      const address = wallet.address;
+
+      if (!address) {
+        throw new Error(
+          `Invalid address found for vault account ${vaultAccountId} and asset ${assetId}`
+        );
+      }
+
+      const sdkInstance = new CardanoTokensSDK({
+        fireblocksService,
+        iagonApiService,
+        vaultAccountId,
+        logger,
+      });
+
+      return sdkInstance;
+    } catch (error: any) {
+      throw new Error(
+        `Error creating FireblocksIagonSDK: ${error instanceof Error ? error.message : error}`
+      );
+    }
+  };
 
   /**
    * Get balance by address for a vault account
    */
   public getBalanceByAddress = async (
-    vaultAccountId: string,
     assetId: SupportedAssets = SupportedAssets.ADA,
     options: { index?: number; groupByPolicy?: boolean } = {}
   ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { index = 0, groupByPolicy = false } = options;
 
-    const addressData = await this.getVaultAccountAddress(vaultAccountId, assetId, index);
+    const addressData = await this.getVaultAccountAddress(assetId, index);
 
     const address = addressData.address;
 
     if (!address) {
       throw new Error(
-        `AddressNotFound: No address found for vault account ${vaultAccountId} at index ${index}`
+        `AddressNotFound: No address found for vault account ${this.vaultAccountId} at index ${index}`
       );
     }
 
-    this.logger.info(`Getting balance for address ${address} (vault: ${vaultAccountId})`);
-
+    this.logger.info(`Getting balance for address ${address} (vault: ${this.vaultAccountId})`);
     return await this.iagonApiService.getBalanceByAddress({
       address,
       groupByPolicy,
@@ -116,14 +144,13 @@ export class CardanoTokensSDK {
   /**
    * Get balance by credential for a vault account
    */
-  public getBalanceByCredential = async (
-    vaultAccountId: string,
-    options: { credential: string; groupByPolicy?: boolean }
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  public getBalanceByCredential = async (options: {
+    credential: string;
+    groupByPolicy?: boolean;
+  }): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { credential, groupByPolicy = false } = options;
 
-    this.logger.info(`Getting balance for credential ${credential} (vault: ${vaultAccountId})`);
-
+    this.logger.info(`Getting balance for credential ${credential}`);
     return await this.iagonApiService.getBalanceByCredential({
       credential,
       groupByPolicy,
@@ -133,13 +160,13 @@ export class CardanoTokensSDK {
   /**
    * Get balance by stake key for a vault account
    */
-  public getBalanceByStakeKey = async (
-    vaultAccountId: string,
-    options: { stakeKey: string; groupByPolicy?: boolean }
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  public getBalanceByStakeKey = async (options: {
+    stakeKey: string;
+    groupByPolicy?: boolean;
+  }): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { stakeKey, groupByPolicy = false } = options;
 
-    this.logger.info(`Getting balance for stake key ${stakeKey} (vault: ${vaultAccountId})`);
+    this.logger.info(`Getting balance for stake key ${stakeKey}`);
 
     return await this.iagonApiService.getBalanceByStakeKey({
       stakeKey,
@@ -150,13 +177,9 @@ export class CardanoTokensSDK {
   /**
    * Helper method to fetch and validate address for a vault account
    */
-  private async getAddressForVault(
-    vaultAccountId: string,
-    assetId: SupportedAssets,
-    index: number
-  ): Promise<string> {
+  private async getAddressForVault(assetId: SupportedAssets, index: number): Promise<string> {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
-      vaultAccountId,
+      this.vaultAccountId,
       assetId,
       index
     );
@@ -164,7 +187,7 @@ export class CardanoTokensSDK {
 
     if (!address) {
       throw new Error(
-        `AddressNotFound: No address found for vault account ${vaultAccountId} at index ${index}`
+        `AddressNotFound: No address found for vault account ${this.vaultAccountId} at index ${index}`
       );
     }
 
@@ -182,7 +205,6 @@ export class CardanoTokensSDK {
    * Get transaction history for a vault account address
    */
   public getTransactionHistory = async (
-    vaultAccountId: string,
     assetId: SupportedAssets,
     index: number = 0,
     options: {
@@ -191,9 +213,9 @@ export class CardanoTokensSDK {
       fromSlot?: number;
     }
   ): Promise<TransactionHistoryResponse> => {
-    const address = await this.getAddressForVault(vaultAccountId, assetId, index);
+    const address = await this.getAddressForVault(assetId, index);
     this.logger.info(
-      `Getting transaction history for vault ${vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
+      `Getting transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getTransactionHistory({ address, ...options });
@@ -203,7 +225,6 @@ export class CardanoTokensSDK {
    * Get detailed transaction history for a vault account address
    */
   public getDetailedTxHistory = async (
-    vaultAccountId: string,
     assetId: SupportedAssets,
     index: number = 0,
     options: {
@@ -212,10 +233,10 @@ export class CardanoTokensSDK {
       fromSlot?: number;
     }
   ): Promise<DetailedTxHistoryResponse> => {
-    const address = await this.getAddressForVault(vaultAccountId, assetId, index);
+    const address = await this.getAddressForVault(assetId, index);
 
     this.logger.info(
-      `Getting detailed transaction history for vault ${vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
+      `Getting detailed transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
@@ -224,20 +245,16 @@ export class CardanoTokensSDK {
   /**
    * Fetches the sender address from Fireblocks vault account
    */
-  private async fetchSenderAddress(
-    vaultAccountId: string,
-    assetId: SupportedAssets,
-    index: number
-  ): Promise<string> {
+  private async fetchSenderAddress(assetId: SupportedAssets, index: number): Promise<string> {
     const addressData = await this.fireblocksService.getVaultAccountAddress(
-      vaultAccountId,
+      this.vaultAccountId,
       assetId,
       index
     );
 
     if (!addressData.address) {
       throw new Error(
-        `AddressNotFound: No address found for vault account ${vaultAccountId} at index ${index}`
+        `AddressNotFound: No address found for vault account ${this.vaultAccountId} at index ${index}`
       );
     }
 
@@ -334,7 +351,6 @@ export class CardanoTokensSDK {
    * Creates Fireblocks transaction payload for signing
    */
   private createFireblocksTransactionPayload(
-    vaultAccountId: string,
     assetId: SupportedAssets,
     txHashHex: string
   ): TransactionRequest {
@@ -343,7 +359,7 @@ export class CardanoTokensSDK {
       operation: TransactionOperation.Raw,
       source: {
         type: TransferPeerPathType.VaultAccount,
-        id: vaultAccountId,
+        id: this.vaultAccountId,
       },
       note: "Transfer of Cardano tokens via CardanoTokensSDK",
       extraParameters: {
@@ -363,15 +379,10 @@ export class CardanoTokensSDK {
    */
   private async signTransaction(
     txBody: any,
-    vaultAccountId: string,
     assetId: SupportedAssets = SupportedAssets.ADA
   ): Promise<Transaction> {
     const txHashHex = this.calculateTransactionHash(txBody);
-    const transactionPayload = this.createFireblocksTransactionPayload(
-      vaultAccountId,
-      assetId,
-      txHashHex
-    );
+    const transactionPayload = this.createFireblocksTransactionPayload(assetId, txHashHex);
 
     const signatureResponse = await this.fireblocksService.broadcastTransaction(transactionPayload);
 
@@ -410,7 +421,6 @@ export class CardanoTokensSDK {
     tokenName: string;
   }> => {
     const {
-      vaultAccountId,
       assetId = SupportedAssets.ADA,
       index = 0,
       recipientAddress,
@@ -427,7 +437,7 @@ export class CardanoTokensSDK {
       );
 
       // Fetch sender address
-      const senderAddress = await this.fetchSenderAddress(vaultAccountId, assetId, index);
+      const senderAddress = await this.fetchSenderAddress(assetId, index);
 
       // Select and validate UTXOs
       const { selectedUtxos } = await this.selectAndValidateUtxos({
@@ -453,7 +463,7 @@ export class CardanoTokensSDK {
       });
 
       // Sign transaction with Fireblocks
-      const signedTransaction = await this.signTransaction(txBody, vaultAccountId);
+      const signedTransaction = await this.signTransaction(txBody);
 
       // Submit transaction to blockchain
       const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
@@ -486,10 +496,9 @@ export class CardanoTokensSDK {
    * @throws Error if the retrieval fails.
    */
   public getVaultAccountAddresses = async (
-    vaultAccountId: string,
     assetId: SupportedAssets = SupportedAssets.ADA
   ): Promise<VaultWalletAddress[]> => {
-    return await this.fireblocksService.getVaultAccountAddresses(vaultAccountId, assetId);
+    return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, assetId);
   };
 
   /**
@@ -502,24 +511,22 @@ export class CardanoTokensSDK {
    * @throws Error if the retrieval fails.
    */
   public getVaultAccountAddress = async (
-    vaultAccountId: string,
     assetId: SupportedAssets = SupportedAssets.ADA,
     index: number = 0
   ): Promise<VaultWalletAddress> => {
-    return await this.fireblocksService.getVaultAccountAddress(vaultAccountId, assetId, index);
+    return await this.fireblocksService.getVaultAccountAddress(this.vaultAccountId, assetId, index);
   };
 
   /**
    * Get public key for a vault account address
    */
   public getPublicKey = async (
-    vaultAccountId: string,
     assetId: SupportedAssets = SupportedAssets.ADA,
     change: number = 0,
     addressIndex: number = 0
   ): Promise<string> => {
     return await this.fireblocksService.getAssetPublicKey(
-      vaultAccountId,
+      this.vaultAccountId,
       assetId,
       change,
       addressIndex

@@ -10,6 +10,7 @@ import { configureRouter } from "./api/router.js";
 import { Logger, LogLevel } from "./utils/logger.js";
 import { swaggerSpec, swaggerUi } from "./utils/swagger.js";
 import { CardanoTokensSDK } from "./CardanoTokensSDK.js";
+import { Networks } from "./types/enums.js";
 
 // Validate required environment variables, additional variables can be added as needed
 (() => {
@@ -36,9 +37,13 @@ const startServer = () => {
     basePath: (config.FIREBLOCKS.basePath as BasePath) || BasePath.US,
   };
 
+  // Get network from environment variable
+  const network = (process.env.CARDANO_NETWORK as Networks) || Networks.MAINNET;
+
   // Initialize SDK Manager with pool configuration
   const sdkManager = new SdkManager(
     baseConfig,
+    network,
     {
       maxPoolSize: parseInt(process.env.POOL_MAX_SIZE || "100"),
       idleTimeoutMs: parseInt(process.env.POOL_IDLE_TIMEOUT_MS || "1800000"),
@@ -46,12 +51,12 @@ const startServer = () => {
       connectionTimeoutMs: parseInt(process.env.POOL_CONNECTION_TIMEOUT_MS || "30000"),
       retryAttempts: parseInt(process.env.POOL_RETRY_ATTEMPTS || "3"),
     },
-    // SDK factory function to create MainSDK instances
-    (config: ConfigurationOptions) =>
-      new CardanoTokensSDK({
-        apiKey: config.apiKey!,
-        secretKey: config.secretKey!,
-        basePath: config.basePath as BasePath | undefined,
+    // SDK factory function to create CardanoTokensSDK instances
+    async (vaultAccountId: string, fireblocksConfig: ConfigurationOptions, network: Networks) =>
+      CardanoTokensSDK.createInstance({
+        fireblocksConfig,
+        vaultAccountId,
+        network,
       })
   );
 
