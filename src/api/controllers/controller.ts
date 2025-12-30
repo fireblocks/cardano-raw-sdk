@@ -210,7 +210,7 @@ export class ApiController {
         });
       }
 
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.registerStakingCredential({
         vaultAccountId,
         index,
@@ -250,7 +250,7 @@ export class ApiController {
         });
       }
 
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToPool({
         vaultAccountId,
         poolId,
@@ -283,7 +283,7 @@ export class ApiController {
         });
       }
 
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.deregisterStakingCredential({
         vaultAccountId,
         index,
@@ -315,7 +315,7 @@ export class ApiController {
         });
       }
 
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.withdrawRewards({
         vaultAccountId,
         limit,
@@ -348,7 +348,7 @@ export class ApiController {
         });
       }
 
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.queryStakingRewards(vaultAccountId);
 
       this.logger.info(`Staking rewards queried successfully for vault ${vaultAccountId}`);
@@ -390,7 +390,7 @@ export class ApiController {
         });
       }
 
-      const sdk = this.sdkManager.getSdk(vaultAccountId);
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToDRep({
         vaultAccountId,
         drepAction,
