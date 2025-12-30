@@ -100,6 +100,20 @@ export class ApiController {
     }
   };
 
+  public getUtxosByAddress = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+
+    try {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getUtxosByAddress(index);
+      this.logger.info(`UTXOs retrieved successfully for vault ${vaultAccountId}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getUtxosByAddress");
+    }
+  };
+
   /**
    * Helper method to parse transaction history query parameters
    */

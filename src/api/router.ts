@@ -188,6 +188,81 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/utxos/{vaultAccountId}:
+   *   get:
+   *     summary: Get UTXOs by vault account address
+   *     description: Retrieves unspent transaction outputs (UTXOs) for a vault account address. The network (mainnet/preprod) is determined by the server configuration.
+   *     tags: [UTXOs]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *       - in: query
+   *         name: index
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *         description: The address index
+   *     responses:
+   *       200:
+   *         description: UTXOs retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                 data:
+   *                   type: array
+   *                   description: Array of UTXO objects
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       transaction_id:
+   *                         type: string
+   *                         description: Transaction hash
+   *                       output_index:
+   *                         type: integer
+   *                         description: Output index
+   *                       address:
+   *                         type: string
+   *                         description: Address
+   *                       value:
+   *                         type: object
+   *                         properties:
+   *                           lovelace:
+   *                             type: integer
+   *                             description: Lovelace amount
+   *                           assets:
+   *                             type: object
+   *                             description: Native assets
+   *                       datum_hash:
+   *                         type: string
+   *                         nullable: true
+   *                         description: Datum hash
+   *                       script_hash:
+   *                         type: string
+   *                         nullable: true
+   *                         description: Script hash
+   *                       created_at:
+   *                         type: object
+   *                         properties:
+   *                           slot_no:
+   *                             type: integer
+   *                           header_hash:
+   *                             type: string
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/utxos/:vaultAccountId", apiController.getUtxosByAddress);
+
+  /**
+   * @swagger
    * /api/tx/history/{vaultAccountId}:
    *   get:
    *     summary: Get transaction history

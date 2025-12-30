@@ -19,6 +19,7 @@ import {
   TransactionDetailsResponse,
   SupportedAssets,
   Networks,
+  UtxoIagonResponse,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -211,6 +212,23 @@ export class FireblocksIagonSDK {
    */
   public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
     return await this.iagonApiService.getTransactionDetails(hash);
+  };
+
+  /**
+   * Get UTXOs for a vault account address
+   */
+  public getUtxosByAddress = async (
+    index: number = 0
+  ): Promise<UtxoIagonResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+    const address = await this.getAddressByIndex(assetId, index);
+
+    this.logger.info(
+      `Getting UTXOs for vault ${this.vaultAccountId} at index ${index} (address: ${address})`
+    );
+
+    return await this.iagonApiService.getUtxosByAddress(address);
   };
 
   /**
