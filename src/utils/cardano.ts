@@ -145,6 +145,11 @@ export const calculateTokenAmount = (
     return utxo.value.lovelace;
   }
 
+  // Check if assets exist
+  if (!utxo.value.assets || Object.keys(utxo.value.assets).length === 0) {
+    return 0;
+  }
+
   // Token name is expected to be in hex format
   const assetUnit = `${policyId}.${tokenName}`;
   return utxo.value.assets[assetUnit] || 0;
@@ -167,9 +172,15 @@ export const filterUtxos = (
       logger.info(`Available asset keys in first UTXO:`, Object.keys(utxos[0].value.assets));
     }
 
-    const filtered = utxos.filter(
-      (utxo) => calculateTokenAmount(utxo, tokenPolicyId, tokenName) > 0
-    );
+    const filtered = utxos.filter((utxo) => {
+      // Skip UTXOs without assets
+      if (!utxo.value.assets) {
+        return false;
+      }
+
+      const tokenAmount = calculateTokenAmount(utxo, tokenPolicyId, tokenName);
+      return tokenAmount > 0;
+    });
 
     logger.info(`Found ${filtered.length} UTXOs with the token`);
 
@@ -212,32 +223,34 @@ export const createTransactionOutputs = (
   // Token name is expected to be in hex format already
   const tokenUnit = `${tokenPolicyId}.${tokenName}`;
 
-  logger.info("=== TOKEN UNIT CONSTRUCTION ===");
+  logger.info("=== COLLECTING ALL ASSETS FROM SELECTED UTXOs ===");
   logger.info("Policy ID:", tokenPolicyId);
   logger.info("Token Name (hex):", tokenName);
   logger.info("Constructed Unit:", tokenUnit);
 
-  // Find the actual token unit in UTXOs
-  let actualTokenUnit = "";
-  let totalTokenAmount = 0;
+  // Collect ALL assets from selected UTXOs
+  const allAssets: Record<string, number> = {};
   let totalLovelace = 0;
+  let totalTokenAmount = 0;
 
   selectedUtxos.forEach((utxo) => {
     totalLovelace += utxo.value.lovelace;
 
-    Object.keys(utxo.value).includes("assets") &&
+    if (utxo.value.assets) {
       Object.entries(utxo.value.assets).forEach(([assetUnit, amount]) => {
-        if (assetUnit.startsWith(tokenPolicyId)) {
-          actualTokenUnit = assetUnit;
+        allAssets[assetUnit] = (allAssets[assetUnit] || 0) + amount;
+
+        if (assetUnit === tokenUnit) {
           totalTokenAmount += amount;
-          logger.info(`Found token: ${assetUnit} = ${amount}`);
         }
+
+        logger.info(`Found asset: ${assetUnit} = ${amount}`);
       });
+    }
   });
 
-  logger.info("Actual token unit found:", actualTokenUnit);
-  logger.info("Total tokens found:", totalTokenAmount);
-  logger.info("Total ADA found:", totalLovelace);
+  logger.info("All assets collected:", allAssets);
+  logger.info("Total tokens for transfer:", totalTokenAmount);
 
   // Validate we have enough tokens
   if (totalTokenAmount < transferAmount) {
@@ -246,19 +259,17 @@ export const createTransactionOutputs = (
 
   // Calculate change
   const changeLovelace = totalLovelace - requiredLovelace - fee;
-  const changeTokenAmount = totalTokenAmount - transferAmount;
 
-  logger.info("=== CHANGE CALCULATION ===");
+  logger.info("=== CREATING OUTPUTS ===");
   logger.info("Change ADA:", changeLovelace);
-  logger.info("Change Tokens:", changeTokenAmount);
 
   // Create recipient output
   const recipientValue = Value.new(BigNum.from_str(requiredLovelace.toString()));
   if (transferAmount > 0) {
     const recipientMultiAsset = MultiAsset.new();
-    const policy = ScriptHash.from_hex(tokenPolicyId);
-    // Token name is in hex format, convert to bytes
-    const assetName = AssetName.new(Buffer.from(tokenName, "hex"));
+    const [policyId, tokenNameHex] = tokenUnit.split(".");
+    const policy = ScriptHash.from_hex(policyId);
+    const assetName = AssetName.new(Buffer.from(tokenNameHex, "hex"));
     const assets = Assets.new();
     assets.insert(assetName, BigNum.from_str(transferAmount.toString()));
     recipientMultiAsset.insert(policy, assets);
@@ -266,25 +277,58 @@ export const createTransactionOutputs = (
   }
   const recipientOutput = TransactionOutput.new(recipientAddress, recipientValue);
 
-  // Create change output
+  // Create change output (ALL remaining assets)
   const changeValue = Value.new(BigNum.from_str(changeLovelace.toString()));
-  if (changeTokenAmount > 0) {
-    const changeMultiAsset = MultiAsset.new();
-    const policy = ScriptHash.from_hex(tokenPolicyId);
-    // Token name is in hex format, convert to bytes
-    const assetName = AssetName.new(Buffer.from(tokenName, "hex"));
+  const changeMultiAsset = MultiAsset.new();
+
+  // Group assets by policy ID
+  const assetsByPolicy: Record<string, Record<string, number>> = {};
+
+  Object.entries(allAssets).forEach(([assetUnit, amount]) => {
+    const [policyId, tokenNameHex] = assetUnit.split(".");
+
+    if (!assetsByPolicy[policyId]) {
+      assetsByPolicy[policyId] = {};
+    }
+
+    // If this is the token being transferred, subtract the transfer amount
+    if (assetUnit === tokenUnit) {
+      const remainingAmount = amount - transferAmount;
+      if (remainingAmount > 0) {
+        assetsByPolicy[policyId][tokenNameHex] = remainingAmount;
+        logger.info(`Change for ${assetUnit}: ${remainingAmount}`);
+      }
+    } else {
+      // For all other tokens, return the full amount to change
+      assetsByPolicy[policyId][tokenNameHex] = amount;
+      logger.info(`Returning full amount for ${assetUnit}: ${amount}`);
+    }
+  });
+
+  // Build MultiAsset for change output
+  Object.entries(assetsByPolicy).forEach(([policyId, tokens]) => {
+    const policy = ScriptHash.from_hex(policyId);
     const assets = Assets.new();
-    assets.insert(assetName, BigNum.from_str(changeTokenAmount.toString()));
+
+    Object.entries(tokens).forEach(([tokenNameHex, amount]) => {
+      const assetName = AssetName.new(Buffer.from(tokenNameHex, "hex"));
+      assets.insert(assetName, BigNum.from_str(amount.toString()));
+    });
+
     changeMultiAsset.insert(policy, assets);
-    changeValue.set_multiasset(changeMultiAsset);
-  }
+  });
+
+  changeValue.set_multiasset(changeMultiAsset);
   const changeOutput = TransactionOutput.new(senderAddress, changeValue);
 
   // Final validation
   logger.info("=== FINAL VALIDATION ===");
-  logger.info("Input tokens:", totalTokenAmount);
-  logger.info("Output tokens:", transferAmount + changeTokenAmount);
-  logger.info("Balanced:", totalTokenAmount === transferAmount + changeTokenAmount);
+  logger.info("Recipient gets:", transferAmount, "of", tokenUnit);
+  Object.entries(assetsByPolicy).forEach(([policyId, tokens]) => {
+    Object.entries(tokens).forEach(([tokenNameHex, amount]) => {
+      logger.info(`Change includes: ${policyId}.${tokenNameHex} = ${amount}`);
+    });
+  });
 
   return [recipientOutput, changeOutput];
 };
