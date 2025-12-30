@@ -23,7 +23,6 @@ import {
   SupportedAssets,
 } from "../types/index.js";
 import { Logger, LogLevel } from "./logger.js";
-import { SupportedAssets } from "../types/enums.js";
 
 const logLevel = "INFO";
 Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
