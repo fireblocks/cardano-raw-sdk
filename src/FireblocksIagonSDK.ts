@@ -31,7 +31,7 @@ import {
   createTransactionOutputs,
   fetchAndSelectUtxos,
   submitTransaction,
-} from "./utils/cardano.utils.js";
+} from "./utils/cardano.js";
 import {
   Address,
   Ed25519Signature,

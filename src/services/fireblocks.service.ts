@@ -7,7 +7,7 @@ import {
   VaultWalletAddress,
 } from "@fireblocks/ts-sdk";
 
-import { getTxStatus } from "../utils/fireblocks.utils.js";
+import { getTxStatus } from "../utils/fireblocks.js";
 
 import { Logger } from "../utils/logger.js";
 
