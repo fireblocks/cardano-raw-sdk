@@ -1,27 +1,26 @@
-import { PoolConfig, SdkManagerMetrics } from "../types/index.js";
+import { PoolConfig, SdkManagerMetrics, Networks } from "../types/index.js";
 import { ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Logger } from "../utils/logger.js";
-import { Networks } from "../types/enums.js";
 
 // Forward declaration to avoid circular dependency
-import type { CardanoTokensSDK } from "../CardanoTokensSDK.js";
+import type { FireblocksIagonSDK } from "../FireblocksIagonSDK.js";
 
 /**
- * Pool item for CardanoTokensSDK instances
+ * Pool item for FireblocksIagonSDK instances
  */
 interface SdkPoolItem {
-  sdk: CardanoTokensSDK;
+  sdk: FireblocksIagonSDK;
   lastUsed: Date;
   isInUse: boolean;
 }
 
 /**
- * Manages a pool of CardanoTokensSDK instances for efficient resource utilization.
+ * Manages a pool of FireblocksIagonSDK instances for efficient resource utilization.
  *
- * The SdkManager implements connection pooling for CardanoTokensSDK instances, allowing
+ * The SdkManager implements connection pooling for FireblocksIagonSDK instances, allowing
  * reuse across multiple API requests. This reduces initialization overhead and manages resource
  * limits effectively. The manager handles:
- * - CardanoTokensSDK instance creation and lifecycle management per vault account
+ * - FireblocksIagonSDK instance creation and lifecycle management per vault account
  * - Automatic cleanup of idle connections
  * - Pool size limits and LRU eviction policies
  * - Per-vault-account SDK instance tracking
@@ -30,8 +29,8 @@ interface SdkPoolItem {
  * @class SdkManager
  * @example
  * ```typescript
- * import { CardanoTokensSDK } from './CardanoTokensSDK.js';
- * import { Networks } from './types/enums.js';
+ * import { FireblocksIagonSDK } from './FireblocksIagonSDK.js';
+ * import { Networks } from './types/index.js';
  *
  * const config: ConfigurationOptions = {
  *   apiKey: 'your-api-key',
@@ -49,7 +48,7 @@ interface SdkPoolItem {
  *     idleTimeoutMs: 20 * 60 * 1000
  *   },
  *   async (vaultAccountId, fireblocksConfig, network) =>
- *     CardanoTokensSDK.createInstance({
+ *     FireblocksIagonSDK.createInstance({
  *       fireblocksConfig,
  *       vaultAccountId,
  *       network
@@ -67,22 +66,30 @@ export class SdkManager {
   private poolConfig: PoolConfig;
   private cleanupInterval: NodeJS.Timeout;
   private readonly logger = new Logger("pool:sdk-manager");
-  private sdkFactory: (vaultAccountId: string, config: ConfigurationOptions, network: Networks) => Promise<CardanoTokensSDK>;
+  private sdkFactory: (
+    vaultAccountId: string,
+    config: ConfigurationOptions,
+    network: Networks
+  ) => Promise<FireblocksIagonSDK>;
   private network: Networks;
 
   /**
    * Creates an instance of SdkManager with connection pooling.
    *
-   * @param baseConfig - Fireblocks SDK configuration used for all CardanoTokensSDK instances
+   * @param baseConfig - Fireblocks SDK configuration used for all FireblocksIagonSDK instances
    * @param network - The Cardano network to use (mainnet, preprod, preview)
    * @param poolConfig - Optional pool configuration settings
-   * @param sdkFactory - Factory function to create CardanoTokensSDK instances (used to avoid circular dependency)
+   * @param sdkFactory - Factory function to create FireblocksIagonSDK instances (used to avoid circular dependency)
    */
   constructor(
     baseConfig: ConfigurationOptions,
     network: Networks,
     poolConfig?: Partial<PoolConfig>,
-    sdkFactory?: (vaultAccountId: string, config: ConfigurationOptions, network: Networks) => Promise<CardanoTokensSDK>
+    sdkFactory?: (
+      vaultAccountId: string,
+      config: ConfigurationOptions,
+      network: Networks
+    ) => Promise<FireblocksIagonSDK>
   ) {
     this.baseConfig = baseConfig;
     this.network = network;
@@ -95,11 +102,11 @@ export class SdkManager {
       retryAttempts: poolConfig?.retryAttempts || 3,
     };
 
-    // Store the factory function, will be set by CardanoTokensSDK
+    // Store the factory function, will be set by FireblocksIagonSDK
     this.sdkFactory =
       sdkFactory ||
       (async () => {
-        throw new Error("SDK factory not initialized. This should be set by CardanoTokensSDK.");
+        throw new Error("SDK factory not initialized. This should be set by FireblocksIagonSDK.");
       });
 
     this.cleanupInterval = setInterval(
@@ -109,23 +116,29 @@ export class SdkManager {
   }
 
   /**
-   * Sets the SDK factory function (called by CardanoTokensSDK to avoid circular dependency)
-   * @param factory - Factory function to create CardanoTokensSDK instances
+   * Sets the SDK factory function (called by FireblocksIagonSDK to avoid circular dependency)
+   * @param factory - Factory function to create FireblocksIagonSDK instances
    */
-  public setSdkFactory(factory: (vaultAccountId: string, config: ConfigurationOptions, network: Networks) => Promise<CardanoTokensSDK>): void {
+  public setSdkFactory(
+    factory: (
+      vaultAccountId: string,
+      config: ConfigurationOptions,
+      network: Networks
+    ) => Promise<FireblocksIagonSDK>
+  ): void {
     this.sdkFactory = factory;
   }
 
   /**
-   * Gets or creates a CardanoTokensSDK instance for a specific vault account.
+   * Gets or creates a FireblocksIagonSDK instance for a specific vault account.
    *
    * Implements pooling with LRU eviction for efficient resource management.
-   * Each vault account gets its own CardanoTokensSDK instance that can be reused across requests.
+   * Each vault account gets its own FireblocksIagonSDK instance that can be reused across requests.
    * The SDK instance is initialized with the vaultAccountId, so methods don't need to fetch
    * vault-specific data from Fireblocks repeatedly.
    *
    * @param vaultAccountId - The Fireblocks vault account ID (used as pool key)
-   * @returns A Promise that resolves to a CardanoTokensSDK instance
+   * @returns A Promise that resolves to a FireblocksIagonSDK instance
    *
    * @example
    * ```typescript
@@ -135,7 +148,7 @@ export class SdkManager {
    * const publicKey = await sdk.getPublicKey();
    * ```
    */
-  public async getSdk(vaultAccountId: string): Promise<CardanoTokensSDK> {
+  public async getSdk(vaultAccountId: string): Promise<FireblocksIagonSDK> {
     const key = vaultAccountId;
     const poolItem = this.sdkPool.get(key);
 

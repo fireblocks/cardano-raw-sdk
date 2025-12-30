@@ -50,15 +50,16 @@ export interface SDKConfig {
   logger: Logger;
 }
 
-export class CardanoTokensSDK {
+export class FireblocksIagonSDK {
   private readonly fireblocksService: FireblocksService;
   private readonly iagonApiService: IagonApiService;
   private vaultAccountId: string;
   private addresses: Map<number, string> = new Map();
+  private publicKeys: Map<string, string> = new Map();
   private readonly logger: Logger;
 
   /**
-   * Creates a new CardanoTokensSDK instance
+   * Creates a new FireblocksIagonSDK instance
    *
    * @param config - SDK configuration
    */
@@ -70,14 +71,14 @@ export class CardanoTokensSDK {
 
     this.vaultAccountId = config.vaultAccountId;
 
-    this.logger.info("CardanoTokensSDK initialized successfully");
+    this.logger.info("FireblocksIagonSDK initialized successfully");
   }
 
   public static createInstance = async (params: {
     fireblocksConfig: ConfigurationOptions;
     vaultAccountId: string;
     network: Networks;
-  }): Promise<CardanoTokensSDK> => {
+  }): Promise<FireblocksIagonSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-iagon-sdk`);
 
@@ -100,7 +101,7 @@ export class CardanoTokensSDK {
         );
       }
 
-      const sdkInstance = new CardanoTokensSDK({
+      const sdkInstance = new FireblocksIagonSDK({
         fireblocksService,
         iagonApiService,
         vaultAccountId,
@@ -124,15 +125,8 @@ export class CardanoTokensSDK {
   ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { index = 0, groupByPolicy = false } = options;
 
-    const addressData = await this.getVaultAccountAddress(assetId, index);
-
-    const address = addressData.address;
-
-    if (!address) {
-      throw new Error(
-        `AddressNotFound: No address found for vault account ${this.vaultAccountId} at index ${index}`
-      );
-    }
+    // Use cached address fetching
+    const address = await this.getAddressByIndex(assetId, index);
 
     this.logger.info(`Getting balance for address ${address} (vault: ${this.vaultAccountId})`);
     return await this.iagonApiService.getBalanceByAddress({
@@ -177,7 +171,15 @@ export class CardanoTokensSDK {
   /**
    * Helper method to fetch and validate address for a vault account
    */
-  private async getAddressForVault(assetId: SupportedAssets, index: number): Promise<string> {
+  private async getAddressByIndex(assetId: SupportedAssets, index: number): Promise<string> {
+    const cacheKey = index;
+    const cachedAddress = this.addresses.get(cacheKey);
+
+    if (cachedAddress) {
+      this.logger.debug(`Using cached address for index ${index}`);
+      return cachedAddress;
+    }
+
     const addressData = await this.fireblocksService.getVaultAccountAddress(
       this.vaultAccountId,
       assetId,
@@ -190,6 +192,10 @@ export class CardanoTokensSDK {
         `AddressNotFound: No address found for vault account ${this.vaultAccountId} at index ${index}`
       );
     }
+
+    // Add to cache
+    this.addresses.set(cacheKey, address);
+    this.logger.debug(`Cached address for index ${index}`);
 
     return address;
   }
@@ -213,7 +219,7 @@ export class CardanoTokensSDK {
       fromSlot?: number;
     }
   ): Promise<TransactionHistoryResponse> => {
-    const address = await this.getAddressForVault(assetId, index);
+    const address = await this.getAddressByIndex(assetId, index);
     this.logger.info(
       `Getting transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
     );
@@ -233,7 +239,7 @@ export class CardanoTokensSDK {
       fromSlot?: number;
     }
   ): Promise<DetailedTxHistoryResponse> => {
-    const address = await this.getAddressForVault(assetId, index);
+    const address = await this.getAddressByIndex(assetId, index);
 
     this.logger.info(
       `Getting detailed transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
@@ -241,26 +247,6 @@ export class CardanoTokensSDK {
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
   };
-
-  /**
-   * Fetches the sender address from Fireblocks vault account
-   */
-  private async fetchSenderAddress(assetId: SupportedAssets, index: number): Promise<string> {
-    const addressData = await this.fireblocksService.getVaultAccountAddress(
-      this.vaultAccountId,
-      assetId,
-      index
-    );
-
-    if (!addressData.address) {
-      throw new Error(
-        `AddressNotFound: No address found for vault account ${this.vaultAccountId} at index ${index}`
-      );
-    }
-
-    this.logger.info(`Sender address: ${addressData.address}`);
-    return addressData.address;
-  }
 
   /**
    * Selects and validates UTXOs for the transaction
@@ -361,7 +347,7 @@ export class CardanoTokensSDK {
         type: TransferPeerPathType.VaultAccount,
         id: this.vaultAccountId,
       },
-      note: "Transfer of Cardano tokens via CardanoTokensSDK",
+      note: "Transfer of Cardano tokens via FireblocksIagonSDK",
       extraParameters: {
         rawMessageData: {
           messages: [
@@ -437,7 +423,7 @@ export class CardanoTokensSDK {
       );
 
       // Fetch sender address
-      const senderAddress = await this.fetchSenderAddress(assetId, index);
+      const senderAddress = await this.getAddressByIndex(assetId, index);
 
       // Select and validate UTXOs
       const { selectedUtxos } = await this.selectAndValidateUtxos({
@@ -502,35 +488,35 @@ export class CardanoTokensSDK {
   };
 
   /**
-   * Retrieves a specific vault account address by index.
-   *
-   * @param vaultAccountId - The Fireblocks vault account ID
-   * @param assetId - The asset/blockchain identifier (defaults to ADA)
-   * @param index - The BIP-44 address derivation index (defaults to 0)
-   * @returns A promise that resolves to a VaultWalletAddress object.
-   * @throws Error if the retrieval fails.
-   */
-  public getVaultAccountAddress = async (
-    assetId: SupportedAssets = SupportedAssets.ADA,
-    index: number = 0
-  ): Promise<VaultWalletAddress> => {
-    return await this.fireblocksService.getVaultAccountAddress(this.vaultAccountId, assetId, index);
-  };
-
-  /**
-   * Get public key for a vault account address
+   * Get public key for a vault account address with caching
    */
   public getPublicKey = async (
     assetId: SupportedAssets = SupportedAssets.ADA,
     change: number = 0,
     addressIndex: number = 0
   ): Promise<string> => {
-    return await this.fireblocksService.getAssetPublicKey(
+    // Create cache key from all parameters
+    const cacheKey = `${assetId}-${change}-${addressIndex}`;
+    const cachedPublicKey = this.publicKeys.get(cacheKey);
+
+    if (cachedPublicKey) {
+      this.logger.debug(`Using cached public key for ${cacheKey}`);
+      return cachedPublicKey;
+    }
+
+    // Fetch from Fireblocks if not cached
+    const publicKey = await this.fireblocksService.getAssetPublicKey(
       this.vaultAccountId,
       assetId,
       change,
       addressIndex
     );
+
+    // Cache the public key
+    this.publicKeys.set(cacheKey, publicKey);
+    this.logger.debug(`Cached public key for ${cacheKey}`);
+
+    return publicKey;
   };
 
   /**
@@ -568,6 +554,25 @@ export class CardanoTokensSDK {
   }
 
   /**
+   * Clear all cached data (addresses and public keys)
+   */
+  public clearCache(): void {
+    this.addresses.clear();
+    this.publicKeys.clear();
+    this.logger.info("Cache cleared");
+  }
+
+  /**
+   * Get cache statistics
+   */
+  public getCacheStats(): { addressCount: number; publicKeyCount: number } {
+    return {
+      addressCount: this.addresses.size,
+      publicKeyCount: this.publicKeys.size,
+    };
+  }
+
+  /**
    * Gracefully shutdown the SDK
    *
    * Closes all connections, cleans up resources, and prepares for application termination.
@@ -585,7 +590,8 @@ export class CardanoTokensSDK {
    * ```
    */
   public async shutdown(): Promise<void> {
-    this.logger.info("Shutting down CardanoTokensSDK...");
-    this.logger.info("CardanoTokensSDK shutdown complete");
+    this.logger.info("Shutting down FireblocksIagonSDK...");
+    this.clearCache();
+    this.logger.info("FireblocksIagonSDK shutdown complete");
   }
 }

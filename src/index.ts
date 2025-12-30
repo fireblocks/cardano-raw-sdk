@@ -1,4 +1,4 @@
-export * from "./CardanoTokensSDK.js";
+export * from "./FireblocksIagonSDK.js";
 export * from "./pool/sdkManager.js";
 export * from "./api/controllers/controller.js";
 export * from "./services/index.js";
