@@ -1,5 +1,4 @@
 import { Address } from "@emurgo/cardano-serialization-lib-nodejs";
-import { SupportedAssets } from "./enums.js";
 
 export interface getBalanceByAddressOpts {
   address: string;
@@ -17,7 +16,6 @@ export interface getBalanceByStakeKeyOpts {
 }
 
 export interface transferOpts {
-  assetId?: SupportedAssets;
   recipientAddress: string;
   tokenPolicyId: string;
   tokenName: string;

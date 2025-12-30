@@ -90,7 +90,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * /api/balance/address/{vaultAccountId}:
    *   get:
    *     summary: Get balance by address
-   *     description: Retrieves the balance for a vault account address
+   *     description: Retrieves the balance for a vault account address.
    *     tags: [Balance]
    *     parameters:
    *       - in: path
@@ -99,13 +99,6 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         schema:
    *           type: string
    *         description: The vault account ID
-   *       - in: query
-   *         name: assetId
-   *         schema:
-   *           type: string
-   *           enum: [ADA, ADA_TEST]
-   *           default: ADA
-   *         description: The asset ID for the blockchain
    *       - in: query
    *         name: index
    *         schema:
@@ -446,7 +439,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * /api/transfers:
    *   post:
    *     summary: Execute a transfer
-   *     description: Executes a transfer of tokens between accounts
+   *     description: Executes a transfer of tokens between accounts.
    *     tags: [Transfers]
    *     requestBody:
    *       required: true
@@ -464,10 +457,6 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *               vaultAccountId:
    *                 type: string
    *                 description: The source vault account ID
-   *               assetId:
-   *                 type: string
-   *                 enum: [ADA, ADA_TEST]
-   *                 description: The asset ID for the blockchain (optional)
    *               recipientAddress:
    *                 type: string
    *                 description: The recipient address to send tokens to

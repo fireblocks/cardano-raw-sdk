@@ -47,12 +47,14 @@ export interface SDKConfig {
   vaultAccountId: string;
   fireblocksService: FireblocksService;
   iagonApiService: IagonApiService;
+  network: Networks;
   logger: Logger;
 }
 
 export class FireblocksIagonSDK {
   private readonly fireblocksService: FireblocksService;
   private readonly iagonApiService: IagonApiService;
+  private network: Networks;
   private vaultAccountId: string;
   private addresses: Map<number, string> = new Map();
   private publicKeys: Map<string, string> = new Map();
@@ -68,6 +70,7 @@ export class FireblocksIagonSDK {
 
     this.fireblocksService = config.fireblocksService;
     this.iagonApiService = config.iagonApiService;
+    this.network = config.network;
 
     this.vaultAccountId = config.vaultAccountId;
 
@@ -104,6 +107,7 @@ export class FireblocksIagonSDK {
       const sdkInstance = new FireblocksIagonSDK({
         fireblocksService,
         iagonApiService,
+        network,
         vaultAccountId,
         logger,
       });
@@ -120,10 +124,12 @@ export class FireblocksIagonSDK {
    * Get balance by address for a vault account
    */
   public getBalanceByAddress = async (
-    assetId: SupportedAssets = SupportedAssets.ADA,
     options: { index?: number; groupByPolicy?: boolean } = {}
   ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
     const { index = 0, groupByPolicy = false } = options;
+
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
 
     // Use cached address fetching
     const address = await this.getAddressByIndex(assetId, index);
@@ -211,14 +217,15 @@ export class FireblocksIagonSDK {
    * Get transaction history for a vault account address
    */
   public getTransactionHistory = async (
-    assetId: SupportedAssets,
     index: number = 0,
     options: {
       limit?: number;
       offset?: number;
       fromSlot?: number;
-    }
+    } = {}
   ): Promise<TransactionHistoryResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     const address = await this.getAddressByIndex(assetId, index);
     this.logger.info(
       `Getting transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
@@ -231,14 +238,15 @@ export class FireblocksIagonSDK {
    * Get detailed transaction history for a vault account address
    */
   public getDetailedTxHistory = async (
-    assetId: SupportedAssets,
     index: number = 0,
     options: {
       limit?: number;
       offset?: number;
       fromSlot?: number;
-    }
+    } = {}
   ): Promise<DetailedTxHistoryResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     const address = await this.getAddressByIndex(assetId, index);
 
     this.logger.info(
@@ -407,7 +415,6 @@ export class FireblocksIagonSDK {
     tokenName: string;
   }> => {
     const {
-      assetId = SupportedAssets.ADA,
       index = 0,
       recipientAddress,
       tokenPolicyId,
@@ -416,6 +423,9 @@ export class FireblocksIagonSDK {
       minRecipientLovelace = 1_200_000,
       minChangeLovelace = 1_200_000,
     } = options;
+
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
 
     try {
       this.logger.info(
@@ -481,9 +491,9 @@ export class FireblocksIagonSDK {
    * @returns A promise that resolves to an array of VaultWalletAddress objects.
    * @throws Error if the retrieval fails.
    */
-  public getVaultAccountAddresses = async (
-    assetId: SupportedAssets = SupportedAssets.ADA
-  ): Promise<VaultWalletAddress[]> => {
+  public getVaultAccountAddresses = async (): Promise<VaultWalletAddress[]> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, assetId);
   };
 
@@ -491,10 +501,11 @@ export class FireblocksIagonSDK {
    * Get public key for a vault account address with caching
    */
   public getPublicKey = async (
-    assetId: SupportedAssets = SupportedAssets.ADA,
     change: number = 0,
     addressIndex: number = 0
   ): Promise<string> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     // Create cache key from all parameters
     const cacheKey = `${assetId}-${change}-${addressIndex}`;
     const cachedPublicKey = this.publicKeys.get(cacheKey);
