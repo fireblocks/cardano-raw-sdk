@@ -2,7 +2,6 @@ import axios from "axios";
 import { Logger } from "../utils/logger.js";
 import { ErrorHandler } from "../utils/errorHandler.js";
 import { iagonBaseUrl } from "../constants.js";
-import { IagonApiError } from "../types/errors.js";
 import {
   BalanceResponse,
   getBalanceByAddressOpts,
@@ -15,6 +14,7 @@ import {
   GetTransactionHistoryOpts,
   TransactionDetailsResponse,
   Networks,
+  IagonApiError,
 } from "../types/index.js";
 
 export class IagonApiService {

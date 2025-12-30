@@ -1,8 +1,7 @@
 import { Request, Response } from "express";
 import { Logger } from "../../utils/logger.js";
 import { SdkManager } from "../../pool/sdkManager.js";
-import { IagonApiError } from "../../types/errors.js";
-import { SupportedAssets } from "../../types/enums.js";
+import { IagonApiError, SupportedAssets } from "../../types/index.js";
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.

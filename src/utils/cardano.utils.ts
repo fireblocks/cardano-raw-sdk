@@ -16,10 +16,13 @@ import {
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { toHex } from "./general.js";
 import { IagonApiService } from "../services/iagon.api.service.js";
-import { createTransactionOutputsParams, UtxoData } from "../types/iagon.js";
-import { fetchAndSelectUtxosParams } from "../types/operations.js";
+import {
+  createTransactionOutputsParams,
+  UtxoData,
+  fetchAndSelectUtxosParams,
+  SupportedAssets,
+} from "../types/index.js";
 import { Logger, LogLevel } from "./logger.js";
-import { SupportedAssets } from "../types/enums.js";
 
 const logLevel = "INFO";
 Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
