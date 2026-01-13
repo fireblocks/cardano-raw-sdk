@@ -124,7 +124,7 @@ export interface WithdrawalInfo {
  */
 export interface RewardsData {
   rewards: StakingReward[];
-  withdrawals: WithdrawalInfo[];
+  // withdrawals: WithdrawalInfo[];
   availableRewards: number; // in Lovelace
   totalRewards: number; // in Lovelace
   totalWithdrawals: number; // in Lovelace
