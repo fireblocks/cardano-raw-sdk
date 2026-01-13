@@ -47,6 +47,7 @@ import {
   DRepDelegationOptions,
   RewardsData,
   WebhookEventTypes,
+  TransferResponse,
 } from "./types/index.js";
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
 import { MIN_CHANGE_LOVELACE, MIN_RECIPIENT_LOVELACE, tokenTransactionFee } from "./constants.js";
@@ -1099,9 +1100,7 @@ export class FireblocksCardanoRawSDK {
    * console.log(`Withdrawal TX: ${result.txHash}`);
    * ```
    */
-  public withdrawRewards = async (
-    options: WithdrawRewardsOptions
-  ): Promise<StakingTransactionResult> => {
+  public withdrawRewards = async (options: WithdrawRewardsOptions): Promise<TransferResponse> => {
     this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
     return await this.stakingService.withdrawRewards(options);
   };
