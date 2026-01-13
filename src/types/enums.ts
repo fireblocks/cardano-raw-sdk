@@ -29,3 +29,11 @@ export enum WebhookEventTypes {
   TRANSACTION_APPROVAL_STATUS_UPDATED = "transaction.approval_status.updated",
   TRANSACTION_NETWORK_RECORDS_PROCESSING_COMPLETED = "transaction.network_records.processing_completed",
 }
+
+export enum RewardType {
+  LEADER = "leader",
+  MEMBER = "member",
+  RESERVES = "reserves",
+  TREASURY = "treasury",
+  REFUND = "refund",
+}

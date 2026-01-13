@@ -1,5 +1,5 @@
 import { Address } from "@emurgo/cardano-serialization-lib-nodejs";
-import { GroupByOptions } from "./enums.js";
+import { GroupByOptions, RewardType } from "./enums.js";
 
 export interface getBalanceByAddressOpts {
   address: string;
@@ -146,6 +146,7 @@ export interface TransferResponse {
   data: {
     txHash: string;
   };
+  error?: string;
 }
 
 export interface TransactionValue {
@@ -263,23 +264,32 @@ export interface StakeAccountInfo {
   stake_address: string;
   active: boolean;
   active_epoch: number | null;
-  controlled_amount: string;
+  active_stake: string;
   rewards_sum: string;
-  withdrawals_sum: string;
-  reserves_sum: string;
-  treasury_sum: string;
-  withdrawable_amount: string;
+  withdrawn_rewards: string;
+  available_rewards: string;
   pool_id: string | null;
+  drep_id: string | null;
 }
 
 export interface StakeAccountRewardsResponse {
   success: boolean;
   data: {
-    rewards: StakeAccountReward[];
-    withdrawals: StakeAccountWithdrawal[];
-    available_rewards: number;
-    total_rewards: number;
-    total_withdrawals: number;
+    epoch: number;
+    amount: string;
+    pool_id: string;
+    reward_type: RewardType;
+  }[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+  last_updated: {
+    slot_no: number;
+    block_hash: string;
+    block_time: string;
   };
 }
 
@@ -319,5 +329,103 @@ export interface PoolInfoResponse {
     owners: string[];
     registration: string[];
     retirement: string[];
+  };
+}
+
+export interface DelegationHistoryResponse {
+  success: boolean;
+  data: {
+    active_epoch: number;
+    pool_id: string;
+    tx_hash: string;
+    cert_index: number;
+  }[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+  last_updated: {
+    slot_no: number;
+    block_hash: string;
+    block_time: string;
+  };
+}
+
+export interface WithdrawalHistoryResponse {
+  success: boolean;
+  data: {
+    tx_hash: string;
+    amount: string;
+    block_time: string;
+  }[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+  last_updated: {
+    slot_no: number;
+    block_hash: string;
+    block_time: string;
+  };
+}
+
+export interface PaymentAddressesResponse {
+  success: boolean;
+  data: {
+    address: string;
+  }[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+  last_updated: {
+    slot_no: number;
+    block_hash: string;
+    block_time: string;
+  };
+}
+
+export interface AccountAssetsResponse {
+  success: boolean;
+  data: {
+    unit: string;
+    quantity: string;
+  }[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+  last_updated: {
+    slot_no: number;
+    block_hash: string;
+    block_time: string;
+  };
+}
+
+export interface RegistrationHistoryResponse {
+  success: boolean;
+  data: {
+    tx_hash: string;
+    action: "registered" | "deregistered";
+    epoch: number;
+  }[];
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+  last_updated: {
+    slot_no: number;
+    block_hash: string;
+    block_time: string;
   };
 }
