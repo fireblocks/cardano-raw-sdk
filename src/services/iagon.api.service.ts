@@ -18,6 +18,10 @@ import {
   StakeAccountInfoResponse,
   CurrentEpochResponse,
   PoolInfoResponse,
+  DelegationHistoryResponse,
+  WithdrawalHistoryResponse,
+  AccountAssetsResponse,
+  RegistrationHistoryResponse,
 } from "../types/index.js";
 
 export class IagonApiService {
@@ -270,10 +274,13 @@ export class IagonApiService {
    * Get staking rewards for a stake address
    */
   public getStakeAccountRewards = async (
-    stakeAddress: string
+    stakeAddress: string,
+    offset: number = 0,
+    limit: number = 100,
+    order: "asc" | "desc" = "asc"
   ): Promise<StakeAccountRewardsResponse> => {
     try {
-      const url = "";
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/rewards?offset=${offset}&limit=${limit}&order=${order}`;
       const response = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${this.iagonApiKey}`,
@@ -298,7 +305,7 @@ export class IagonApiService {
    */
   public getStakeAccountInfo = async (stakeAddress: string): Promise<StakeAccountInfoResponse> => {
     try {
-      const url = "";
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}`;
       const response = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${this.iagonApiKey}`,
@@ -359,6 +366,137 @@ export class IagonApiService {
       throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching pool info for ${poolId}`);
+    }
+  };
+
+  public getDelegationHistory = async (
+    stakeAddress: string,
+    offset: number = 0,
+    limit: number = 100,
+    order: "asc" | "desc" = "asc"
+  ): Promise<DelegationHistoryResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/delegations?offset=${offset}&limit=${limit}&order=${order}`;
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching delegation history for ${stakeAddress}`
+      );
+    }
+  };
+
+  public getWithdrawalHistory = async (
+    stakeAddress: string,
+    offset: number = 0,
+    limit: number = 100,
+    order: "asc" | "desc" = "asc"
+  ): Promise<WithdrawalHistoryResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/withdrawals?offset=${offset}&limit=${limit}&order=${order}`;
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching withdrawal history for ${stakeAddress}`
+      );
+    }
+  };
+
+  public getPaymentAddresses = async (
+    stakeAddress: string,
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<WithdrawalHistoryResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/addresses?offset=${offset}&limit=${limit}`;
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching payment addresses for ${stakeAddress}`
+      );
+    }
+  };
+
+  /**
+   * Assets on stake credential does not mean ownership of the assets.
+   * It can be used for easier grouping of addresses/assets,
+   * but ownership is defined by payment credential.
+   */
+  public getAccountAssets = async (stakeAddress: string): Promise<AccountAssetsResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/assets`;
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching account assets for ${stakeAddress}`);
+    }
+  };
+
+  public getRegistrationHistory = async (
+    stakeAddress: string,
+    limit: number = 100,
+    offset: number = 0,
+    order: "asc" | "desc" = "asc"
+  ): Promise<RegistrationHistoryResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/registrations?offset=${offset}&limit=${limit}&order=${order}`;
+      const response = await axios.get(url, {
+        headers: {
+          Authorization: `Bearer ${this.iagonApiKey}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching registration history for ${stakeAddress}`
+      );
     }
   };
 }

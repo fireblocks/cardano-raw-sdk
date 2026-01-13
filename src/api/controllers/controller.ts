@@ -322,6 +322,13 @@ export class ApiController {
         index,
         fee,
       });
+      if (!result.success) {
+        // No rewards or insufficient balance - client error
+        return res.status(400).json({
+          success: false,
+          error: result.error,
+        });
+      }
 
       this.logger.info(`Reward withdrawal successful for vault ${vaultAccountId}`);
       res.status(200).json({

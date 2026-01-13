@@ -7,17 +7,7 @@ import { Logger } from "../utils/logger.js";
 import { ErrorHandler } from "../utils/errorHandler.js";
 import { FireblocksService } from "./fireblocks.service.js";
 import { IagonApiService } from "./iagon.api.service.js";
-import {
-  RegisterStakingOptions,
-  DelegationOptions,
-  DeregisterStakingOptions,
-  WithdrawRewardsOptions,
-  DRepDelegationOptions,
-  StakingTransactionResult,
-  RewardsData,
-  CardanoWitness,
-  CardanoRewardWithdrawal,
-} from "../types/staking.js";
+
 import {
   getCertificateFromBaseAddress,
   getStakeAddressFromBaseAddress,
@@ -38,8 +28,21 @@ import {
   MIN_UTXO_VALUE_ADA_ONLY,
   stakeAddressBytesPrefix,
 } from "../utils/staking.utils.js";
+import {
+  RegisterStakingOptions,
+  DelegationOptions,
+  DeregisterStakingOptions,
+  WithdrawRewardsOptions,
+  DRepDelegationOptions,
+  StakingTransactionResult,
+  RewardsData,
+  CardanoWitness,
+  CardanoRewardWithdrawal,
+  Networks,
+  SupportedAssets,
+  TransferResponse,
+} from "../types/index.js";
 import { TransactionRequest, TransactionOperation, TransferPeerPathType } from "@fireblocks/ts-sdk";
-import { Networks, SupportedAssets } from "../types/enums.js";
 
 export class StakingService {
   private readonly logger = new Logger("services:staking-service");
@@ -128,25 +131,58 @@ export class StakingService {
   }
 
   /**
+   * Get stake address for a vault account
+   * Extracts the BASE address and derives the stake address
+   */
+  private async getStakeAddressForVault(vaultAccountId: string): Promise<string> {
+    const addresses = await this.fireblocksService.getVaultAccountAddresses(
+      vaultAccountId,
+      this.assetId
+    );
+
+    const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
+    if (!baseAddressObj) {
+      throw new Error("No BASE address found for vault account");
+    }
+    const baseAddress = baseAddressObj.address;
+
+    if (!baseAddress) {
+      throw new Error("No BASE address found for vault account");
+    }
+
+    return getStakeAddressFromBaseAddress(baseAddress, this.network === Networks.MAINNET);
+  }
+
+  /**
    * Query rewards for a stake address
    */
   private async queryRewards(stakeAddress: string): Promise<RewardsData> {
     try {
-      const rewardsResponse = await this.iagonApiService.getStakeAccountRewards(stakeAddress);
+      const [accountInfo, rewardsResponse, withdrawalHistory] = await Promise.all([
+        this.iagonApiService.getStakeAccountInfo(stakeAddress),
+        this.iagonApiService.getStakeAccountRewards(stakeAddress),
+        this.iagonApiService.getWithdrawalHistory(stakeAddress),
+      ]);
+
+      const rewards = rewardsResponse.data.map((reward) => ({
+        poolId: reward.pool_id,
+        amount: reward.amount,
+        epoch: reward.epoch,
+      }));
+
+      const availableRewards = parseInt(accountInfo.data.available_rewards, 10);
+      const totalRewards = parseInt(accountInfo.data.rewards_sum, 10);
+      const totalWithdrawals = parseInt(accountInfo.data.withdrawn_rewards, 10);
+
+      this.logger.info(
+        `Rewards summary for ${stakeAddress}: Available: ${availableRewards}, Total: ${totalRewards}, Withdrawn: ${totalWithdrawals}, Withdrawal History: ${withdrawalHistory.data.length} records`
+      );
 
       return {
-        rewards: rewardsResponse.data.rewards.map((r) => ({
-          poolId: r.pool_id,
-          amount: r.amount,
-          epoch: r.epoch,
-        })),
-        withdrawals: rewardsResponse.data.withdrawals.map((w) => ({
-          txHash: w.tx_hash,
-          amount: w.amount,
-        })),
-        availableRewards: rewardsResponse.data.available_rewards,
-        totalRewards: rewardsResponse.data.total_rewards,
-        totalWithdrawals: rewardsResponse.data.total_withdrawals,
+        rewards,
+        availableRewards,
+        totalRewards,
+        totalWithdrawals,
       };
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
@@ -482,7 +518,7 @@ export class StakingService {
   /**
    * Withdraw staking rewards
    */
-  public async withdrawRewards(options: WithdrawRewardsOptions): Promise<StakingTransactionResult> {
+  public async withdrawRewards(options: WithdrawRewardsOptions): Promise<TransferResponse> {
     try {
       const { vaultAccountId, limit, index = 0, fee = DEFAULT_NATIVE_TX_FEE } = options;
 
@@ -523,7 +559,13 @@ export class StakingService {
       );
 
       if (rewardAmount === 0) {
-        throw new Error("No rewards available to withdraw");
+        return {
+          success: false,
+          data: {
+            txHash: "",
+          },
+          error: "No rewards available for withdrawal",
+        };
       }
 
       // Get UTXOs
@@ -572,11 +614,7 @@ export class StakingService {
 
       this.logger.info(`Reward withdrawal transaction submitted: ${submitResponse.data.txHash}`);
 
-      return {
-        txHash: submitResponse.data.txHash,
-        status: "submitted",
-        operation: "withdraw-rewards",
-      };
+      return submitResponse;
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, "withdrawing staking rewards");
     }
@@ -679,32 +717,60 @@ export class StakingService {
     try {
       this.logger.info(`Querying staking rewards for vault account ${vaultAccountId}`);
 
-      // Get vault account addresses
-      const addresses = await this.fireblocksService.getVaultAccountAddresses(
-        vaultAccountId,
-        this.assetId
-      );
-
-      const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
-      if (!baseAddressObj) {
-        throw new Error("No BASE address found for vault account");
-      }
-      const baseAddress = baseAddressObj.address;
-
-      if (!baseAddress) {
-        throw new Error("No BASE address found for vault account");
-      }
-
-      // Get stake address
-      const stakeAddress = getStakeAddressFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
+      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
 
       // Query rewards
       return await this.queryRewards(stakeAddress);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, "querying staking rewards");
+    }
+  }
+
+  /**
+   * Get delegation history for a vault account
+   * Shows the history of pool delegations
+   */
+  public async getDelegationHistory(vaultAccountId: string, limit: number = 100) {
+    try {
+      this.logger.info(`Getting delegation history for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+
+      return await this.iagonApiService.getDelegationHistory(stakeAddress, 0, limit);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "getting delegation history");
+    }
+  }
+
+  /**
+   * Get registration/deregistration history for a vault account
+   * Shows when the stake key was registered or deregistered
+   */
+  public async getRegistrationHistory(vaultAccountId: string, limit: number = 100) {
+    try {
+      this.logger.info(`Getting registration history for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+
+      return await this.iagonApiService.getRegistrationHistory(stakeAddress, limit);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "getting registration history");
+    }
+  }
+
+  /**
+   * Get complete stake account information
+   * Includes active status, pool delegation, and reward totals
+   */
+  public async getStakeAccountInfo(vaultAccountId: string) {
+    try {
+      this.logger.info(`Getting stake account info for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+
+      return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "getting stake account info");
     }
   }
 }
