@@ -1179,6 +1179,29 @@ export class FireblocksCardanoRawSDK {
   };
 
   /**
+   * Get the stake address for a vault account
+   *
+   * Extracts the BASE address from the vault account and derives the stake address.
+   * The stake address is used to identify staking credentials and query staking-related
+   * information like rewards, delegation history, and registration status.
+   *
+   * @param vaultAccountId - The vault account ID
+   * @returns The stake address in bech32 format (stake1... or stake_test1...)
+   * @throws Error if no BASE address is found for the vault account
+   *
+   * @example
+   * ```typescript
+   * const stakeAddress = await sdk.getStakeAddress("0");
+   * console.log(`Stake address: ${stakeAddress}`);
+   * // Output: stake1u9r76ypf5fskppa0cmttas05cgcswrttn6jrq4yd7jpdnvc7gt0yc
+   * ```
+   */
+  public getStakeAddress = async (vaultAccountId: string): Promise<string> => {
+    this.logger.info(`Getting stake address for vault account ${vaultAccountId}`);
+    return await this.stakingService.getStakeAddress(vaultAccountId);
+  };
+
+  /**
    * Clear all cached data (addresses and public keys)
    */
   public clearCache(): void {

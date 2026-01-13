@@ -417,6 +417,38 @@ export class ApiController {
   };
 
   /**
+   * Get stake address for a vault account
+   * GET /api/staking/stake-address/:vaultAccountId
+   */
+  public getStakeAddress = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.params;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const stakeAddress = await sdk.getStakeAddress(vaultAccountId);
+
+      this.logger.info(
+        `Stake address retrieved successfully for vault ${vaultAccountId}: ${stakeAddress}`
+      );
+      res.status(200).json({
+        success: true,
+        data: {
+          stakeAddress,
+        },
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "getStakeAddress");
+    }
+  };
+
+  /**
    * Handles errors that occur during API operations.
    *
    * This private method provides centralized error handling, distinguishing between
