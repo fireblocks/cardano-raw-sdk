@@ -756,6 +756,10 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.post("/transfers", apiController.transfer);
 
   /**
+   * WEBHOOK
+   */
+
+  /**
    * @swagger
    * /api/webhook:
    *   post:
@@ -779,16 +783,426 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.post("/webhook", apiController.enrichWebhookPayload);
-  router.post("/staking/register", apiController.registerStaking);
+  /**
+   * STAKING
+   */
 
-  router.post("/staking/delegate", apiController.delegateToPool);
+  /**
+   * @swagger
+   * /api/staking/accounts/{vaultAccountId}:
+   *   get:
+   *     summary: Get stake account information
+   *     description: Retrieves comprehensive staking information for a vault account including registration status, delegation details, rewards, and withdrawals
+   *     tags: [Staking]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *     responses:
+   *       200:
+   *         description: Stake account information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: true
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     stakeAddress:
+   *                       type: string
+   *                       description: The stake address in bech32 format
+   *                       example: stake1u9r76ypf5fskppa0cmttas05cgcswrttn6jrq4yd7jpdnvc7gt0yc
+   *                     active:
+   *                       type: boolean
+   *                       description: Whether the stake address is currently registered and active
+   *                     activeEpoch:
+   *                       type: integer
+   *                       nullable: true
+   *                       description: The epoch when the stake address became active (null if not active)
+   *                       example: 450
+   *                     controlledAmount:
+   *                       type: string
+   *                       description: Total amount of ADA controlled by this stake address in Lovelace
+   *                       example: "5000000000"
+   *                     rewardsSum:
+   *                       type: string
+   *                       description: Sum of all rewards earned in Lovelace
+   *                       example: "1500000"
+   *                     withdrawalsSum:
+   *                       type: string
+   *                       description: Sum of all rewards withdrawn in Lovelace
+   *                       example: "500000"
+   *                     reservesSum:
+   *                       type: string
+   *                       description: Sum from reserves in Lovelace
+   *                       example: "0"
+   *                     treasurySum:
+   *                       type: string
+   *                       description: Sum from treasury in Lovelace
+   *                       example: "0"
+   *                     withdrawableAmount:
+   *                       type: string
+   *                       description: Currently available rewards that can be withdrawn in Lovelace
+   *                       example: "1000000"
+   *                     poolId:
+   *                       type: string
+   *                       nullable: true
+   *                       description: Pool ID to which this stake address is currently delegated (null if not delegated)
+   *                       example: pool1pu5jlj4q9w9jlxeu370a3c9myx47md5j5m2str0naunn2q3lkdy
+   *       400:
+   *         description: Bad request - vaultAccountId is required
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/staking/accounts/:vaultAccountId", apiController.getStakeAccountInfo);
 
-  router.post("/staking/deregister", apiController.deregisterStaking);
-
-  router.post("/staking/withdraw-rewards", apiController.withdrawRewards);
-
+  /**
+   * @swagger
+   * /api/staking/rewards/{vaultAccountId}:
+   *   get:
+   *     summary: Query staking rewards
+   *     description: Retrieves staking rewards information for a vault account including available rewards, total earned, and withdrawal history
+   *     tags: [Staking]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *     responses:
+   *       200:
+   *         description: Rewards information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 rewards:
+   *                   type: array
+   *                   description: Historical reward entries by epoch
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       poolId:
+   *                         type: string
+   *                         description: Pool ID that generated the reward
+   *                       amount:
+   *                         type: string
+   *                         description: Reward amount in Lovelace
+   *                       epoch:
+   *                         type: integer
+   *                         description: Epoch number when reward was earned
+   *                 availableRewards:
+   *                   type: integer
+   *                   description: Currently available rewards to withdraw in Lovelace
+   *                 totalRewards:
+   *                   type: integer
+   *                   description: Total rewards earned in Lovelace
+   *                 totalWithdrawals:
+   *                   type: integer
+   *                   description: Total amount withdrawn in Lovelace
+   *       500:
+   *         description: Internal server error
+   */
   router.get("/staking/rewards/:vaultAccountId", apiController.queryStakingRewards);
 
+  /**
+   * @swagger
+   * /api/staking/stake-address/{vaultAccountId}:
+   *   get:
+   *     summary: Get stake address for a vault account
+   *     description: Extracts the BASE address from the vault account and derives the stake address in bech32 format. The stake address is used to identify staking credentials and query staking-related information.
+   *     tags: [Staking]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *     responses:
+   *       200:
+   *         description: Stake address retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: true
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     stakeAddress:
+   *                       type: string
+   *                       description: The stake address in bech32 format (stake1... or stake_test1...)
+   *                       example: stake1u9r76ypf5fskppa0cmttas05cgcswrttn6jrq4yd7jpdnvc7gt0yc
+   *       400:
+   *         description: Bad request - vaultAccountId is required
+   *       404:
+   *         description: No BASE address found for vault account
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/staking/stake-address/:vaultAccountId", apiController.getStakeAddress);
+
+  /**
+   * @swagger
+   * /api/staking/register:
+   *   post:
+   *     summary: Register staking credential
+   *     description: Registers a staking credential for a vault account, allowing it to participate in staking. Requires a 2 ADA deposit.
+   *     tags: [Staking]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 default: "0"
+   *                 description: The vault account ID to register for staking
+   *     responses:
+   *       200:
+   *         description: Staking credential registered successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Transaction hash
+   *                 status:
+   *                   type: string
+   *                   description: Transaction status
+   *                 operation:
+   *                   type: string
+   *                   description: Operation type (register)
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/staking/register", apiController.registerStaking);
+
+  /**
+   * @swagger
+   * /api/staking/deregister:
+   *   post:
+   *     summary: Deregister staking credential
+   *     description: Deregisters a staking credential and withdraws all available rewards. Returns the 2 ADA deposit.
+   *     tags: [Staking]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 default: "0"
+   *                 description: The vault account ID to register for staking
+   *     responses:
+   *       200:
+   *         description: Deregistration transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Transaction hash
+   *                 status:
+   *                   type: string
+   *                   description: Transaction status
+   *                 operation:
+   *                   type: string
+   *                   description: Operation type (deregister)
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/staking/deregister", apiController.deregisterStaking);
+
+  /**
+   * @swagger
+   * /api/staking/delegate:
+   *   post:
+   *     summary: Delegate to a stake pool
+   *     description: Delegates staking power to a specific stake pool. The stake key must be registered first.
+   *     tags: [Staking]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - poolId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: The vault account ID to delegate
+   *               poolId:
+   *                 type: string
+   *                 description: Pool key hash in hex format
+   *     responses:
+   *       200:
+   *         description: Delegation transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Transaction hash
+   *                 status:
+   *                   type: string
+   *                   description: Transaction status
+   *                 operation:
+   *                   type: string
+   *                   description: Operation type (delegate)
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/staking/delegate", apiController.delegateToPool);
+
+  /**
+   * @swagger
+   * /api/staking/withdraw-rewards:
+   *   post:
+   *     summary: Withdraw staking rewards
+   *     description: Withdraws available staking rewards to the vault account
+   *     tags: [Staking]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: The vault account ID to withdraw rewards for
+   *               limit:
+   *                 type: integer
+   *                 description: Maximum amount to withdraw in Lovelace (optional, withdraws all if not specified)
+   *     responses:
+   *       200:
+   *         description: Reward withdrawal transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Transaction hash
+   *                 status:
+   *                   type: string
+   *                   description: Transaction status
+   *                 operation:
+   *                   type: string
+   *                   description: Operation type (withdraw-rewards)
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/staking/withdraw-rewards", apiController.withdrawRewards);
+
+  /**
+   * @swagger
+   * /api/governance/delegate-drep:
+   *   post:
+   *     summary: Delegate voting power to a DRep
+   *     description: |
+   *       Delegates voting power to a Delegated Representative (DRep) for Cardano governance (Conway era).
+   *
+   *       **DRep Actions:**
+   *       - `always-abstain`: Automatically abstain from all governance votes. Your stake counts toward quorum but doesn't vote yes/no.
+   *       - `always-no-confidence`: Automatically vote "no confidence" on all governance proposals. Signals distrust in current governance.
+   *       - `custom-drep`: Delegate to a specific DRep who will vote on your behalf. Requires `drepId` parameter.
+   *
+   *       **Note:** Stake must be registered before delegating voting power.
+   *     tags: [Staking]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - drepAction
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: The vault account ID to delegate voting power
+   *                 example: "12"
+   *               drepAction:
+   *                 type: string
+   *                 enum: [always-abstain, always-no-confidence, custom-drep]
+   *                 description: |
+   *                   Type of DRep delegation:
+   *                   - `always-abstain` - Abstain from all votes
+   *                   - `always-no-confidence` - Vote no confidence on all proposals
+   *                   - `custom-drep` - Delegate to specific DRep (requires drepId)
+   *                 example: "always-abstain"
+   *               drepId:
+   *                 type: string
+   *                 description: DRep ID in hex format (required only if drepAction is 'custom-drep')
+   *                 example: "drep1abc123..."
+   *     responses:
+   *       200:
+   *         description: DRep delegation transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Transaction hash
+   *                   example: "a1b2c3d4..."
+   *                 status:
+   *                   type: string
+   *                   description: Transaction status
+   *                   example: "submitted"
+   *                 operation:
+   *                   type: string
+   *                   description: Operation type
+   *                   example: "vote-delegate"
+   *       400:
+   *         description: Bad request - Invalid parameters or stake not registered
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 error:
+   *                   type: string
+   *                   example: "Stake credential must be registered before DRep delegation"
+   *       500:
+   *         description: Internal server error
+   */
   router.post("/governance/delegate-drep", apiController.delegateToDRep);
 
   return router;
