@@ -84,7 +84,9 @@ export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer 
     );
   }
 
-  const decoded = bech32.decode(encodedAddress);
+  // Cardano addresses can exceed the default bech32 length limit of 90
+  // Use a higher limit (1000) to accommodate Cardano addresses
+  const decoded = bech32.decode(encodedAddress, 1000);
   const addressBytes = Buffer.from(bech32.fromWords(decoded.words));
   return addressBytes;
 }
