@@ -5,7 +5,7 @@
 
 import { bech32 } from "bech32";
 import { blake2b } from "blakejs";
-import * as cbor from "cbor";
+import { encode as cborEncode } from "cbor2";
 import {
   CertificateType,
   CardanoWitness,
@@ -197,17 +197,11 @@ export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInf
 /**
  * Serialize withdrawals as a map for CBOR encoding
  */
-export function serializeWithdrawals(
-  withdrawals: CardanoRewardWithdrawal[]
-): Record<string, number> {
-  const withdrawalMap: Record<string, number> = {};
-
+export function serializeWithdrawals(withdrawals: CardanoRewardWithdrawal[]): Map<Buffer, number> {
+  const withdrawalMap = new Map<Buffer, number>();
   for (const withdrawal of withdrawals) {
-    // Use certificate as key (as hex string) and reward as value
-    const key = withdrawal.certificate.toString("hex");
-    withdrawalMap[key] = withdrawal.reward;
+    withdrawalMap.set(withdrawal.certificate, withdrawal.reward);
   }
-
   return withdrawalMap;
 }
 
@@ -216,7 +210,7 @@ export function serializeWithdrawals(
  */
 export function embedSignaturesInTx(
   deserializedTxPayload: Record<string, any>,
-  signatures: CardanoWitness[]
+  signatures: CardanoWitness[],
 ): Buffer {
   const witnessesArr: Array<[Buffer, Buffer]> = [];
 
@@ -231,12 +225,13 @@ export function embedSignaturesInTx(
     null, // No auxiliary data
   ];
 
-  return Buffer.from(cbor.encode(deserialized));
+  return Buffer.from(cborEncode(deserialized));
 }
 
 /**
  * Build transaction payload (transaction body) for CBOR encoding
  */
+// staking.utils.ts - Update the interface
 export interface BuildPayloadOptions {
   toAddress: string;
   netAmount: number;
@@ -244,7 +239,7 @@ export interface BuildPayloadOptions {
   feeAmount: number;
   ttl: number;
   certificates?: Array<any>;
-  withdrawals?: Record<string, number>;
+  withdrawals?: Map<Buffer, number>; // Changed from Record<string, number>
   network: Networks;
 }
 
@@ -274,11 +269,12 @@ export function buildPayload(options: BuildPayloadOptions): {
     deserialized[4] = certificates;
   }
 
-  if (withdrawals && Object.keys(withdrawals).length > 0) {
+  if (withdrawals && withdrawals.size > 0) {
+    // withdrawals should be a Map, not an object
     deserialized[5] = withdrawals;
   }
 
-  const serialized = Buffer.from(cbor.encode(deserialized));
+  const serialized = Buffer.from(cborEncode(deserialized));
 
   return { serialized, deserialized };
 }
