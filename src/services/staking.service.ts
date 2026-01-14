@@ -43,6 +43,7 @@ import {
   TransferResponse,
 } from "../types/index.js";
 import { TransactionRequest, TransactionOperation, TransferPeerPathType } from "@fireblocks/ts-sdk";
+import axios from "axios";
 
 export class StakingService {
   private readonly logger = new Logger("services:staking-service");
@@ -84,31 +85,35 @@ export class StakingService {
         extraParameters: {
           rawMessageData: {
             messages: [
-              { content: txHash }, // Payment key signature
-              { content: txHash, bip44Change: CHIMERIC_INDEX }, // Staking key signature
+              { content: txHash, bip44addressIndex: 0 }, // Payment key signature
+              { content: txHash, bip44addressIndex: 2 }, // Staking key signature
             ],
           },
         },
       };
 
       this.logger.info(`Sending transaction for signing: ${operation}`);
-      const signatureResponse = await this.fireblocksService.broadcastTransaction(payload);
 
-      if (
-        !signatureResponse ||
-        !signatureResponse.publicKey ||
-        !signatureResponse.signature ||
-        !signatureResponse.signature.fullSig
-      ) {
-        throw new Error("Expected 2 signatures (payment + staking keys)");
+      // Need to use different method that returns ALL signed messages
+      const transactionResponse = await this.fireblocksService.broadcastTransaction(payload);
+
+      if (transactionResponse === null) {
+        throw new Error("Transaction response is null");
       }
 
-      const witnesses: CardanoWitness[] = [
-        {
-          pubKey: Buffer.from(signatureResponse.publicKey, "hex"),
-          signature: Buffer.from(signatureResponse.signature.fullSig, "hex"),
-        },
-      ];
+      const txData = transactionResponse.data;
+
+      // Extract BOTH signatures
+      if (!txData || txData.length !== 2) {
+        throw new Error(
+          `Expected 2 signatures (payment + staking keys), got ${txData?.length || 0}`
+        );
+      }
+
+      const witnesses: CardanoWitness[] = txData.map((msg) => ({
+        pubKey: Buffer.from(msg.publicKey!, "hex"),
+        signature: Buffer.from(msg.signature!.fullSig!, "hex"),
+      }));
 
       return witnesses;
     } catch (error: any) {
@@ -121,8 +126,17 @@ export class StakingService {
    */
   private async getTtl(): Promise<number> {
     try {
-      const epochResponse = await this.iagonApiService.getCurrentEpoch();
-      const currentSlot = epochResponse.data.slot;
+      // const epochResponse = await this.iagonApiService.getCurrentEpoch();
+      const options = {
+        method: "GET",
+        url: "https://cardano-mainnet.blockfrost.io/api/v0/blocks/latest",
+        headers: { project_id: process.env.BLOCKFROST_PROJECT_ID || "" },
+      };
+
+      const { data } = await axios.request(options);
+      console.log(data);
+
+      const currentSlot = data.slot;
       this.logger.info(`Current slot: ${currentSlot}`);
       return calculateTtl(currentSlot);
     } catch (error: any) {
@@ -134,7 +148,7 @@ export class StakingService {
    * Get stake address for a vault account
    * Extracts the BASE address and derives the stake address
    */
-  private async getStakeAddressForVault(vaultAccountId: string): Promise<string> {
+  public async getStakeAddress(vaultAccountId: string): Promise<string> {
     const addresses = await this.fireblocksService.getVaultAccountAddresses(
       vaultAccountId,
       this.assetId
@@ -142,12 +156,12 @@ export class StakingService {
 
     const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
     if (!baseAddressObj) {
-      throw new Error("No BASE address found for vault account");
+      throw new Error(`No BASE address found for vault account ${vaultAccountId}`);
     }
     const baseAddress = baseAddressObj.address;
 
     if (!baseAddress) {
-      throw new Error("No BASE address found for vault account");
+      throw new Error(`No BASE address found for vault account ${vaultAccountId}`);
     }
 
     return getStakeAddressFromBaseAddress(baseAddress, this.network === Networks.MAINNET);
@@ -308,6 +322,18 @@ export class StakingService {
 
       // Embed signatures
       const signedTx = embedSignaturesInTx(deserialized, witnesses);
+
+      this.logger.info("=== DEBUG: Transaction Details ===");
+      this.logger.info(`Serialized TX body (hex): ${serialized.toString("hex")}`);
+      this.logger.info(`TX hash for signing: ${txHash.toString("hex")}`);
+      this.logger.info(`Witnesses count: ${witnesses.length}`);
+      witnesses.forEach((w, i) => {
+        this.logger.info(`Witness ${i} - PubKey: ${w.pubKey.toString("hex")}`);
+        this.logger.info(`Witness ${i} - Signature: ${w.signature.toString("hex")}`);
+      });
+
+      this.logger.info(`Final signed TX (hex): ${signedTx.toString("hex")}`);
+      this.logger.info("================================");
 
       // Submit transaction
       const submitResponse = await this.iagonApiService.submitTransfer(signedTx.toString("hex"));
@@ -717,7 +743,7 @@ export class StakingService {
     try {
       this.logger.info(`Querying staking rewards for vault account ${vaultAccountId}`);
 
-      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
 
       // Query rewards
       return await this.queryRewards(stakeAddress);
@@ -734,7 +760,7 @@ export class StakingService {
     try {
       this.logger.info(`Getting delegation history for vault account ${vaultAccountId}`);
 
-      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
 
       return await this.iagonApiService.getDelegationHistory(stakeAddress, 0, limit);
     } catch (error: any) {
@@ -750,7 +776,7 @@ export class StakingService {
     try {
       this.logger.info(`Getting registration history for vault account ${vaultAccountId}`);
 
-      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
 
       return await this.iagonApiService.getRegistrationHistory(stakeAddress, limit);
     } catch (error: any) {
@@ -766,7 +792,7 @@ export class StakingService {
     try {
       this.logger.info(`Getting stake account info for vault account ${vaultAccountId}`);
 
-      const stakeAddress = await this.getStakeAddressForVault(vaultAccountId);
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
 
       return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
     } catch (error: any) {
