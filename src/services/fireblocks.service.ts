@@ -354,10 +354,13 @@ export class FireblocksService {
   public broadcastTransaction = async (
     transactionPayload: TransactionRequest
   ): Promise<{
-    signature: SignedMessageSignature;
-    content?: string;
-    publicKey?: string;
-    algorithm?: SignedMessageAlgorithmEnum;
+    id: string;
+    data: Array<{
+      signature: SignedMessageSignature;
+      content?: string;
+      publicKey?: string;
+      algorithm?: SignedMessageAlgorithmEnum;
+    }>;
   } | null> => {
     try {
       const transactionResponse = await this.fireblocksSDK.transactions.createTransaction({
@@ -368,16 +371,20 @@ export class FireblocksService {
       if (!txId) throw new Error("Transaction ID is undefined.");
 
       const completedTx = await getTxStatus(txId, this.fireblocksSDK);
-      const signatureData = completedTx.signedMessages?.[0];
-      if (signatureData?.signature) {
+
+      if (completedTx.signedMessages && completedTx.signedMessages.length > 0) {
+        const txData = completedTx.signedMessages.map((msg) => ({
+          signature: msg.signature!,
+          content: msg.content,
+          publicKey: msg.publicKey,
+          algorithm: msg.algorithm,
+        }));
         return {
-          signature: signatureData.signature,
-          content: signatureData.content,
-          publicKey: signatureData.publicKey,
-          algorithm: signatureData.algorithm,
+          id: txId,
+          data: txData,
         };
       } else {
-        this.logger.warn("No signed message found in response.");
+        this.logger.warn("No signed messages found in response.");
         return null;
       }
     } catch (error: unknown) {

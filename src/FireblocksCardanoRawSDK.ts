@@ -5,6 +5,7 @@ import {
   TransactionRequest,
   TransactionOperation,
   TransferPeerPathType,
+  SignedMessageAlgorithmEnum,
 } from "@fireblocks/ts-sdk";
 
 import {
@@ -484,7 +485,9 @@ export class FireblocksCardanoRawSDK {
     const txHashHex = this.calculateTransactionHash(txBody);
     const transactionPayload = this.createFireblocksTransactionPayload(assetId, txHashHex);
 
-    const signatureResponse = await this.fireblocksService.broadcastTransaction(transactionPayload);
+    const txData = await this.fireblocksService.broadcastTransaction(transactionPayload);
+
+    const signatureResponse = txData?.data[0];
 
     if (!signatureResponse?.publicKey || !signatureResponse?.signature?.fullSig) {
       throw new Error("SigningFailed: Invalid signature response from Fireblocks");
@@ -751,10 +754,13 @@ export class FireblocksCardanoRawSDK {
   public broadcastTransaction = async (
     transactionRequest: TransactionRequest
   ): Promise<{
-    signature: SignedMessageSignature;
-    content?: string;
-    publicKey?: string;
-    algorithm?: string;
+    id: string;
+    data: Array<{
+      signature: SignedMessageSignature;
+      content?: string;
+      publicKey?: string;
+      algorithm?: SignedMessageAlgorithmEnum;
+    }>;
   } | null> => {
     return await this.fireblocksService.broadcastTransaction(transactionRequest);
   };
