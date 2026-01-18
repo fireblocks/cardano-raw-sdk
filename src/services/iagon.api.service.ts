@@ -1,6 +1,5 @@
 import axios from "axios";
-import { Logger } from "../utils/logger.js";
-import { ErrorHandler } from "../utils/errorHandler.js";
+import { Logger, ErrorHandler } from "../utils/index.js";
 import { iagonBaseUrl } from "../constants.js";
 import {
   BalanceResponse,
@@ -86,7 +85,7 @@ export class IagonApiService {
 
   public getBalanceByAddress = async (
     params: getBalanceByAddressOpts
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { address, groupByPolicy = false } = params;
 
     try {
@@ -109,7 +108,7 @@ export class IagonApiService {
 
   public getBalanceByCredential = async (
     params: getBalanceByCredentialOpts
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { credential, groupByPolicy = false } = params;
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/credential/${credential}?groupByPolicy=${groupByPolicy}`;
@@ -134,7 +133,7 @@ export class IagonApiService {
 
   public getBalanceByStakeKey = async (
     params: getBalanceByStakeKeyOpts
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { stakeKey, groupByPolicy = false } = params;
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/stake/${stakeKey}?groupByPolicy=${groupByPolicy}`;
