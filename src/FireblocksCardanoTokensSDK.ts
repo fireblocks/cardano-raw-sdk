@@ -62,7 +62,7 @@ export interface SDKConfig {
   logger: Logger;
 }
 
-export class FireblocksIagonSDK {
+export class FireblocksCardanoTokensSDK {
   private readonly fireblocksService: FireblocksService;
   private readonly iagonApiService: IagonApiService;
   private network: Networks;
@@ -72,7 +72,7 @@ export class FireblocksIagonSDK {
   private readonly logger: Logger;
 
   /**
-   * Creates a new FireblocksIagonSDK instance
+   * Creates a new FireblocksCardanoTokensSDK instance
    *
    * @param config - SDK configuration
    */
@@ -85,14 +85,14 @@ export class FireblocksIagonSDK {
 
     this.vaultAccountId = config.vaultAccountId;
 
-    this.logger.info("FireblocksIagonSDK initialized successfully");
+    this.logger.info("FireblocksCardanoTokensSDK initialized successfully");
   }
 
   public static createInstance = async (params: {
     fireblocksConfig: ConfigurationOptions;
     vaultAccountId: string;
     network: Networks;
-  }): Promise<FireblocksIagonSDK> => {
+  }): Promise<FireblocksCardanoTokensSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-iagon-sdk`);
 
@@ -115,7 +115,7 @@ export class FireblocksIagonSDK {
         );
       }
 
-      const sdkInstance = new FireblocksIagonSDK({
+      const sdkInstance = new FireblocksCardanoTokensSDK({
         fireblocksService,
         iagonApiService,
         network,
@@ -126,7 +126,7 @@ export class FireblocksIagonSDK {
       return sdkInstance;
     } catch (error: any) {
       throw new Error(
-        `Error creating FireblocksIagonSDK: ${error instanceof Error ? error.message : error}`
+        `Error creating FireblocksCardanoTokensSDK: ${error instanceof Error ? error.message : error}`
       );
     }
   };
@@ -444,7 +444,7 @@ export class FireblocksIagonSDK {
         type: TransferPeerPathType.VaultAccount,
         id: this.vaultAccountId,
       },
-      note: "Transfer of Cardano tokens via FireblocksIagonSDK",
+      note: "Transfer of Cardano tokens via FireblocksCardanoTokensSDK",
       extraParameters: {
         rawMessageData: {
           messages: [
@@ -521,7 +521,7 @@ export class FireblocksIagonSDK {
         400,
         "ValidationError",
         { providedOptions: { recipientAddress, recipientVaultAccountId } },
-        "FireblocksIagonSDK"
+        "FireblocksCardanoTokensSDK"
       );
     }
     if (recipientAddress && recipientVaultAccountId) {
@@ -530,7 +530,7 @@ export class FireblocksIagonSDK {
         400,
         "ValidationError",
         { providedOptions: { recipientAddress, recipientVaultAccountId } },
-        "FireblocksIagonSDK"
+        "FireblocksCardanoTokensSDK"
       );
     }
 
@@ -556,7 +556,7 @@ export class FireblocksIagonSDK {
             404,
             "AddressNotFound",
             { recipientVaultAccountId, recipientIndex },
-            "FireblocksIagonSDK"
+            "FireblocksCardanoTokensSDK"
           );
         }
         resolvedRecipientAddress = recipientAddressData.address;
@@ -941,8 +941,8 @@ export class FireblocksIagonSDK {
    * ```
    */
   public async shutdown(): Promise<void> {
-    this.logger.info("Shutting down FireblocksIagonSDK...");
+    this.logger.info("Shutting down FireblocksCardanoTokensSDK...");
     this.clearCache();
-    this.logger.info("FireblocksIagonSDK shutdown complete");
+    this.logger.info("FireblocksCardanoTokensSDK shutdown complete");
   }
 }

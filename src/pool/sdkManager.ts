@@ -3,24 +3,24 @@ import { ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Logger } from "../utils/index.js";
 
 // Forward declaration to avoid circular dependency
-import type { FireblocksIagonSDK } from "../FireblocksIagonSDK.js";
+import type { FireblocksCardanoTokensSDK } from "../FireblocksCardanoTokensSDK.js";
 
 /**
- * Pool item for FireblocksIagonSDK instances
+ * Pool item for FireblocksCardanoTokensSDK instances
  */
 interface SdkPoolItem {
-  sdk: FireblocksIagonSDK;
+  sdk: FireblocksCardanoTokensSDK;
   lastUsed: Date;
   isInUse: boolean;
 }
 
 /**
- * Manages a pool of FireblocksIagonSDK instances for efficient resource utilization.
+ * Manages a pool of FireblocksCardanoTokensSDK instances for efficient resource utilization.
  *
- * The SdkManager implements connection pooling for FireblocksIagonSDK instances, allowing
+ * The SdkManager implements connection pooling for FireblocksCardanoTokensSDK instances, allowing
  * reuse across multiple API requests. This reduces initialization overhead and manages resource
  * limits effectively. The manager handles:
- * - FireblocksIagonSDK instance creation and lifecycle management per vault account
+ * - FireblocksCardanoTokensSDK instance creation and lifecycle management per vault account
  * - Automatic cleanup of idle connections
  * - Pool size limits and LRU eviction policies
  * - Per-vault-account SDK instance tracking
@@ -29,7 +29,7 @@ interface SdkPoolItem {
  * @class SdkManager
  * @example
  * ```typescript
- * import { FireblocksIagonSDK } from './FireblocksIagonSDK.js';
+ * import { FireblocksCardanoTokensSDK } from './FireblocksCardanoTokensSDK.js';
  * import { Networks } from './types/index.js';
  *
  * const config: ConfigurationOptions = {
@@ -48,7 +48,7 @@ interface SdkPoolItem {
  *     idleTimeoutMs: 20 * 60 * 1000
  *   },
  *   async (vaultAccountId, fireblocksConfig, network) =>
- *     FireblocksIagonSDK.createInstance({
+ *     FireblocksCardanoTokensSDK.createInstance({
  *       fireblocksConfig,
  *       vaultAccountId,
  *       network
@@ -70,16 +70,16 @@ export class SdkManager {
     vaultAccountId: string,
     config: ConfigurationOptions,
     network: Networks
-  ) => Promise<FireblocksIagonSDK>;
+  ) => Promise<FireblocksCardanoTokensSDK>;
   private network: Networks;
 
   /**
    * Creates an instance of SdkManager with connection pooling.
    *
-   * @param baseConfig - Fireblocks SDK configuration used for all FireblocksIagonSDK instances
+   * @param baseConfig - Fireblocks SDK configuration used for all FireblocksCardanoTokensSDK instances
    * @param network - The Cardano network to use (mainnet, preprod, preview)
    * @param poolConfig - Optional pool configuration settings
-   * @param sdkFactory - Factory function to create FireblocksIagonSDK instances (used to avoid circular dependency)
+   * @param sdkFactory - Factory function to create FireblocksCardanoTokensSDK instances (used to avoid circular dependency)
    */
   constructor(
     baseConfig: ConfigurationOptions,
@@ -89,7 +89,7 @@ export class SdkManager {
       vaultAccountId: string,
       config: ConfigurationOptions,
       network: Networks
-    ) => Promise<FireblocksIagonSDK>
+    ) => Promise<FireblocksCardanoTokensSDK>
   ) {
     this.baseConfig = baseConfig;
     this.network = network;
@@ -102,11 +102,11 @@ export class SdkManager {
       retryAttempts: poolConfig?.retryAttempts || 3,
     };
 
-    // Store the factory function, will be set by FireblocksIagonSDK
+    // Store the factory function, will be set by FireblocksCardanoTokensSDK
     this.sdkFactory =
       sdkFactory ||
       (async () => {
-        throw new Error("SDK factory not initialized. This should be set by FireblocksIagonSDK.");
+        throw new Error("SDK factory not initialized. This should be set by FireblocksCardanoTokensSDK.");
       });
 
     this.cleanupInterval = setInterval(
@@ -116,29 +116,29 @@ export class SdkManager {
   }
 
   /**
-   * Sets the SDK factory function (called by FireblocksIagonSDK to avoid circular dependency)
-   * @param factory - Factory function to create FireblocksIagonSDK instances
+   * Sets the SDK factory function (called by FireblocksCardanoTokensSDK to avoid circular dependency)
+   * @param factory - Factory function to create FireblocksCardanoTokensSDK instances
    */
   public setSdkFactory(
     factory: (
       vaultAccountId: string,
       config: ConfigurationOptions,
       network: Networks
-    ) => Promise<FireblocksIagonSDK>
+    ) => Promise<FireblocksCardanoTokensSDK>
   ): void {
     this.sdkFactory = factory;
   }
 
   /**
-   * Gets or creates a FireblocksIagonSDK instance for a specific vault account.
+   * Gets or creates a FireblocksCardanoTokensSDK instance for a specific vault account.
    *
    * Implements pooling with LRU eviction for efficient resource management.
-   * Each vault account gets its own FireblocksIagonSDK instance that can be reused across requests.
+   * Each vault account gets its own FireblocksCardanoTokensSDK instance that can be reused across requests.
    * The SDK instance is initialized with the vaultAccountId, so methods don't need to fetch
    * vault-specific data from Fireblocks repeatedly.
    *
    * @param vaultAccountId - The Fireblocks vault account ID (used as pool key)
-   * @returns A Promise that resolves to a FireblocksIagonSDK instance
+   * @returns A Promise that resolves to a FireblocksCardanoTokensSDK instance
    *
    * @example
    * ```typescript
@@ -148,7 +148,7 @@ export class SdkManager {
    * const publicKey = await sdk.getPublicKey();
    * ```
    */
-  public async getSdk(vaultAccountId: string): Promise<FireblocksIagonSDK> {
+  public async getSdk(vaultAccountId: string): Promise<FireblocksCardanoTokensSDK> {
     const key = vaultAccountId;
     const poolItem = this.sdkPool.get(key);
 

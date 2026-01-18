@@ -7,7 +7,7 @@ import express, { Request, Response } from "express";
 import { config, Logger, LogLevel, swaggerSpec, swaggerUi } from "./utils/index.js";
 import { SdkManager } from "./pool/sdkManager.js";
 import { configureRouter } from "./api/router.js";
-import { FireblocksIagonSDK } from "./FireblocksIagonSDK.js";
+import { FireblocksCardanoTokensSDK } from "./FireblocksCardanoTokensSDK.js";
 import { Networks } from "./types/index.js";
 
 // Validate required environment variables, additional variables can be added as needed
@@ -49,9 +49,9 @@ const startServer = () => {
       connectionTimeoutMs: parseInt(process.env.POOL_CONNECTION_TIMEOUT_MS || "30000"),
       retryAttempts: parseInt(process.env.POOL_RETRY_ATTEMPTS || "3"),
     },
-    // SDK factory function to create FireblocksIagonSDK instances
+    // SDK factory function to create FireblocksCardanoTokensSDK instances
     async (vaultAccountId: string, fireblocksConfig: ConfigurationOptions, network: Networks) =>
-      FireblocksIagonSDK.createInstance({
+      FireblocksCardanoTokensSDK.createInstance({
         fireblocksConfig,
         vaultAccountId,
         network,

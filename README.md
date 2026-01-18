@@ -56,19 +56,19 @@ Use the SDK directly in your TypeScript/JavaScript application.
 #### Basic Setup
 
 ```typescript
-import { CardanoTokensSDK } from '@iagon/fireblocks-cardano-sdk';
-import { Networks, SupportedAssets } from '@iagon/fireblocks-cardano-sdk/types';
-import { BasePath } from '@fireblocks/ts-sdk';
+import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
+import { Networks, SupportedAssets } from "@iagon/fireblocks-cardano-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
 
 // Initialize the SDK
 const sdk = await CardanoTokensSDK.createInstance({
   fireblocksConfig: {
-    apiKey: 'your-fireblocks-api-key',
-    secretKey: 'your-fireblocks-secret-key',
-    basePath: BasePath.US
+    apiKey: "your-fireblocks-api-key",
+    secretKey: "your-fireblocks-secret-key",
+    basePath: BasePath.US,
   },
-  vaultAccountId: 'your-vault-account-id',
-  network: Networks.MAINNET
+  vaultAccountId: "your-vault-account-id",
+  network: Networks.MAINNET,
 });
 ```
 
@@ -78,63 +78,74 @@ const sdk = await CardanoTokensSDK.createInstance({
 // Get balance by address
 const balance = await sdk.getBalanceByAddress(SupportedAssets.ADA, {
   index: 0,
-  groupByPolicy: false
+  groupByPolicy: false,
 });
 
-console.log('Balance:', balance);
+console.log("Balance:", balance);
 
 // Get balance by stake key
 const stakeBalance = await sdk.getBalanceByStakeKey({
-  stakeKey: 'stake1u8a9qstrmj4rvc3k5z8fems7f0j2vzrem9phpgwylnw0x3sff9pe7',
-  groupByPolicy: true
+  stakeKey: "stake1u8a9qstrmj...",
+  groupByPolicy: true,
 });
 ```
 
 #### Transfer Tokens
 
+The SDK supports two transfer modes:
+
+**1. Transfer to a Cardano Address**
+
 ```typescript
 const transferResult = await sdk.transfer({
-  assetId: SupportedAssets.ADA,
   index: 0,
-  recipientAddress: 'addr1qxy...',
-  tokenPolicyId: 'f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a',
-  tokenName: 'IAGON',
+  recipientAddress: "addr1qxy...",
+  tokenPolicyId: "f0ff48bbb7bbe9d5...",
+  tokenName: "4e49...",
   requiredTokenAmount: 1000000,
-  minRecipientLovelace: 1200000,
-  minChangeLovelace: 1200000
 });
 
-console.log('Transaction Hash:', transferResult.txHash);
-console.log('Sender Address:', transferResult.senderAddress);
+console.log("Transaction Hash:", transferResult.txHash);
+console.log("Sender Address:", transferResult.senderAddress);
 ```
+
+**2. Vault-to-Vault Transfer**
+
+```typescript
+const transferResult = await sdk.transfer({
+  index: 0, // Source address index
+  recipientVaultAccountId: "1", // Destination vault account
+  recipientIndex: 0, // Destination address index (optional, defaults to 0)
+  tokenPolicyId: "f0ff48bbb7bbe9d5...",
+  tokenName: "4e49...",
+  requiredTokenAmount: 1000000,
+});
+
+console.log("Transaction Hash:", transferResult.txHash);
+console.log("Sender Address:", transferResult.senderAddress);
+```
+
+**Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
 
 #### Transaction History
 
 ```typescript
 // Get basic transaction history
-const history = await sdk.getTransactionHistory(
-  SupportedAssets.ADA,
-  0,
-  {
-    limit: 10,
-    offset: 0,
-    fromSlot: 100000
-  }
-);
+const history = await sdk.getTransactionHistory(SupportedAssets.ADA, 0, {
+  limit: 10,
+  offset: 0,
+  fromSlot: 100000,
+});
 
 // Get detailed transaction history with inputs/outputs
-const detailedHistory = await sdk.getDetailedTxHistory(
-  SupportedAssets.ADA,
-  0,
-  {
-    limit: 10,
-    offset: 0
-  }
-);
+const detailedHistory = await sdk.getDetailedTxHistory(SupportedAssets.ADA, 0, {
+  limit: 10,
+  offset: 0,
+});
 
 // Get transaction details by hash
 const txDetails = await sdk.getTransactionDetails(
-  '6c9e6d70a0ce7ca5d22455a5239e3d0daf0ba0c9c05c7b1b1e32f7e6c2d3e4f5'
+  "6c9e6d70a0ce7ca5d..."
 );
 ```
 
@@ -165,18 +176,21 @@ Run the SDK as a REST API service using Docker or Node.js directly.
 #### Quick Start with Docker
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/iagon/fireblocks-iagon-sdk.git
    cd fireblocks-iagon-sdk
    ```
 
 2. **Configure environment variables**:
+
    ```bash
    cp .env.example .env
    # Edit .env with your credentials
    ```
 
 3. **Start the service**:
+
    ```bash
    docker-compose up -d
    ```
@@ -213,19 +227,30 @@ GET /api/tx/history/:vaultAccountId?index=0&limit=10&offset=0&fromSlot=100000
 # Get detailed transaction history
 GET /api/tx/address/:vaultAccountId?index=0&limit=10&offset=0
 
-# Execute transfer
+# Execute transfer (to address)
 POST /api/transfers
 Content-Type: application/json
 
 {
   "vaultAccountId": "your-vault-id",
-  "assetId": "ADA",
   "recipientAddress": "addr1qxy...",
-  "tokenPolicyId": "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a",
-  "tokenName": "IAGON",
+  "tokenPolicyId": "f0ff48bbb7bbe9d5...",
+  "tokenName": "4e49...",
   "requiredTokenAmount": 1000000,
-  "minRecipientLovelace": 1200000,
-  "minChangeLovelace": 1200000,
+  "index": 0
+}
+
+# Execute transfer (vault-to-vault)
+POST /api/transfers
+Content-Type: application/json
+
+{
+  "vaultAccountId": "0",
+  "recipientVaultAccountId": "1",
+  "recipientIndex": 0,
+  "tokenPolicyId": "f0ff48bbb7bbe9d5...",
+  "tokenName": "4e49...",
+  "requiredTokenAmount": 1000000,
   "index": 0
 }
 ```
@@ -239,14 +264,25 @@ curl http://localhost:8000/api/balance/address/vault-123?assetId=ADA&index=0
 # Get transaction history
 curl http://localhost:8000/api/tx/history/vault-123?limit=5
 
-# Execute transfer
+# Execute transfer (to address)
 curl -X POST http://localhost:8000/api/transfers \
   -H "Content-Type: application/json" \
   -d '{
     "vaultAccountId": "vault-123",
     "recipientAddress": "addr1qxy...",
     "tokenPolicyId": "f0ff48bbb...",
-    "tokenName": "IAGON",
+    "tokenName": "4e49...",
+    "requiredTokenAmount": 1000000
+  }'
+
+# Execute transfer (vault-to-vault)
+curl -X POST http://localhost:8000/api/transfers \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "0",
+    "recipientVaultAccountId": "1",
+    "tokenPolicyId": "f0ff48bbb...",
+    "tokenName": "4e49...",
     "requiredTokenAmount": 1000000
   }'
 ```
@@ -326,34 +362,34 @@ View the generated documentation by opening `docs/index.html` in your browser.
 ### Example 1: Transfer Tokens with SDK
 
 ```typescript
-import { CardanoTokensSDK } from '@iagon/fireblocks-cardano-sdk';
-import { Networks, SupportedAssets } from '@iagon/fireblocks-cardano-sdk/types';
-import { BasePath } from '@fireblocks/ts-sdk';
+import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
+import { Networks, SupportedAssets } from "@iagon/fireblocks-cardano-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
 
 async function transferTokens() {
   const sdk = await CardanoTokensSDK.createInstance({
     fireblocksConfig: {
       apiKey: process.env.FIREBLOCKS_API_KEY!,
       secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
-      basePath: BasePath.US
+      basePath: BasePath.US,
     },
-    vaultAccountId: 'vault-123',
-    network: Networks.MAINNET
+    vaultAccountId: "vault-123",
+    network: Networks.MAINNET,
   });
 
   try {
     const result = await sdk.transfer({
-      recipientAddress: 'addr1qxy...',
-      tokenPolicyId: 'f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a',
-      tokenName: 'IAGON',
-      requiredTokenAmount: 1000000
+      recipientAddress: "addr1qxy...",
+      tokenPolicyId: "f0ff48bbb7bbe9d5...",
+      tokenName: "4e49...",
+      requiredTokenAmount: 1000000,
     });
 
-    console.log('Transfer successful!');
-    console.log('Transaction Hash:', result.txHash);
-    console.log('View on Cardanoscan:', `https://cardanoscan.io/transaction/${result.txHash}`);
+    console.log("Transfer successful!");
+    console.log("Transaction Hash:", result.txHash);
+    console.log("View on Cardanoscan:", `https://cardanoscan.io/transaction/${result.txHash}`);
   } catch (error) {
-    console.error('Transfer failed:', error);
+    console.error("Transfer failed:", error);
   } finally {
     await sdk.shutdown();
   }
@@ -365,44 +401,44 @@ transferTokens();
 ### Example 2: SDK Manager with Connection Pooling
 
 ```typescript
-import { SdkManager } from '@iagon/fireblocks-cardano-sdk/pool';
-import { CardanoTokensSDK } from '@iagon/fireblocks-cardano-sdk';
-import { Networks } from '@iagon/fireblocks-cardano-sdk/types';
-import { BasePath } from '@fireblocks/ts-sdk';
+import { SdkManager } from "@iagon/fireblocks-cardano-sdk/pool";
+import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
+import { Networks } from "@iagon/fireblocks-cardano-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
 
 const manager = new SdkManager(
   {
     apiKey: process.env.FIREBLOCKS_API_KEY!,
     secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
-    basePath: BasePath.US
+    basePath: BasePath.US,
   },
   Networks.MAINNET,
   {
     maxPoolSize: 50,
-    idleTimeoutMs: 20 * 60 * 1000
+    idleTimeoutMs: 20 * 60 * 1000,
   },
   async (vaultAccountId, fireblocksConfig, network) =>
     CardanoTokensSDK.createInstance({
       fireblocksConfig,
       vaultAccountId,
-      network
+      network,
     })
 );
 
 // Get SDK for a vault account (automatically pooled)
-const sdk1 = await manager.getSdk('vault-123');
+const sdk1 = await manager.getSdk("vault-123");
 const balance1 = await sdk1.getBalanceByAddress();
 
 // Reuses the same SDK instance
-const sdk2 = await manager.getSdk('vault-123');
+const sdk2 = await manager.getSdk("vault-123");
 const balance2 = await sdk2.getBalanceByAddress();
 
 // Release SDK back to pool when done
-manager.releaseSdk('vault-123');
+manager.releaseSdk("vault-123");
 
 // Get pool metrics
 const metrics = manager.getMetrics();
-console.log('Pool Metrics:', metrics);
+console.log("Pool Metrics:", metrics);
 
 // Shutdown when done
 await manager.shutdown();
@@ -411,39 +447,33 @@ await manager.shutdown();
 ### Example 3: API Client in JavaScript
 
 ```javascript
-const axios = require('axios');
+const axios = require("axios");
 
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = "http://localhost:8000/api";
 
 async function getBalanceAndTransfer() {
   try {
     // Get balance
-    const balanceResponse = await axios.get(
-      `${API_BASE_URL}/balance/address/vault-123`,
-      {
-        params: {
-          assetId: 'ADA',
-          index: 0,
-          groupByPolicy: true
-        }
-      }
-    );
-    console.log('Balance:', balanceResponse.data);
+    const balanceResponse = await axios.get(`${API_BASE_URL}/balance/address/vault-123`, {
+      params: {
+        assetId: "ADA",
+        index: 0,
+        groupByPolicy: true,
+      },
+    });
+    console.log("Balance:", balanceResponse.data);
 
     // Execute transfer
-    const transferResponse = await axios.post(
-      `${API_BASE_URL}/transfers`,
-      {
-        vaultAccountId: 'vault-123',
-        recipientAddress: 'addr1qxy...',
-        tokenPolicyId: 'f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a',
-        tokenName: 'IAGON',
-        requiredTokenAmount: 1000000
-      }
-    );
-    console.log('Transfer Result:', transferResponse.data);
+    const transferResponse = await axios.post(`${API_BASE_URL}/transfers`, {
+      vaultAccountId: "vault-123",
+      recipientAddress: "addr1qxy...",
+      tokenPolicyId: "f0ff48bbb7bbe9d5...",
+      tokenName: "4e49...",
+      requiredTokenAmount: 1000000,
+    });
+    console.log("Transfer Result:", transferResponse.data);
   } catch (error) {
-    console.error('Error:', error.response?.data || error.message);
+    console.error("Error:", error.response?.data || error.message);
   }
 }
 
@@ -453,19 +483,19 @@ getBalanceAndTransfer();
 ### Example 4: Using Cache for Performance
 
 ```typescript
-import { CardanoTokensSDK } from '@iagon/fireblocks-cardano-sdk';
-import { Networks, SupportedAssets } from '@iagon/fireblocks-cardano-sdk/types';
-import { BasePath } from '@fireblocks/ts-sdk';
+import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
+import { Networks, SupportedAssets } from "@iagon/fireblocks-cardano-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
 
 async function demonstrateCaching() {
   const sdk = await CardanoTokensSDK.createInstance({
     fireblocksConfig: {
       apiKey: process.env.FIREBLOCKS_API_KEY!,
       secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
-      basePath: BasePath.US
+      basePath: BasePath.US,
     },
-    vaultAccountId: 'vault-123',
-    network: Networks.MAINNET
+    vaultAccountId: "vault-123",
+    network: Networks.MAINNET,
   });
 
   // Check cache statistics
@@ -563,7 +593,7 @@ docker-compose restart
 #### Docker Compose Configuration
 
 ```yaml
-version: '3.8'
+version: "3.8"
 
 services:
   fireblocks-sdk:
@@ -600,14 +630,15 @@ The SDK implements automatic caching to minimize Fireblocks API calls:
 ```typescript
 // Check cache statistics
 const stats = sdk.getCacheStats();
-console.log('Cached addresses:', stats.addressCount);
-console.log('Cached public keys:', stats.publicKeyCount);
+console.log("Cached addresses:", stats.addressCount);
+console.log("Cached public keys:", stats.publicKeyCount);
 
 // Clear cache manually if needed
 sdk.clearCache();
 ```
 
 **Benefits:**
+
 - Reduces API calls to Fireblocks by up to 90%
 - Faster response times for repeated operations
 - Lower costs and improved rate limit compliance
@@ -654,11 +685,11 @@ const fireblocksService = sdk.getFireblocksService();
 const iagonApiService = sdk.getIagonApiService();
 
 // Cache management
-sdk.clearCache();  // Clear all cached addresses and public keys
-const stats = sdk.getCacheStats();  // Get cache statistics
+sdk.clearCache(); // Clear all cached addresses and public keys
+const stats = sdk.getCacheStats(); // Get cache statistics
 
 // Graceful shutdown
-await sdk.shutdown();  // Clean up resources and clear cache
+await sdk.shutdown(); // Clean up resources and clear cache
 ```
 
 ## Troubleshooting
