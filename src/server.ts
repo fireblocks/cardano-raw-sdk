@@ -4,11 +4,9 @@ import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Express } from "express-serve-static-core";
 import express, { Request, Response } from "express";
 
-import { config } from "./utils/config.js";
+import { config, Logger, LogLevel, swaggerSpec, swaggerUi } from "./utils/index.js";
 import { SdkManager } from "./pool/sdkManager.js";
 import { configureRouter } from "./api/router.js";
-import { Logger, LogLevel } from "./utils/logger.js";
-import { swaggerSpec, swaggerUi } from "./utils/swagger.js";
 import { FireblocksIagonSDK } from "./FireblocksIagonSDK.js";
 import { Networks } from "./types/index.js";
 

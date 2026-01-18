@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { Logger } from "../../utils/logger.js";
+import { Logger } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, IagonApiError } from "../../types/index.js";
 
@@ -165,7 +165,7 @@ export class ApiController {
       this.handleError(error, res, "getDetailedTxHistory");
     }
   };
-  
+
   public transfer = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;

@@ -1,6 +1,6 @@
 import { PoolConfig, SdkManagerMetrics, Networks } from "../types/index.js";
 import { ConfigurationOptions } from "@fireblocks/ts-sdk";
-import { Logger } from "../utils/logger.js";
+import { Logger } from "../utils/index.js";
 
 // Forward declaration to avoid circular dependency
 import type { FireblocksIagonSDK } from "../FireblocksIagonSDK.js";
