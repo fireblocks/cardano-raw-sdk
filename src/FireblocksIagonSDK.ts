@@ -20,10 +20,18 @@ import {
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
+  GroupByOptions,
+  VaultBalanceResponse,
+  VaultBalanceTokenResponse,
+  VaultBalanceByToken,
+  VaultBalanceAddressResponse,
+  VaultBalanceByAddress,
+  VaultBalancePolicyResponse,
+  VaultBalanceByPolicy,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
-import { tokenTransactionFee } from "./constants.js";
+import { MIN_CHANGE_LOVELACE, MIN_RECIPIENT_LOVELACE, tokenTransactionFee } from "./constants.js";
 import {
   buildTransaction,
   calculateTtl,
@@ -43,6 +51,7 @@ import {
   Vkeywitnesses,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { blake2b } from "blakejs";
+import { decodeAssetName } from "./utils/general.js";
 
 export interface SDKConfig {
   vaultAccountId: string;
@@ -126,7 +135,7 @@ export class FireblocksIagonSDK {
    */
   public getBalanceByAddress = async (
     options: { index?: number; groupByPolicy?: boolean } = {}
-  ): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { index = 0, groupByPolicy = false } = options;
 
     const assetId =
@@ -143,12 +152,62 @@ export class FireblocksIagonSDK {
   };
 
   /**
+   * Get total balance for all addresses in a vault account
+   */
+  public getVaultBalance = async (
+    options: {
+      groupBy?: GroupByOptions;
+    } = {}
+  ): Promise<VaultBalanceResponse> => {
+    const { groupBy = GroupByOptions.TOKEN } = options;
+
+    this.logger.info(`Getting vault balance for vault ${this.vaultAccountId}, groupBy: ${groupBy}`);
+
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+
+    const addresses = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      assetId
+    );
+
+    if (!addresses || addresses.length === 0) {
+      this.logger.warn(`No addresses found for vault ${this.vaultAccountId}`);
+      return this.getEmptyVaultBalance(groupBy);
+    }
+
+    // Fetch balances for all addresses in parallel
+    const balancePromises = addresses
+      .filter((addrData) => addrData.address && addrData.addressFormat === "BASE") // Filter out addresses without an address field / non-base addresses
+      .map(async (addrData) => {
+        const address = addrData.address!;
+        const index = addrData.bip44AddressIndex || 0;
+
+        try {
+          const balance = await this.iagonApiService.getBalanceByAddress({
+            address,
+            groupByPolicy: groupBy === GroupByOptions.POLICY,
+          });
+          return { address, index, balance };
+        } catch (error) {
+          this.logger.error(`Error fetching balance for address ${address}:`, error);
+          return { address, index, balance: null };
+        }
+      });
+
+    const results = await Promise.all(balancePromises);
+
+    // Aggregate based on groupBy parameter
+    return this.aggregateVaultBalance(results, groupBy);
+  };
+
+  /**
    * Get balance by credential for a vault account
    */
   public getBalanceByCredential = async (options: {
     credential: string;
     groupByPolicy?: boolean;
-  }): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { credential, groupByPolicy = false } = options;
 
     this.logger.info(`Getting balance for credential ${credential}`);
@@ -164,7 +223,7 @@ export class FireblocksIagonSDK {
   public getBalanceByStakeKey = async (options: {
     stakeKey: string;
     groupByPolicy?: boolean;
-  }): Promise<BalanceResponse[] | GroupedBalanceResponse[]> => {
+  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { stakeKey, groupByPolicy = false } = options;
 
     this.logger.info(`Getting balance for stake key ${stakeKey}`);
@@ -174,6 +233,19 @@ export class FireblocksIagonSDK {
       groupByPolicy,
     });
   };
+
+  /**
+   * Helper to return empty vault balance based on groupBy
+   */
+  private getEmptyVaultBalance(groupBy: GroupByOptions): VaultBalanceResponse {
+    if (groupBy === GroupByOptions.ADDRESS) {
+      return { addresses: [], totals: { ada: "0", tokens: [] } };
+    } else if (groupBy === GroupByOptions.POLICY) {
+      return { balances: [], totalAda: "0" };
+    } else {
+      return { balances: [{ assetId: "ADA", amount: "0", tokenName: "ADA" }] };
+    }
+  }
 
   /**
    * Helper method to fetch and validate address for a vault account
@@ -217,9 +289,7 @@ export class FireblocksIagonSDK {
   /**
    * Get UTXOs for a vault account address
    */
-  public getUtxosByAddress = async (
-    index: number = 0
-  ): Promise<UtxoIagonResponse> => {
+  public getUtxosByAddress = async (index: number = 0): Promise<UtxoIagonResponse> => {
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     const address = await this.getAddressByIndex(assetId, index);
@@ -432,15 +502,10 @@ export class FireblocksIagonSDK {
     senderAddress: string;
     tokenName: string;
   }> => {
-    const {
-      index = 0,
-      recipientAddress,
-      tokenPolicyId,
-      tokenName,
-      requiredTokenAmount,
-      minRecipientLovelace = 1_200_000,
-      minChangeLovelace = 1_200_000,
-    } = options;
+    const { index = 0, recipientAddress, tokenPolicyId, tokenName, requiredTokenAmount } = options;
+
+    const minRecipientLovelace = MIN_RECIPIENT_LOVELACE;
+    const minChangeLovelace = MIN_CHANGE_LOVELACE;
 
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
@@ -518,10 +583,7 @@ export class FireblocksIagonSDK {
   /**
    * Get public key for a vault account address with caching
    */
-  public getPublicKey = async (
-    change: number = 0,
-    addressIndex: number = 0
-  ): Promise<string> => {
+  public getPublicKey = async (change: number = 0, addressIndex: number = 0): Promise<string> => {
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     // Create cache key from all parameters
@@ -565,6 +627,210 @@ export class FireblocksIagonSDK {
   } | null> => {
     return await this.fireblocksService.broadcastTransaction(transactionRequest);
   };
+
+  /**
+   * Helper to aggregate vault balances based on groupBy option
+   */
+  private aggregateVaultBalance(
+    results: Array<{
+      address: string;
+      index: number;
+      balance: BalanceResponse | GroupedBalanceResponse | null;
+    }>,
+    groupBy: GroupByOptions
+  ): VaultBalanceResponse {
+    if (groupBy === GroupByOptions.ADDRESS) {
+      return this.aggregateByAddress(results);
+    } else if (groupBy === GroupByOptions.POLICY) {
+      return this.aggregateByPolicy(results);
+    } else {
+      return this.aggregateByToken(results);
+    }
+  }
+
+  /**
+   * Aggregate balances by token (default view)
+   */
+  private aggregateByToken(
+    results: Array<{
+      address: string;
+      index: number;
+      balance: BalanceResponse | GroupedBalanceResponse | null;
+    }>
+  ): VaultBalanceTokenResponse {
+    const tokenMap = new Map<string, bigint>();
+    let totalAda = BigInt(0);
+
+    for (const result of results) {
+      if (!result.balance || !result.balance.success) continue;
+
+      const bal = result.balance.data;
+      if (!bal) continue;
+
+      // Add ADA
+      totalAda += BigInt(bal.lovelace || 0);
+
+      // Add tokens
+      if (bal.assets) {
+        for (const [assetId, amount] of Object.entries(bal.assets)) {
+          const current = tokenMap.get(assetId) || BigInt(0);
+          tokenMap.set(assetId, current + BigInt(amount as number));
+        }
+      }
+    }
+
+    const tokens: VaultBalanceByToken[] = Array.from(tokenMap.entries()).map(
+      ([assetId, amount]) => ({
+        assetId,
+        amount: amount.toString(),
+        tokenName: decodeAssetName(assetId),
+      })
+    );
+
+    return {
+      balances: [{ assetId: "ADA", amount: totalAda.toString(), tokenName: "ADA" }, ...tokens],
+    };
+  }
+
+  /**
+   * Aggregate balances by address
+   */
+  private aggregateByAddress(
+    results: Array<{
+      address: string;
+      index: number;
+      balance: BalanceResponse | GroupedBalanceResponse | null;
+    }>
+  ): VaultBalanceAddressResponse {
+    const addresses: VaultBalanceByAddress[] = [];
+    let totalAda = BigInt(0);
+    const totalTokenMap = new Map<string, bigint>();
+
+    for (const result of results) {
+      if (!result.balance || !result.balance.success) {
+        addresses.push({
+          address: result.address,
+          index: result.index,
+          ada: "0",
+          tokens: [],
+        });
+        continue;
+      }
+
+      const bal = result.balance.data;
+      if (!bal) {
+        addresses.push({
+          address: result.address,
+          index: result.index,
+          ada: "0",
+          tokens: [],
+        });
+        continue;
+      }
+
+      const addressAda = BigInt(bal.lovelace || 0);
+      const addressTokens = new Map<string, bigint>();
+
+      if (bal.assets) {
+        for (const [assetId, amount] of Object.entries(bal.assets)) {
+          const current = addressTokens.get(assetId) || BigInt(0);
+          addressTokens.set(assetId, current + BigInt(amount as number));
+        }
+      }
+
+      totalAda += addressAda;
+
+      const tokens: Array<{ assetId: string; amount: string; tokenName: string }> = Array.from(
+        addressTokens.entries()
+      ).map(([assetId, amount]) => {
+        const current = totalTokenMap.get(assetId) || BigInt(0);
+        totalTokenMap.set(assetId, current + amount);
+        return { assetId, amount: amount.toString(), tokenName: decodeAssetName(assetId) };
+      });
+
+      addresses.push({
+        address: result.address,
+        index: result.index,
+        ada: addressAda.toString(),
+        tokens,
+      });
+    }
+
+    const totalTokens: Array<{ assetId: string; amount: string; tokenName: string }> = Array.from(
+      totalTokenMap.entries()
+    ).map(([assetId, amount]) => ({
+      assetId,
+      amount: amount.toString(),
+      tokenName: decodeAssetName(assetId),
+    }));
+
+    return {
+      addresses,
+      totals: {
+        ada: totalAda.toString(),
+        tokens: totalTokens,
+      },
+    };
+  }
+
+  /**
+   * Aggregate balances by policy
+   */
+  private aggregateByPolicy(
+    results: Array<{
+      address: string;
+      index: number;
+      balance: BalanceResponse | GroupedBalanceResponse | null;
+    }>
+  ): VaultBalancePolicyResponse {
+    const policyMap = new Map<string, Map<string, bigint>>();
+    let totalAda = BigInt(0);
+
+    for (const result of results) {
+      if (!!!result.balance || !result.balance.success) continue;
+
+      const balance = result.balance.data;
+      if (!balance) continue;
+
+      totalAda += BigInt(balance.lovelace || 0);
+
+      if (balance.assets && typeof balance.assets === "object") {
+        for (const [policyId, tokens] of Object.entries(balance.assets)) {
+          if (typeof tokens === "object" && tokens !== null) {
+            let policyTokens = policyMap.get(policyId);
+            if (!policyTokens) {
+              policyTokens = new Map<string, bigint>();
+              policyMap.set(policyId, policyTokens);
+            }
+
+            for (const [tokenName, amount] of Object.entries(tokens)) {
+              // Keep hex token name as key
+              const current = policyTokens.get(tokenName) || BigInt(0);
+              policyTokens.set(tokenName, current + BigInt(amount as number));
+            }
+          }
+        }
+      }
+    }
+
+    const balances: VaultBalanceByPolicy[] = Array.from(policyMap.entries()).map(
+      ([policyId, tokens]) => {
+        const tokenObj: { [key: string]: { amount: string; tokenName: string } } = {};
+        for (const [hexTokenName, amount] of tokens.entries()) {
+          tokenObj[hexTokenName] = {
+            tokenName: decodeAssetName(`${policyId}.${hexTokenName}`),
+            amount: amount.toString(),
+          };
+        }
+        return { policyId, tokens: tokenObj };
+      }
+    );
+
+    return {
+      balances,
+      totalAda: totalAda.toString(),
+    };
+  }
 
   /**
    * Get direct access to the Fireblocks service

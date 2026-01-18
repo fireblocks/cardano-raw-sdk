@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Logger } from "../../utils/logger.js";
 import { SdkManager } from "../../pool/sdkManager.js";
-import { IagonApiError } from "../../types/index.js";
+import { GroupByOptions, IagonApiError } from "../../types/index.js";
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.
@@ -37,7 +37,6 @@ export class ApiController {
 
   public getBalanceByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params;
-
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const groupByPolicy = req.query.groupByPolicy === "true";
 
@@ -51,6 +50,20 @@ export class ApiController {
       res.status(200).json(result);
     } catch (error: any) {
       this.handleError(error, res, "getBalanceByAddress");
+    }
+  };
+
+  public getVaultBalance = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const groupBy = req.query.groupBy as GroupByOptions | undefined;
+
+    try {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getVaultBalance({ groupBy });
+
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getVaultBalance");
     }
   };
 
@@ -152,7 +165,7 @@ export class ApiController {
       this.handleError(error, res, "getDetailedTxHistory");
     }
   };
-
+  
   public transfer = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;

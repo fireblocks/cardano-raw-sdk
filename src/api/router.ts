@@ -125,6 +125,156 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/balance/vault/{vaultAccountId}:
+   *   get:
+   *     summary: Get total balance for vault account
+   *     description: Retrieves the aggregated balance for all addresses in a vault account. Supports multiple grouping options to view balances by token, address, or policy.
+   *     tags: [Balance]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *       - in: query
+   *         name: groupBy
+   *         schema:
+   *           type: string
+   *           enum: [token, address, policy]
+   *           default: token
+   *         description: |
+   *           How to group the balance results:
+   *           - `token`: Groups all balances by token/asset (default). Returns total ADA and all tokens across all addresses.
+   *           - `address`: Groups balances by address. Shows per-address breakdown with totals.
+   *           - `policy`: Groups tokens by their policy ID. Useful for NFT collections and token families.
+   *     responses:
+   *       200:
+   *         description: Vault balance retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               oneOf:
+   *                 - type: object
+   *                   description: Response when groupBy=token (default)
+   *                   properties:
+   *                     balances:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           assetId:
+   *                             type: string
+   *                             description: Asset identifier (ADA or policy.tokenName)
+   *                             example: "ADA"
+   *                           amount:
+   *                             type: string
+   *                             description: Total amount as string (to handle large numbers)
+   *                             example: "1500000000"
+   *                   example:
+   *                     balances:
+   *                       - assetId: "ADA"
+   *                         amount: "1500000000"
+   *                       - assetId: "policy1.token1"
+   *                         amount: "100"
+   *                       - assetId: "policy2.token2"
+   *                         amount: "50"
+   *                 - type: object
+   *                   description: Response when groupBy=address
+   *                   properties:
+   *                     addresses:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           address:
+   *                             type: string
+   *                             description: Cardano address
+   *                           index:
+   *                             type: integer
+   *                             description: BIP44 address index
+   *                           ada:
+   *                             type: string
+   *                             description: ADA balance in lovelace
+   *                           tokens:
+   *                             type: array
+   *                             items:
+   *                               type: object
+   *                               properties:
+   *                                 assetId:
+   *                                   type: string
+   *                                 amount:
+   *                                   type: string
+   *                     totals:
+   *                       type: object
+   *                       properties:
+   *                         ada:
+   *                           type: string
+   *                           description: Total ADA across all addresses
+   *                         tokens:
+   *                           type: array
+   *                           items:
+   *                             type: object
+   *                             properties:
+   *                               assetId:
+   *                                 type: string
+   *                               amount:
+   *                                 type: string
+   *                   example:
+   *                     addresses:
+   *                       - address: "addr1..."
+   *                         index: 0
+   *                         ada: "1000000000"
+   *                         tokens:
+   *                           - assetId: "policy1.token1"
+   *                             amount: "50"
+   *                       - address: "addr2..."
+   *                         index: 1
+   *                         ada: "500000000"
+   *                         tokens:
+   *                           - assetId: "policy1.token1"
+   *                             amount: "50"
+   *                     totals:
+   *                       ada: "1500000000"
+   *                       tokens:
+   *                         - assetId: "policy1.token1"
+   *                           amount: "100"
+   *                 - type: object
+   *                   description: Response when groupBy=policy
+   *                   properties:
+   *                     balances:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           policyId:
+   *                             type: string
+   *                             description: Token policy ID
+   *                           tokens:
+   *                             type: object
+   *                             additionalProperties:
+   *                               type: string
+   *                             description: Map of token names to amounts
+   *                     totalAda:
+   *                       type: string
+   *                       description: Total ADA in lovelace
+   *                   example:
+   *                     balances:
+   *                       - policyId: "policy1"
+   *                         tokens:
+   *                           token1: "100"
+   *                           token2: "50"
+   *                       - policyId: "policy2"
+   *                         tokens:
+   *                           nft1: "1"
+   *                     totalAda: "1500000000"
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/balance/vault/:vaultAccountId", apiController.getVaultBalance);
+
+  /**
+   * @swagger
    * /api/tx/hash/{hash}:
    *   get:
    *     summary: Get transaction details by hash
@@ -532,6 +682,13 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *               vaultAccountId:
    *                 type: string
    *                 description: The source vault account ID
+   *               index:
+   *                 type: number
+   *                 description: Address index to use (optional, defaults to 0)
+   *               assetId:
+   *                 type: string
+   *                 enum: [ADA, ADA_TEST]
+   *                 description: The asset ID for the blockchain (optional)
    *               recipientAddress:
    *                 type: string
    *                 description: The recipient address to send tokens to
@@ -544,15 +701,6 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *               requiredTokenAmount:
    *                 type: number
    *                 description: The amount of tokens to transfer
-   *               minRecipientLovelace:
-   *                 type: number
-   *                 description: Minimum lovelace to send to recipient (optional)
-   *               minChangeLovelace:
-   *                 type: number
-   *                 description: Minimum lovelace for change output (optional)
-   *               index:
-   *                 type: number
-   *                 description: Address index to use (optional, defaults to 0)
    *     responses:
    *       200:
    *         description: Transfer executed successfully
