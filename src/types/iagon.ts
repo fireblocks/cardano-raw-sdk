@@ -1,4 +1,5 @@
 import { Address } from "@emurgo/cardano-serialization-lib-nodejs";
+import { GroupByOptions } from "./enums.js";
 
 export interface getBalanceByAddressOpts {
   address: string;
@@ -13,6 +14,10 @@ export interface getBalanceByCredentialOpts {
 export interface getBalanceByStakeKeyOpts {
   stakeKey: string;
   groupByPolicy: boolean;
+}
+
+export interface getVaultBalanceOpts {
+  groupBy?: GroupByOptions;
 }
 
 export interface transferOpts {
@@ -50,7 +55,7 @@ export interface UtxoIagonResponse {
 
 export interface BalanceResponse {
   success: boolean;
-  balance: {
+  data: {
     lovelace: number;
     assets: {
       [key: string]: number;
@@ -60,7 +65,7 @@ export interface BalanceResponse {
 
 export interface GroupedBalanceResponse {
   success: boolean;
-  balance: {
+  data: {
     lovelace: number;
     assets: {
       [policyId: string]: {
@@ -69,6 +74,68 @@ export interface GroupedBalanceResponse {
     };
   };
 }
+
+export interface VaultBalanceByToken {
+  assetId: string;
+  amount: string;
+  tokenName?: string;
+}
+
+export interface VaultBalanceByAddress {
+  address: string;
+  index: number;
+  ada: string;
+  tokens: Array<{
+    assetId: string;
+    amount: string;
+    tokenName?: string;
+  }>;
+}
+
+export interface VaultBalanceByPolicy {
+  policyId: string;
+  tokens: {
+    [hexTokenName: string]: {
+      tokenName: string;
+      amount: string;
+    };
+  };
+}
+
+export interface VaultBalanceSummary {
+  totalAda: string;
+  tokens: Array<{
+    assetId: string;
+    amount: string;
+  }>;
+}
+
+export interface VaultBalanceTokenResponse {
+  balances: VaultBalanceByToken[];
+}
+
+export interface VaultBalanceAddressResponse {
+  addresses: VaultBalanceByAddress[];
+  totals: {
+    ada: string;
+    tokens: Array<{
+      assetId: string;
+      amount: string;
+      tokenName?: string;
+    }>;
+  };
+}
+
+export interface VaultBalancePolicyResponse {
+  balances: VaultBalanceByPolicy[];
+  totalAda: string;
+}
+
+export type VaultBalanceResponse =
+  | VaultBalanceSummary
+  | VaultBalanceTokenResponse
+  | VaultBalanceAddressResponse
+  | VaultBalancePolicyResponse;
 
 export interface HistoryResponse {}
 
