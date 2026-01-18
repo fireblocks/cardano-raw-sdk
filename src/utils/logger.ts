@@ -1,3 +1,5 @@
+import { sanitizeForLogging } from "./sanitizer.js";
+
 export enum LogLevel {
   DEBUG = 0,
   INFO = 1,
@@ -8,6 +10,8 @@ export enum LogLevel {
 
 export class Logger {
   private static level: LogLevel = LogLevel.INFO;
+  private static sanitizeLogs: boolean = true;
+  private static customSensitiveKeys: string[] = [];
   private context: string;
 
   /**
@@ -35,6 +39,29 @@ export class Logger {
   }
 
   /**
+   * Enable or disable automatic sanitization of sensitive data in logs
+   * @param enabled Whether to sanitize logs (default: true)
+   */
+  static setSanitizeLogs(enabled: boolean): void {
+    Logger.sanitizeLogs = enabled;
+  }
+
+  /**
+   * Add custom keys that should be treated as sensitive
+   * @param keys Array of key names to treat as sensitive
+   */
+  static addSensitiveKeys(...keys: string[]): void {
+    Logger.customSensitiveKeys.push(...keys);
+  }
+
+  /**
+   * Clear all custom sensitive keys
+   */
+  static clearSensitiveKeys(): void {
+    Logger.customSensitiveKeys = [];
+  }
+
+  /**
    * Get formatted timestamp
    * @returns Formatted timestamp string
    */
@@ -47,6 +74,18 @@ export class Logger {
       second: "2-digit",
     });
   }
+
+  /**
+   * Sanitize arguments for logging if sanitization is enabled
+   * @param args Arguments to sanitize
+   * @returns Sanitized arguments
+   */
+  private sanitizeArgs(args: unknown[]): unknown[] {
+    if (!Logger.sanitizeLogs) {
+      return args;
+    }
+    return args.map((arg) => sanitizeForLogging(arg, Logger.customSensitiveKeys));
+  }
   /**
    * Log a debug message
    * @param message Log message
@@ -54,7 +93,11 @@ export class Logger {
    */
   debug(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.DEBUG) {
-      console.log(`[${this.getTimestamp()}] [DEBUG] [${this.context}] ${message}`, ...args);
+      const sanitizedArgs = this.sanitizeArgs(args);
+      console.log(
+        `[${this.getTimestamp()}] [DEBUG] [${this.context}] ${message}`,
+        ...sanitizedArgs
+      );
     }
   }
 
@@ -65,7 +108,8 @@ export class Logger {
    */
   info(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.INFO) {
-      console.log(`[${this.getTimestamp()}] [INFO] [${this.context}] ${message}`, ...args);
+      const sanitizedArgs = this.sanitizeArgs(args);
+      console.log(`[${this.getTimestamp()}] [INFO] [${this.context}] ${message}`, ...sanitizedArgs);
     }
   }
 
@@ -76,7 +120,11 @@ export class Logger {
    */
   warn(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.WARN) {
-      console.warn(`[${this.getTimestamp()}] [WARN] [${this.context}] ${message}`, ...args);
+      const sanitizedArgs = this.sanitizeArgs(args);
+      console.warn(
+        `[${this.getTimestamp()}] [WARN] [${this.context}] ${message}`,
+        ...sanitizedArgs
+      );
     }
   }
 
@@ -87,7 +135,11 @@ export class Logger {
    */
   error(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.ERROR) {
-      console.error(`[${this.getTimestamp()}] [ERROR] [${this.context}] ${message}`, ...args);
+      const sanitizedArgs = this.sanitizeArgs(args);
+      console.error(
+        `[${this.getTimestamp()}] [ERROR] [${this.context}] ${message}`,
+        ...sanitizedArgs
+      );
     }
   }
 
