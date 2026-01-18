@@ -16,3 +16,9 @@ export enum SupportedAssets {
   ADA = "ADA",
   ADA_TEST = "ADA_TEST",
 }
+
+export enum GroupByOptions {
+  TOKEN = "token",
+  ADDRESS = "address",
+  POLICY = "policy",
+}
