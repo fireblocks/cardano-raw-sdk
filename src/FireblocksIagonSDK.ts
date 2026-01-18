@@ -37,6 +37,7 @@ import {
   VaultBalanceByAddress,
   VaultBalancePolicyResponse,
   VaultBalanceByPolicy,
+  IagonApiError,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -493,6 +494,7 @@ export class FireblocksIagonSDK {
    *
    * @param options - Transfer configuration options
    * @returns Transaction result with hash, sender address, and token name
+   * @throws IagonApiError with 400 status code for validation errors
    * @throws Error if any step of the transfer process fails
    */
   public transfer = async (
@@ -502,7 +504,35 @@ export class FireblocksIagonSDK {
     senderAddress: string;
     tokenName: string;
   }> => {
-    const { index = 0, recipientAddress, tokenPolicyId, tokenName, requiredTokenAmount } = options;
+    const {
+      index = 0,
+      recipientAddress,
+      recipientVaultAccountId,
+      recipientIndex = 0,
+      tokenPolicyId,
+      tokenName,
+      requiredTokenAmount,
+    } = options;
+
+    // Validate that exactly one recipient option is provided
+    if (!recipientAddress && !recipientVaultAccountId) {
+      throw new IagonApiError(
+        "Either recipientAddress or recipientVaultAccountId must be provided",
+        400,
+        "ValidationError",
+        { providedOptions: { recipientAddress, recipientVaultAccountId } },
+        "FireblocksIagonSDK"
+      );
+    }
+    if (recipientAddress && recipientVaultAccountId) {
+      throw new IagonApiError(
+        "Cannot specify both recipientAddress and recipientVaultAccountId",
+        400,
+        "ValidationError",
+        { providedOptions: { recipientAddress, recipientVaultAccountId } },
+        "FireblocksIagonSDK"
+      );
+    }
 
     const minRecipientLovelace = MIN_RECIPIENT_LOVELACE;
     const minChangeLovelace = MIN_CHANGE_LOVELACE;
@@ -511,9 +541,35 @@ export class FireblocksIagonSDK {
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
 
     try {
-      this.logger.info(
-        `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${recipientAddress}`
-      );
+      // Resolve recipient address
+      let resolvedRecipientAddress: string;
+      if (recipientVaultAccountId) {
+        // Vault-to-vault transfer: get the recipient address from the vault account
+        const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
+          recipientVaultAccountId,
+          assetId,
+          recipientIndex
+        );
+        if (!recipientAddressData.address) {
+          throw new IagonApiError(
+            `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
+            404,
+            "AddressNotFound",
+            { recipientVaultAccountId, recipientIndex },
+            "FireblocksIagonSDK"
+          );
+        }
+        resolvedRecipientAddress = recipientAddressData.address;
+        this.logger.info(
+          `Initiating vault-to-vault transfer: ${requiredTokenAmount} ${tokenName} from vault ${this.vaultAccountId} to vault ${recipientVaultAccountId} (${resolvedRecipientAddress})`
+        );
+      } else {
+        // Direct address transfer
+        resolvedRecipientAddress = recipientAddress!;
+        this.logger.info(
+          `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${resolvedRecipientAddress}`
+        );
+      }
 
       // Fetch sender address
       const senderAddress = await this.getAddressByIndex(assetId, index);
@@ -532,7 +588,7 @@ export class FireblocksIagonSDK {
       // Build transaction body
       const txBody = await this.buildTransactionBody({
         selectedUtxos,
-        recipientAddress,
+        recipientAddress: resolvedRecipientAddress,
         senderAddress,
         tokenPolicyId,
         tokenName,

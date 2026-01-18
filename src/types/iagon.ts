@@ -21,7 +21,9 @@ export interface getVaultBalanceOpts {
 }
 
 export interface transferOpts {
-  recipientAddress: string;
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+  recipientIndex?: number;
   tokenPolicyId: string;
   tokenName: string;
   requiredTokenAmount: number;

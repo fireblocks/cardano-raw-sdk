@@ -30,7 +30,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         name: groupByPolicy
    *         schema:
    *           type: boolean
-   *           default: false
+   *           default: true
    *         description: Whether to group results by policy
    *     responses:
    *       200:
@@ -71,7 +71,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         name: groupByPolicy
    *         schema:
    *           type: boolean
-   *           default: false
+   *           default: true
    *         description: Whether to group results by policy
    *     responses:
    *       200:
@@ -109,7 +109,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         name: groupByPolicy
    *         schema:
    *           type: boolean
-   *           default: false
+   *           default: true
    *         description: Whether to group results by policy
    *     responses:
    *       200:
@@ -664,8 +664,15 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * /api/transfers:
    *   post:
    *     summary: Execute a transfer
-   *     description: Executes a transfer of tokens between accounts.
-   *     tags: [Transfers]
+   *     description: |
+   *       Executes a transfer of tokens between accounts.
+   *
+   *       Two transfer modes are supported:
+   *       1. **Vault-to-address transfer**: Specify `recipientAddress` to send tokens to a specific Cardano address
+   *       2. **Vault-to-vault transfer**: Specify `recipientVaultAccountId` (and optionally `recipientIndex`) to transfer between vault accounts
+   *
+   *       **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
+   *     tags: [Transactions]
    *     requestBody:
    *       required: true
    *       content:
@@ -674,7 +681,6 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *             type: object
    *             required:
    *               - vaultAccountId
-   *               - recipientAddress
    *               - tokenPolicyId
    *               - tokenName
    *               - requiredTokenAmount
@@ -684,14 +690,16 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 description: The source vault account ID
    *               index:
    *                 type: number
-   *                 description: Address index to use (optional, defaults to 0)
-   *               assetId:
-   *                 type: string
-   *                 enum: [ADA, ADA_TEST]
-   *                 description: The asset ID for the blockchain (optional)
+   *                 description: Source address index to use (optional, defaults to 0)
    *               recipientAddress:
    *                 type: string
-   *                 description: The recipient address to send tokens to
+   *                 description: The recipient Cardano address to send tokens to (use this OR recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: The recipient vault account ID for vault-to-vault transfers (use this OR recipientAddress)
+   *               recipientIndex:
+   *                 type: number
+   *                 description: Recipient address index to use when using recipientVaultAccountId (optional, defaults to 0)
    *               tokenPolicyId:
    *                 type: string
    *                 description: The policy ID of the token to transfer
@@ -701,6 +709,26 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *               requiredTokenAmount:
    *                 type: number
    *                 description: The amount of tokens to transfer
+   *           examples:
+   *             addressTransfer:
+   *               summary: Transfer to a specific address
+   *               value:
+   *                 vaultAccountId: "0"
+   *                 index: 0
+   *                 recipientAddress: "addr1qxy..."
+   *                 tokenPolicyId: "policy123..."
+   *                 tokenName: "4e49..."
+   *                 requiredTokenAmount: 100
+   *             vaultTransfer:
+   *               summary: Transfer between vault accounts
+   *               value:
+   *                 vaultAccountId: "0"
+   *                 index: 0
+   *                 recipientVaultAccountId: "1"
+   *                 recipientIndex: 0
+   *                 tokenPolicyId: "policy123..."
+   *                 tokenName: "4e49..."
+   *                 requiredTokenAmount: 100
    *     responses:
    *       200:
    *         description: Transfer executed successfully
@@ -709,13 +737,19 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *             schema:
    *               type: object
    *               properties:
-   *                 success:
-   *                   type: boolean
-   *                 data:
-   *                   type: object
-   *                   properties:
-   *                     txHash:
-   *                       type: string
+   *                 txHash:
+   *                   type: string
+   *                   description: The transaction hash
+   *                 senderAddress:
+   *                   type: string
+   *                   description: The sender's address
+   *                 tokenName:
+   *                   type: string
+   *                   description: The token name that was transferred
+   *       400:
+   *         description: Validation error (e.g., both or neither recipient options specified)
+   *       404:
+   *         description: Address not found for the specified vault account
    *       500:
    *         description: Internal server error
    */
