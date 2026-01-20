@@ -94,7 +94,7 @@ export class FireblocksCardanoTokensSDK {
     network: Networks;
   }): Promise<FireblocksCardanoTokensSDK> => {
     try {
-      const logger = new Logger(`app:fireblocks-iagon-sdk`);
+      const logger = new Logger(`app:fireblocks-cardano-tokens-sdk`);
 
       const { fireblocksConfig, vaultAccountId, network } = params;
 
