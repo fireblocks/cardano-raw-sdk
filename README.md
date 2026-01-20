@@ -1,4 +1,4 @@
-# Fireblocks Iagon SDK
+# Cardano Raw SDK
 
 A TypeScript SDK for managing Cardano token transfers through Fireblocks, with integrated Iagon API services for balance queries, transaction history, and token operations.
 
@@ -41,18 +41,18 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 
 ```bash
 # Install directly from GitHub
-npm install github:fireblocks/cardano-tokens-sdk
+npm install github:fireblocks/cardano-raw-sdk
 
 # Or install a specific branch/tag
-npm install github:fireblocks/cardano-tokens-sdk#main
-npm install github:fireblocks/cardano-tokens-sdk#v1.0.0
+npm install github:fireblocks/cardano-raw-sdk#main
+npm install github:fireblocks/cardano-raw-sdk#v1.0.0
 ```
 
 **Or clone for development**:
 
 ```bash
-git clone https://github.com/fireblocks/cardano-tokens-sdk.git
-cd cardano-tokens-sdk
+git clone https://github.com/fireblocks/cardano-raw-sdk.git
+cd cardano-raw-sdk
 npm install
 npm run build
 ```
@@ -66,12 +66,12 @@ Use the SDK directly in your TypeScript/JavaScript application.
 #### Basic Setup
 
 ```typescript
-import { CardanoTokensSDK } from "transfer-cnts-sdk";
-import { Networks, SupportedAssets } from "transfer-cnts-sdk/types";
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks, SupportedAssets } from "cardano-raw-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 // Initialize the SDK
-const sdk = await CardanoTokensSDK.createInstance({
+const sdk = await FireblocksCardanoRawSDK.createInstance({
   fireblocksConfig: {
     apiKey: "your-fireblocks-api-key",
     secretKey: "your-fireblocks-secret-key",
@@ -186,8 +186,8 @@ Run the SDK as a REST API service using Docker or Node.js directly.
 1. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/iagon/cardano-tokens-sdk.git
-   cd cardano-tokens-sdk
+   git clone https://github.com/fireblocks/cardano-raw-sdk.git
+   cd cardano-raw-sdk
    ```
 
 2. **Configure environment variables**:
@@ -362,12 +362,12 @@ View the generated documentation by opening `docs/index.html` in your browser.
 ### Example 1: Transfer Tokens with SDK
 
 ```typescript
-import { CardanoTokensSDK } from "transfer-cnts-sdk";
-import { Networks, SupportedAssets } from "transfer-cnts-sdk/types";
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks, SupportedAssets } from "cardano-raw-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 async function transferTokens() {
-  const sdk = await CardanoTokensSDK.createInstance({
+  const sdk = await FireblocksCardanoRawSDK.createInstance({
     fireblocksConfig: {
       apiKey: process.env.FIREBLOCKS_API_KEY!,
       secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
@@ -401,9 +401,9 @@ transferTokens();
 ### Example 2: SDK Manager with Connection Pooling
 
 ```typescript
-import { SdkManager } from "transfer-cnts-sdk/pool";
-import { CardanoTokensSDK } from "transfer-cnts-sdk";
-import { Networks } from "transfer-cnts-sdk/types";
+import { SdkManager } from "cardano-raw-sdk/pool";
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks } from "cardano-raw-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 const manager = new SdkManager(
@@ -418,7 +418,7 @@ const manager = new SdkManager(
     idleTimeoutMs: 20 * 60 * 1000,
   },
   async (vaultAccountId, fireblocksConfig, network) =>
-    CardanoTokensSDK.createInstance({
+    FireblocksCardanoRawSDK.createInstance({
       fireblocksConfig,
       vaultAccountId,
       network,
@@ -483,12 +483,12 @@ getBalanceAndTransfer();
 ### Example 4: Using Cache for Performance
 
 ```typescript
-import { CardanoTokensSDK } from "transfer-cnts-sdk";
-import { Networks, SupportedAssets } from "transfer-cnts-sdk/types";
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks, SupportedAssets } from "cardano-raw-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 async function demonstrateCaching() {
-  const sdk = await CardanoTokensSDK.createInstance({
+  const sdk = await FireblocksCardanoRawSDK.createInstance({
     fireblocksConfig: {
       apiKey: process.env.FIREBLOCKS_API_KEY!,
       secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
@@ -543,9 +543,9 @@ npm run lint
 ### Project Structure
 
 ```
-cardano-tokens-sdk/
+cardano-raw-sdk/
 ├── src/
-│   ├── CardanoTokensSDK.ts       # Main SDK class
+│   ├── FireblocksCardanoRawSDK.ts       # Main SDK class
 │   ├── pool/
 │   │   └── sdkManager.ts         # Connection pooling manager
 │   ├── services/
@@ -571,7 +571,7 @@ cardano-tokens-sdk/
 #### Build Docker Image
 
 ```bash
-docker build -t cardano-tokens-sdk:latest .
+docker build -t cardano-raw-sdk:latest .
 ```
 
 #### Run with Docker Compose
@@ -698,17 +698,13 @@ await sdk.shutdown(); // Clean up resources and clear cache
 
 1. **"SDK factory not initialized" error**
    - Ensure you're passing the SDK factory function to SdkManager constructor
-   - Check that CardanoTokensSDK.createInstance is properly imported
+   - Check that FireblocksCardanoRawSDK.createInstance is properly imported
 
-2. **"Address not found" error**
-   - Verify the vault account ID exists in Fireblocks
-   - Check that the asset ID matches the network (ADA for mainnet, ADA_TEST for testnet)
-
-3. **"Insufficient balance" error**
+2. **"Insufficient balance" error**
    - Ensure sufficient ADA for transaction fees (minimum ~1.2 ADA)
    - Verify token balance is sufficient for the transfer amount
 
-4. **Docker container fails to start**
+3. **Docker container fails to start**
    - Check that the secret key path is correct and file is readable
    - Verify all required environment variables are set
    - Check Docker logs: `docker-compose logs -f`
@@ -717,34 +713,8 @@ await sdk.shutdown(); // Clean up resources and clear cache
 
 - ⚠️ Never commit `.env` files or secret keys to version control
 - ⚠️ Store Fireblocks secret keys in secure locations with restricted permissions
-- ⚠️ Use environment-specific API keys (separate for dev/prod)
 - ⚠️ Enable Fireblocks transaction approval policies for production
-- ⚠️ Implement rate limiting on API endpoints in production
-- ⚠️ Use HTTPS/TLS for all production deployments
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit your changes: `git commit -am 'Add new feature'`
-4. Push to the branch: `git push origin feature/my-feature`
-5. Submit a pull request
 
 ## License
 
 [MIT License](LICENSE)
-
-## Support
-
-- 📧 Email: support@iagon.com
-- 📚 Documentation: [https://docs.iagon.com](https://docs.iagon.com)
-- 🐛 Issues: [GitHub Issues](https://github.com/iagon/cardano-tokens-sdk/issues)
-
-## Acknowledgments
-
-- [Fireblocks](https://www.fireblocks.com/) for secure custody infrastructure
-- [Cardano](https://cardano.org/) blockchain
-- [Emurgo](https://emurgo.io/) for Cardano serialization libraries
-- [Iagon](https://iagon.com/) for API services
