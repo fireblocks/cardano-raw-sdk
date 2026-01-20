@@ -1,0 +1,48 @@
+{
+  "name": "transfer-cnts-sdk",
+  "version": "1.0.0",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "build:w": "tsc -w",
+    "start": "node ./dist/app.js",
+    "dev": "concurrently \"npm:build:w\" \"npm:start\"",
+    "docker:dev": "npm run build && npm start",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "docs": "typedoc src"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "@types/express": "^5.0.1",
+    "@types/node": "^22.14.1",
+    "@types/p-retry": "^3.0.0",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
+    "concurrently": "^9.2.1",
+    "prettier": "^3.2.5",
+    "ts-node": "^10.9.2",
+    "typedoc": "^0.28.14",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@emurgo/cardano-serialization-lib-nodejs": "^15.0.3",
+    "@fireblocks/ts-sdk": "^12.1.1",
+    "axios": "^1.10.0",
+    "blakejs": "^1.2.1",
+    "cardano-web3-js": "^2.3.4",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "p-retry": "^7.1.0",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.1.13"
+  }
+}
