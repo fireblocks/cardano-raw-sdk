@@ -1,5 +1,5 @@
 {
-  "name": "transfer-cnts-sdk",
+  "name": "cardano-raw-sdk",
   "version": "1.0.0",
   "main": "app.js",
   "type": "module",

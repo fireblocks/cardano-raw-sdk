@@ -45,5 +45,5 @@ export const config: {
     secretKey: getSecretKey(),
     basePath: validateBasePath(process.env.BASE_PATH || ""),
   },
-  APP_NAME: process.env.APP_NAME || "CNT",
+  APP_NAME: process.env.APP_NAME || "cardano-raw-sdk",
 };
