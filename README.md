@@ -7,6 +7,8 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 - 🔐 **Fireblocks Integration**: Secure vault account management and transaction signing
 - 🏦 **Balance Queries**: Check balances by address, credential, or stake key
 - 💸 **Token Transfers**: Execute Cardano native token transfers with automatic UTXO selection
+  - Address-to-address transfers
+  - Vault-to-vault transfers for seamless internal operations
 - 📊 **Transaction History**: Retrieve basic and detailed transaction history with pagination
 - 🔄 **Connection Pooling**: Efficient SDK instance management with automatic cleanup
 - 🌐 **Multi-Network Support**: Works with Cardano mainnet, preprod, and preview networks
@@ -35,16 +37,24 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 
 ### Install as a TypeScript Package
 
+**Install from GitHub** (for use as a dependency in your project):
+
 ```bash
-npm install @iagon/fireblocks-cardano-sdk
+# Install directly from GitHub
+npm install github:fireblocks/cardano-tokens-sdk
+
+# Or install a specific branch/tag
+npm install github:fireblocks/cardano-tokens-sdk#main
+npm install github:fireblocks/cardano-tokens-sdk#v1.0.0
 ```
 
-Or clone the repository:
+**Or clone for development**:
 
 ```bash
-git clone https://github.com/iagon/fireblocks-iagon-sdk.git
-cd fireblocks-iagon-sdk
+git clone https://github.com/fireblocks/cardano-tokens-sdk.git
+cd cardano-tokens-sdk
 npm install
+npm run build
 ```
 
 ## Usage Methods
@@ -56,8 +66,8 @@ Use the SDK directly in your TypeScript/JavaScript application.
 #### Basic Setup
 
 ```typescript
-import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
-import { Networks, SupportedAssets } from "@iagon/fireblocks-cardano-sdk/types";
+import { CardanoTokensSDK } from "transfer-cnts-sdk";
+import { Networks, SupportedAssets } from "transfer-cnts-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 // Initialize the SDK
@@ -144,9 +154,7 @@ const detailedHistory = await sdk.getDetailedTxHistory(SupportedAssets.ADA, 0, {
 });
 
 // Get transaction details by hash
-const txDetails = await sdk.getTransactionDetails(
-  "6c9e6d70a0ce7ca5d..."
-);
+const txDetails = await sdk.getTransactionDetails("6c9e6d70a0ce7ca5d...");
 ```
 
 #### Vault Account Operations
@@ -178,8 +186,8 @@ Run the SDK as a REST API service using Docker or Node.js directly.
 1. **Clone the repository**:
 
    ```bash
-   git clone https://github.com/iagon/fireblocks-iagon-sdk.git
-   cd fireblocks-iagon-sdk
+   git clone https://github.com/iagon/cardano-tokens-sdk.git
+   cd cardano-tokens-sdk
    ```
 
 2. **Configure environment variables**:
@@ -305,18 +313,10 @@ FIREBLOCKS_BASE_PATH=https://api.fireblocks.io
 # Cardano Network Configuration
 CARDANO_NETWORK=mainnet  # Options: mainnet, preprod, preview
 
-# SDK Pool Configuration
-POOL_MAX_SIZE=100
-POOL_IDLE_TIMEOUT_MS=1800000        # 30 minutes
-POOL_CLEANUP_INTERVAL_MS=300000     # 5 minutes
-POOL_CONNECTION_TIMEOUT_MS=30000    # 30 seconds
-POOL_RETRY_ATTEMPTS=3
 
 # Optional: Iagon API Configuration
 IAGON_API_KEY=your-iagon-api-key
 
-# Optional: Blockfrost Configuration
-BLOCKFROST_PROJECT_ID=your-blockfrost-project-id
 ```
 
 ### Fireblocks Secret Key
@@ -362,8 +362,8 @@ View the generated documentation by opening `docs/index.html` in your browser.
 ### Example 1: Transfer Tokens with SDK
 
 ```typescript
-import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
-import { Networks, SupportedAssets } from "@iagon/fireblocks-cardano-sdk/types";
+import { CardanoTokensSDK } from "transfer-cnts-sdk";
+import { Networks, SupportedAssets } from "transfer-cnts-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 async function transferTokens() {
@@ -401,9 +401,9 @@ transferTokens();
 ### Example 2: SDK Manager with Connection Pooling
 
 ```typescript
-import { SdkManager } from "@iagon/fireblocks-cardano-sdk/pool";
-import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
-import { Networks } from "@iagon/fireblocks-cardano-sdk/types";
+import { SdkManager } from "transfer-cnts-sdk/pool";
+import { CardanoTokensSDK } from "transfer-cnts-sdk";
+import { Networks } from "transfer-cnts-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 const manager = new SdkManager(
@@ -483,8 +483,8 @@ getBalanceAndTransfer();
 ### Example 4: Using Cache for Performance
 
 ```typescript
-import { CardanoTokensSDK } from "@iagon/fireblocks-cardano-sdk";
-import { Networks, SupportedAssets } from "@iagon/fireblocks-cardano-sdk/types";
+import { CardanoTokensSDK } from "transfer-cnts-sdk";
+import { Networks, SupportedAssets } from "transfer-cnts-sdk/types";
 import { BasePath } from "@fireblocks/ts-sdk";
 
 async function demonstrateCaching() {
@@ -543,7 +543,7 @@ npm run lint
 ### Project Structure
 
 ```
-fireblocks-iagon-sdk/
+cardano-tokens-sdk/
 ├── src/
 │   ├── CardanoTokensSDK.ts       # Main SDK class
 │   ├── pool/
@@ -571,7 +571,7 @@ fireblocks-iagon-sdk/
 #### Build Docker Image
 
 ```bash
-docker build -t fireblocks-iagon-sdk:latest .
+docker build -t cardano-tokens-sdk:latest .
 ```
 
 #### Run with Docker Compose
@@ -740,7 +740,7 @@ Contributions are welcome! Please follow these guidelines:
 
 - 📧 Email: support@iagon.com
 - 📚 Documentation: [https://docs.iagon.com](https://docs.iagon.com)
-- 🐛 Issues: [GitHub Issues](https://github.com/iagon/fireblocks-iagon-sdk/issues)
+- 🐛 Issues: [GitHub Issues](https://github.com/iagon/cardano-tokens-sdk/issues)
 
 ## Acknowledgments
 
