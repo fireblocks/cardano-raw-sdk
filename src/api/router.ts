@@ -760,7 +760,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * /api/webhook:
    *   post:
    *     summary: Enrich webhook payload
-   *     description: Enriches the incoming webhook payload with additional data.
+   *     description: Enriches the incoming webhook payload with additional data, including CNT (Cardano Native Token) details.
    *     tags: [Webhooks]
    *     requestBody:
    *       required: true
