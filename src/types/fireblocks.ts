@@ -1,4 +1,5 @@
 import { TransactionResponse } from "@fireblocks/ts-sdk";
+import { DetailedTransaction } from "./iagon.js";
 
 export interface WebhookPayloadData {
   //** Event id */
@@ -14,4 +15,10 @@ export interface WebhookPayloadData {
   /** Timestamp in milliseconds */
   timestamp: number;
   data: TransactionResponse;
+}
+
+export interface EnrichedWebhookPayloadData extends Omit<WebhookPayloadData, 'data'> {
+  data: TransactionResponse & {
+    cardanoTokensData?: DetailedTransaction;
+  };
 }

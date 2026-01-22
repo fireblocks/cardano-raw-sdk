@@ -27,6 +27,7 @@ import {
   TransactionHistoryResponse,
   TransactionDetailsResponse,
   WebhookPayloadData,
+  EnrichedWebhookPayloadData,
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
@@ -39,6 +40,7 @@ import {
   VaultBalancePolicyResponse,
   VaultBalanceByPolicy,
   IagonApiError,
+  WebhookEventTypes,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -638,12 +640,24 @@ export class FireblocksCardanoRawSDK {
   };
 
   /**
+   * Enriches a webhook payload with detailed Cardano transaction data
    *
-   * @param payload -
-   * @returns
+   * @param payload - The webhook payload to enrich
+   * @returns The enriched webhook payload with cardanoTokensData if applicable
    */
 
-  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
+  public enrichWebhookPayload = async (
+    payload: WebhookPayloadData
+  ): Promise<any> => {
+    if (
+      payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
+      payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
+      payload.eventType !== WebhookEventTypes.TRANSACTION_APPROVAL_STATUS_UPDATED &&
+      payload.eventType !== WebhookEventTypes.TRANSACTION_NETWORK_RECORDS_PROCESSING_COMPLETED
+    ) {
+      return payload;
+    }
+
     const transactionAsset = payload.data.assetId;
     if (transactionAsset !== SupportedAssets.ADA && transactionAsset !== SupportedAssets.ADA_TEST) {
       this.logger.info(

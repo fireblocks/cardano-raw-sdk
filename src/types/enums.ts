@@ -22,3 +22,10 @@ export enum GroupByOptions {
   ADDRESS = "address",
   POLICY = "policy",
 }
+
+export enum WebhookEventTypes {
+  TRANSACTION_CREATED = "transaction.created",
+  TRANSACTION_STATUS_UPDATED = "transaction.status.updated",
+  TRANSACTION_APPROVAL_STATUS_UPDATED = "transaction.approval_status.updated",
+  TRANSACTION_NETWORK_RECORDS_PROCESSING_COMPLETED = "transaction.network_records.processing_completed",
+}
