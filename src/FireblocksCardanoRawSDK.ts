@@ -286,7 +286,7 @@ export class FireblocksCardanoRawSDK {
   /**
    * Get transaction details by hash
    */
-  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
+  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse | null> => {
     return await this.iagonApiService.getTransactionDetails(hash);
   };
 
@@ -675,8 +675,8 @@ export class FireblocksCardanoRawSDK {
 
     const detailedTx = await this.iagonApiService.getTransactionDetails(txHash);
 
-    if (!detailedTx.success) {
-      this.logger.warn(`Failed to fetch detailed transaction for hash: ${txHash}`);
+    if (!detailedTx) {
+      this.logger.warn(`Transaction not found: ${txHash}`);
       return payload;
     }
 
