@@ -37,3 +37,9 @@ export enum RewardType {
   TREASURY = "treasury",
   REFUND = "refund",
 }
+
+export enum PoolStatus {
+  ACTIVE = "active",
+  RETIRING = "retiring",
+  RETRIED = "retried",
+}
