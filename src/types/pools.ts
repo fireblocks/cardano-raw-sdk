@@ -1,4 +1,4 @@
-import { PoolStatus } from "./enums.js";
+import { PoolStatus } from "./index.js";
 
 export interface PoolInfo {
   pool_id: string;

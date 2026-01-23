@@ -19,9 +19,10 @@ import {
   CurrentEpochResponse,
   PoolInfoResponse,
   DelegationHistoryResponse,
-  WithdrawalHistoryResponse,
   AccountAssetsResponse,
   RegistrationHistoryResponse,
+  WithdrawalHistoryResponse,
+  PaymentAddressesResponse,
 } from "../types/index.js";
 
 export class IagonApiService {
@@ -330,7 +331,7 @@ export class IagonApiService {
    */
   public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
     try {
-      const url = "";
+      const url = `${this.iagonBaseUrl}/v1/epochs/latest`;
       const response = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${this.iagonApiKey}`,
@@ -352,7 +353,7 @@ export class IagonApiService {
    */
   public getPoolInfo = async (poolId: string): Promise<PoolInfoResponse> => {
     try {
-      const url = "";
+      const url = `${this.iagonBaseUrl}/v1/pools/${encodeURIComponent(poolId)}`;
       const response = await axios.get(url, {
         headers: {
           Authorization: `Bearer ${this.iagonApiKey}`,
@@ -427,7 +428,7 @@ export class IagonApiService {
     stakeAddress: string,
     limit: number = 100,
     offset: number = 0
-  ): Promise<WithdrawalHistoryResponse> => {
+  ): Promise<PaymentAddressesResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/addresses?offset=${offset}&limit=${limit}`;
       const response = await axios.get(url, {

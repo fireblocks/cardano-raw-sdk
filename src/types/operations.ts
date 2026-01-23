@@ -1,12 +1,6 @@
-import {
-  TransactionRequest,
-  VaultWalletAddress,
-  Transaction,
-  SignedMessageSignature,
-} from "@fireblocks/ts-sdk";
-import { TransactionType } from "./enums.js";
+import { TransactionRequest, VaultWalletAddress, SignedMessageSignature } from "@fireblocks/ts-sdk";
 import { IagonApiService } from "../services/iagon.api.service.js";
-import { TransactionHistoryResponse } from "./iagon.js";
+import { TransactionType, TransactionHistoryResponse } from "./index.js";
 
 /**
  * Options for getting a single vault account address by index
@@ -135,3 +129,65 @@ export type ResultForOperation<T extends TransactionType> = Extract<
   OperationResult,
   { type: T }
 >["result"];
+
+export interface VaultBalanceByToken {
+  assetId: string;
+  amount: string;
+  tokenName?: string;
+}
+
+export interface VaultBalanceByAddress {
+  address: string;
+  index: number;
+  ada: string;
+  tokens: Array<{
+    assetId: string;
+    amount: string;
+    tokenName?: string;
+  }>;
+}
+
+export interface VaultBalanceByPolicy {
+  policyId: string;
+  tokens: {
+    [hexTokenName: string]: {
+      tokenName: string;
+      amount: string;
+    };
+  };
+}
+
+export interface VaultBalanceSummary {
+  totalAda: string;
+  tokens: Array<{
+    assetId: string;
+    amount: string;
+  }>;
+}
+
+export interface VaultBalanceTokenResponse {
+  balances: VaultBalanceByToken[];
+}
+
+export interface VaultBalanceAddressResponse {
+  addresses: VaultBalanceByAddress[];
+  totals: {
+    ada: string;
+    tokens: Array<{
+      assetId: string;
+      amount: string;
+      tokenName?: string;
+    }>;
+  };
+}
+
+export interface VaultBalancePolicyResponse {
+  balances: VaultBalanceByPolicy[];
+  totalAda: string;
+}
+
+export type VaultBalanceResponse =
+  | VaultBalanceSummary
+  | VaultBalanceTokenResponse
+  | VaultBalanceAddressResponse
+  | VaultBalancePolicyResponse;
