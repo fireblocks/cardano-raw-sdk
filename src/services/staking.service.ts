@@ -26,6 +26,7 @@ import {
   DEPOSIT_AMOUNT,
   MIN_UTXO_VALUE_ADA_ONLY,
   stakeAddressBytesPrefix,
+  UtxoForStaking,
 } from "../utils/staking.utils.js";
 import {
   RegisterStakingOptions,
@@ -306,37 +307,17 @@ export class StakingService {
    */
   public async delegateToPool(options: DelegationOptions): Promise<StakingTransactionResult> {
     try {
-      const { vaultAccountId, poolId, index = 0, fee = DEFAULT_NATIVE_TX_FEE } = options;
+      const { vaultAccountId, poolId, fee = DEFAULT_NATIVE_TX_FEE } = options;
 
       this.logger.info(`Delegating to pool ${poolId} for vault account ${vaultAccountId}`);
 
-      // Get vault account addresses
-      const addresses = await this.fireblocksService.getVaultAccountAddresses(
-        vaultAccountId,
-        this.assetId
-      );
-
-      const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
-      if (!baseAddressObj) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-      const baseAddress = baseAddressObj.address;
-
-      if (!baseAddress) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
+      // Find address with suitable UTXO
+      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const {
+        address: baseAddress,
+        addressIndex,
+        utxo,
+      } = await this.findAddressWithSuitableUtxo(vaultAccountId, minInputAmount);
 
       // Get stake credential
       const certificate = getCertificateFromBaseAddress(
@@ -344,61 +325,23 @@ export class StakingService {
         this.network === Networks.MAINNET
       );
 
-      // Get UTXOs
-      const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
-      if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new SdkApiError(
-          "No UTXOs available for transaction",
-          400,
-          "NO_UTXOS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-
-      // Find suitable UTXO
-      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-      const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
-      if (!utxo) {
-        throw new SdkApiError(
-          `No UTXO found with at least ${minInputAmount} Lovelace`,
-          400,
-          "NO_SUITABLE_UTXO",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-
-      const netAmount = utxo.nativeAmount - fee;
-
       // Build delegation certificate
       const delegationCertificate = buildDelegationCertificate(certificate, poolId);
 
-      // Build transaction
-      const ttl = await this.getTtl();
-      const { serialized, deserialized } = buildPayload({
-        toAddress: baseAddress,
-        netAmount,
-        txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
-        feeAmount: fee,
-        ttl,
-        certificates: [delegationCertificate],
-        network: this.network,
-      });
+      // Calculate net amount
+      const netAmount = utxo.nativeAmount - fee;
 
-      // Sign transaction
-      const txHash = getSigningPayload(serialized);
-      const witnesses = await this.sendForSigning(
-        txHash.toString("hex"),
+      // Build, sign and submit transaction
+      const submitResponse = await this.buildSignAndSubmit({
         vaultAccountId,
-        `delegate to pool ${poolId}`
-      );
-
-      // Embed signatures
-      const signedTx = embedSignaturesInTx(deserialized, witnesses);
-
-      // Submit transaction
-      const submitResponse = await this.iagonApiService.submitTransfer(signedTx.toString("hex"));
+        address: baseAddress,
+        addressIndex,
+        utxo,
+        netAmount,
+        fee,
+        certificates: [delegationCertificate],
+        operation: `delegate to pool ${poolId}`,
+      });
 
       this.logger.info(`Delegation transaction submitted: ${submitResponse.data.txHash}`);
 
@@ -406,6 +349,7 @@ export class StakingService {
         txHash: submitResponse.data.txHash,
         status: "submitted",
         operation: StakingOperation.DELEGATE,
+        addressIndex,
       };
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, "delegating to stake pool");
@@ -423,33 +367,7 @@ export class StakingService {
 
       this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
 
-      // Get vault account addresses
-      const addresses = await this.fireblocksService.getVaultAccountAddresses(
-        vaultAccountId,
-        this.assetId
-      );
-
-      const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
-      if (!baseAddressObj) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-      const baseAddress = baseAddressObj.address;
-
-      if (!baseAddress) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
+      const baseAddress = await this.getBaseAddress(vaultAccountId);
 
       // Get stake credential and stake address
       const certificate = getCertificateFromBaseAddress(
@@ -469,29 +387,9 @@ export class StakingService {
       );
 
       // Get UTXOs
-      const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
-      if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new SdkApiError(
-          "No UTXOs available for transaction",
-          400,
-          "NO_UTXOS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-
-      // Find suitable UTXO
       const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-      const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
-      if (!utxo) {
-        throw new SdkApiError(
-          `No UTXO found with at least ${minInputAmount} Lovelace`,
-          400,
-          "NO_SUITABLE_UTXO",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
+
+      const utxo = await this.findUtxoForAddress(baseAddress, minInputAmount, vaultAccountId);
 
       const netAmount = utxo.nativeAmount - fee + DEPOSIT_AMOUNT + rewardAmount;
 
@@ -545,37 +443,11 @@ export class StakingService {
    */
   public async withdrawRewards(options: WithdrawRewardsOptions): Promise<TransferResponse> {
     try {
-      const { vaultAccountId, limit, index = 0, fee = DEFAULT_NATIVE_TX_FEE } = options;
+      const { vaultAccountId, limit, fee = DEFAULT_NATIVE_TX_FEE } = options;
 
       this.logger.info(`Withdrawing rewards for vault account ${vaultAccountId}`);
 
-      // Get vault account addresses
-      const addresses = await this.fireblocksService.getVaultAccountAddresses(
-        vaultAccountId,
-        this.assetId
-      );
-
-      const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
-      if (!baseAddressObj) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-      const baseAddress = baseAddressObj.address;
-
-      if (!baseAddress) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
+      const baseAddress = await this.getBaseAddress(vaultAccountId);
 
       // Get stake credential and stake address
       const certificate = getCertificateFromBaseAddress(
@@ -605,30 +477,9 @@ export class StakingService {
         };
       }
 
-      // Get UTXOs
-      const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
-      if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new SdkApiError(
-          "No UTXOs available for transaction",
-          400,
-          "NO_UTXOS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-
-      // Find suitable UTXO
       const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-      const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
-      if (!utxo) {
-        throw new SdkApiError(
-          `No UTXO found with at least ${minInputAmount} Lovelace`,
-          400,
-          "NO_SUITABLE_UTXO",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
+
+      const utxo = await this.findUtxoForAddress(baseAddress, minInputAmount, vaultAccountId);
 
       const netAmount = utxo.nativeAmount - fee + rewardAmount;
 
@@ -674,37 +525,11 @@ export class StakingService {
    */
   public async delegateToDRep(options: DRepDelegationOptions): Promise<StakingTransactionResult> {
     try {
-      const { vaultAccountId, drepAction, drepId, index = 0, fee = 1000000 } = options;
+      const { vaultAccountId, drepAction, drepId, fee = 1000000 } = options;
 
       this.logger.info(`Delegating to DRep (${drepAction}) for vault account ${vaultAccountId}`);
 
-      // Get vault account addresses
-      const addresses = await this.fireblocksService.getVaultAccountAddresses(
-        vaultAccountId,
-        this.assetId
-      );
-
-      const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
-      if (!baseAddressObj) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-      const baseAddress = baseAddressObj.address;
-
-      if (!baseAddress) {
-        throw new SdkApiError(
-          "No BASE address found for vault account",
-          400,
-          "NO_BASE_ADDRESS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
+      const baseAddress = await this.getBaseAddress(vaultAccountId);
 
       // Get stake credential
       const certificate = getCertificateFromBaseAddress(
@@ -716,30 +541,8 @@ export class StakingService {
       const drepInfo = drepActionToDRepInfo(drepAction, drepId);
 
       // Get UTXOs
-      const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
-      if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new SdkApiError(
-          "No UTXOs available for transaction",
-          400,
-          "NO_UTXOS",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-
-      // Find suitable UTXO
       const minInputAmount = fee * 2; // At least 2 ADA
-      const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
-      if (!utxo) {
-        throw new SdkApiError(
-          `No UTXO found with at least ${minInputAmount} Lovelace`,
-          400,
-          "NO_SUITABLE_UTXO",
-          { vaultAccountId },
-          "staking-service"
-        );
-      }
-
+      const utxo = await this.findUtxoForAddress(baseAddress, minInputAmount, vaultAccountId);
       const netAmount = utxo.nativeAmount - fee;
 
       // Build vote delegation certificate
@@ -917,13 +720,7 @@ export class StakingService {
    */
   private async tryFindUtxoForAddress(address: string, minAmount: number): Promise<any | null> {
     try {
-      const utxosResponse = await this.iagonApiService.getUtxosByAddress(address);
-
-      if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        return null;
-      }
-
-      return findSuitableUtxo(utxosResponse.data, minAmount);
+      return await this.findUtxoForAddress(address, minAmount, "");
     } catch (error) {
       this.logger.warn(`Error fetching UTXOs for ${address}: ${error}`);
       return null;
@@ -1035,5 +832,124 @@ export class StakingService {
         this.logger.warn(`Could not verify registration: ${error}`);
       }
     }, 0);
+  }
+
+  private async getBaseAddress(vaultAccountId: string, addressIndex?: number): Promise<string> {
+    const addresses = await this.fireblocksService.getVaultAccountAddresses(
+      vaultAccountId,
+      this.assetId
+    );
+
+    let baseAddressObj;
+
+    if (addressIndex !== undefined) {
+      baseAddressObj = addresses.find(
+        (addr) => addr.addressFormat === "BASE" && addr.bip44AddressIndex === addressIndex
+      );
+    } else {
+      baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
+    }
+
+    if (!baseAddressObj?.address) {
+      throw new SdkApiError(
+        "No BASE address found for vault account",
+        400,
+        "NO_BASE_ADDRESS",
+        { vaultAccountId, addressIndex },
+        "staking-service"
+      );
+    }
+
+    return baseAddressObj.address;
+  }
+
+  private async findUtxoForAddress(
+    address: string,
+    minAmount: number,
+    vaultAccountId: string
+  ): Promise<UtxoForStaking> {
+    const utxosResponse = await this.iagonApiService.getUtxosByAddress(address);
+
+    if (!utxosResponse.data || utxosResponse.data.length === 0) {
+      throw new SdkApiError(
+        "No UTXOs available for transaction",
+        400,
+        "NO_UTXOS",
+        { vaultAccountId, address },
+        "staking-service"
+      );
+    }
+
+    const utxo = findSuitableUtxo(utxosResponse.data, minAmount);
+
+    if (!utxo) {
+      throw new SdkApiError(
+        `No pure ADA UTXO found with at least ${(minAmount / 1000000).toFixed(1)} ADA`,
+        400,
+        "INSUFFICIENT_PURE_ADA",
+        { vaultAccountId, address, required: minAmount },
+        "staking-service"
+      );
+    }
+
+    return utxo;
+  }
+
+  private async buildSignAndSubmit(params: {
+    vaultAccountId: string;
+    address: string;
+    addressIndex: number;
+    utxo: any;
+    netAmount: number;
+    fee: number;
+    certificates?: Array<any>;
+    withdrawals?: Map<Uint8Array, number>;
+    operation: string;
+    skipValidation?: boolean;
+  }): Promise<TransferResponse> {
+    const {
+      vaultAccountId,
+      address,
+      addressIndex,
+      utxo,
+      netAmount,
+      fee,
+      certificates,
+      withdrawals,
+      operation,
+      skipValidation = false,
+    } = params;
+
+    const ttl = await this.getTtl();
+
+    const { serialized, deserialized } = buildPayload({
+      toAddress: address,
+      netAmount,
+      txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
+      feeAmount: fee,
+      ttl,
+      certificates,
+      withdrawals,
+      network: this.network,
+    });
+
+    const txHash = getSigningPayload(serialized);
+    const witnesses = await this.sendForSigning(
+      txHash.toString("hex"),
+      vaultAccountId,
+      operation,
+      addressIndex
+    );
+
+    const signedTx = embedSignaturesInTx(deserialized, witnesses);
+
+    this.logTransactionDetails(serialized, txHash, witnesses, signedTx);
+
+    const submitResponse = await this.iagonApiService.submitTransfer(
+      signedTx.toString("hex"),
+      skipValidation
+    );
+
+    return submitResponse;
   }
 }

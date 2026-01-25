@@ -280,7 +280,7 @@ export class ApiController {
    */
   public delegateToPool = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId, poolId, index, fee } = req.body;
+      const { vaultAccountId, poolId } = req.body;
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -296,11 +296,12 @@ export class ApiController {
         });
       }
 
+      const fee = STAKING_DEPOSIT_FEE;
+
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToPool({
         vaultAccountId,
         poolId,
-        index,
         fee,
       });
 
@@ -440,7 +441,6 @@ export class ApiController {
         vaultAccountId,
         drepAction,
         drepId,
-        index,
         fee,
       });
 

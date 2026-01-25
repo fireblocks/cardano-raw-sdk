@@ -1052,7 +1052,10 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Delegating to pool ${options.poolId} for vault account ${options.vaultAccountId}`
     );
-    return await this.stakingService.delegateToPool(options);
+
+    const { vaultAccountId, poolId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+
+    return await this.stakingService.delegateToPool({ vaultAccountId, poolId, fee });
   };
 
   /**

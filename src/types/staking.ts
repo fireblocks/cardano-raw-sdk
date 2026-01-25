@@ -20,8 +20,7 @@ export interface RegisterStakingOptions {
 export interface DelegationOptions {
   vaultAccountId: string;
   poolId: string; // Pool key hash (hex format)
-  index?: number;
-  fee?: number; // Default: 300000 (0.3 ADA)
+  fee: number; // Default: 300000 (0.3 ADA)
 }
 
 export interface DeregisterStakingOptions {
@@ -43,7 +42,6 @@ export interface DRepDelegationOptions {
   vaultAccountId: string;
   drepAction: DRepAction;
   drepId?: string; // Required if drepAction is 'custom-drep' (hex format)
-  index?: number;
   fee?: number; // Default: 1000000 (1 ADA)
 }
 
@@ -72,6 +70,7 @@ export interface StakingTransactionResult {
   txHash: string;
   status: string;
   operation: StakingOperation;
+  addressIndex?: number;
 }
 
 export interface PoolInfo {
