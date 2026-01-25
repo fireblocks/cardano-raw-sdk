@@ -67,6 +67,540 @@ export class StakingService {
   }
 
   /**
+   * Register staking credential for a vault account
+   * Automatically finds an address with suitable pure ADA UTXO
+   */
+  public async registerStakingCredential(
+    options: RegisterStakingOptions
+  ): Promise<StakingTransactionResult & { stakeAddress: string; addressIndex: number }> {
+    const { vaultAccountId, depositAmount = DEPOSIT_AMOUNT, fee = DEFAULT_NATIVE_TX_FEE } = options;
+
+    this.logger.info(`Registering staking credential for vault account ${vaultAccountId}`);
+
+    try {
+      const existingRegistration = await this.checkExistingRegistration(vaultAccountId);
+      if (existingRegistration) {
+        const stakeAddress = await this.getStakeAddress(vaultAccountId);
+        const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+
+        this.logger.info(`Stake key already registered at epoch ${accountInfo.data.active_epoch}`);
+
+        return {
+          txHash: "",
+          status: "already_registered",
+          operation: StakingOperation.REGISTER,
+          stakeAddress,
+          addressIndex: 0,
+        };
+      }
+
+      const { address, addressIndex, utxo } = await this.findAddressWithSuitableUtxo(
+        vaultAccountId,
+        depositAmount + fee
+      );
+
+      const txHash = await this.buildAndSubmitRegistration({
+        vaultAccountId,
+        address,
+        addressIndex,
+        utxo,
+        depositAmount,
+        fee,
+      });
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+
+      this.verifyRegistrationAsync(stakeAddress);
+
+      return {
+        txHash,
+        status: "submitted",
+        operation: StakingOperation.REGISTER,
+        stakeAddress,
+        addressIndex,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "registering staking credential");
+    }
+  }
+
+  /**
+   * Delegate to a stake pool
+   */
+  public async delegateToPool(options: DelegationOptions): Promise<StakingTransactionResult> {
+    const { vaultAccountId, poolId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+
+    this.logger.info(`Delegating to pool ${poolId} for vault account ${vaultAccountId}`);
+
+    try {
+      // 1. Validate and check prerequisites
+      await this.validateDelegationPrerequisites(vaultAccountId, poolId);
+
+      // 2. Get address and stake credential
+      const { baseAddress, addressIndex } = await this.getBaseAddress(vaultAccountId);
+      const certificate = getCertificateFromBaseAddress(
+        baseAddress,
+        this.network === Networks.MAINNET
+      );
+
+      // Find suitable UTXO
+      const minAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const utxo = await this.findUtxoForAddress(baseAddress, minAmount, vaultAccountId);
+
+      // Build delegation certificate
+      const delegationCertificate = buildDelegationCertificate(certificate, poolId);
+
+      // Submit transaction
+      const txHash = await this.buildSignAndSubmit({
+        vaultAccountId,
+        address: baseAddress,
+        addressIndex,
+        utxo,
+        netAmount: utxo.nativeAmount - fee,
+        fee,
+        certificates: [delegationCertificate],
+        operation: "delegate to pool",
+      });
+
+      this.logger.info(`Delegation transaction submitted: ${txHash}`);
+
+      return {
+        txHash: txHash.data.txHash,
+        status: "submitted",
+        operation: StakingOperation.DELEGATE,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "delegating to stake pool");
+    }
+  }
+
+  /**
+   * Deregister staking credential (includes reward withdrawal)
+   */
+  public async deregisterStakingCredential(
+    options: DeregisterStakingOptions
+  ): Promise<StakingTransactionResult> {
+    try {
+      const { vaultAccountId, fee } = options;
+
+      this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
+
+      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const {
+        address: baseAddress,
+        addressIndex,
+        utxo,
+      } = await this.findAddressWithSuitableUtxo(vaultAccountId, minInputAmount);
+      // Get stake credential and stake address
+      const certificate = getCertificateFromBaseAddress(
+        baseAddress,
+        this.network === Networks.MAINNET
+      );
+      const stakeAddress = getStakeAddressFromBaseAddress(
+        baseAddress,
+        this.network === Networks.MAINNET
+      );
+
+      // Get withdrawals
+      const { withdrawal, rewardAmount } = await this.getWithdrawals(
+        stakeAddress,
+        certificate,
+        Infinity
+      );
+
+      const netAmount = utxo.nativeAmount - fee + DEPOSIT_AMOUNT + rewardAmount;
+
+      // Build deregistration certificate
+      const deregistrationCertificate = buildDeregistrationCertificate(certificate);
+
+      // Serialize withdrawals
+      const withdrawalsDict = serializeWithdrawals([withdrawal]);
+
+      // Build transaction
+      const submitResponse = await this.buildSignAndSubmit({
+        vaultAccountId,
+        address: baseAddress,
+        addressIndex,
+        utxo,
+        netAmount,
+        fee,
+        certificates: [deregistrationCertificate],
+        withdrawals: withdrawalsDict,
+        operation: "deregister staking credential",
+      });
+
+      this.logger.info(`Deregistration transaction submitted: ${submitResponse.data.txHash}`);
+
+      return {
+        txHash: submitResponse.data.txHash,
+        status: "submitted",
+        operation: StakingOperation.DEREGISTER,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "deregistering staking credential");
+    }
+  }
+
+  /**
+   * Withdraw staking rewards
+   */
+  public async withdrawRewards(
+    options: WithdrawRewardsOptions
+  ): Promise<StakingTransactionResult & { rewardAmount?: number }> {
+    try {
+      const { vaultAccountId, limit, fee = DEFAULT_NATIVE_TX_FEE } = options;
+
+      if (limit !== undefined && limit < 0) {
+        throw new SdkApiError(
+          "Withdrawal limit must be positive",
+          400,
+          "INVALID_LIMIT",
+          { limit },
+          "staking-service"
+        );
+      }
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+      const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+
+      if (!accountInfo.data.active) {
+        throw new SdkApiError(
+          "Stake credential must be registered",
+          400,
+          "NOT_REGISTERED",
+          { vaultAccountId },
+          "staking-service"
+        );
+      }
+
+      this.logger.info(`Withdrawing rewards for vault account ${vaultAccountId}`);
+
+      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const {
+        address: baseAddress,
+        addressIndex,
+        utxo,
+      } = await this.findAddressWithSuitableUtxo(vaultAccountId, minInputAmount);
+
+      const certificate = getCertificateFromBaseAddress(
+        baseAddress,
+        this.network === Networks.MAINNET
+      );
+
+      const maxWithdrawal = limit !== undefined ? limit : Infinity;
+      const { withdrawal, rewardAmount } = await this.getWithdrawals(
+        stakeAddress,
+        certificate,
+        maxWithdrawal
+      );
+
+      if (rewardAmount === 0) {
+        return {
+          txHash: "",
+          status: "no_rewards",
+          operation: StakingOperation.WITHDRAW_REWARDS,
+        };
+      }
+
+      const netAmount = utxo.nativeAmount - fee + rewardAmount;
+
+      // Serialize withdrawals
+      const withdrawalsDict = serializeWithdrawals([withdrawal]);
+
+      // Build transaction
+      const submitResponse = await this.buildSignAndSubmit({
+        vaultAccountId,
+        address: baseAddress,
+        addressIndex,
+        utxo,
+        netAmount,
+        fee,
+        withdrawals: withdrawalsDict,
+        operation: "withdraw staking rewards",
+      });
+
+      this.logger.info(`Reward withdrawal transaction submitted: ${submitResponse.data.txHash}`);
+
+      return {
+        txHash: submitResponse.data.txHash,
+        status: "submitted",
+        operation: StakingOperation.WITHDRAW_REWARDS,
+        rewardAmount,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "withdrawing staking rewards");
+    }
+  }
+
+  /**
+   * Delegate voting power to a DRep (Conway era governance)
+   */
+  public async delegateToDRep(options: DRepDelegationOptions): Promise<StakingTransactionResult> {
+    try {
+      const { vaultAccountId, drepAction, drepId, fee = 1000000 } = options;
+
+      this.logger.info(`Delegating to DRep (${drepAction}) for vault account ${vaultAccountId}`);
+
+      if (drepAction === "custom-drep" && !drepId) {
+        throw new SdkApiError(
+          "drepId is required for custom-drep action",
+          400,
+          "MISSING_DREP_ID",
+          { drepAction },
+          "staking-service"
+        );
+      }
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+      const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+
+      if (!accountInfo.data.active) {
+        throw new SdkApiError(
+          "Stake credential must be registered before DRep delegation",
+          400,
+          "NOT_REGISTERED",
+          { vaultAccountId },
+          "staking-service"
+        );
+      }
+
+      if (accountInfo.data.drep_id) {
+        this.logger.info(`Already delegated to DRep: ${accountInfo.data.drep_id}`);
+      }
+
+      const minInputAmount = fee * 2; // At least 2 ADA
+      const {
+        address: baseAddress,
+        addressIndex,
+        utxo,
+      } = await this.findAddressWithSuitableUtxo(vaultAccountId, minInputAmount);
+
+      const certificate = getCertificateFromBaseAddress(
+        baseAddress,
+        this.network === Networks.MAINNET
+      );
+
+      const drepInfo = drepActionToDRepInfo(drepAction, drepId);
+      const voteDelegationCertificate = buildVoteDelegationCertificate(certificate, drepInfo);
+
+      const netAmount = utxo.nativeAmount - fee;
+
+      // Use buildSignAndSubmit
+      const submitResponse = await this.buildSignAndSubmit({
+        vaultAccountId,
+        address: baseAddress,
+        addressIndex,
+        utxo,
+        netAmount,
+        fee,
+        certificates: [voteDelegationCertificate],
+        operation: `delegate to DRep (${drepAction})`,
+      });
+
+      this.logger.info(`DRep delegation transaction submitted: ${submitResponse.data.txHash}`);
+
+      return {
+        txHash: submitResponse.data.txHash,
+        status: "submitted",
+        operation: StakingOperation.VOTE_DELEGATE,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "delegating to DRep");
+    }
+  }
+
+  /**
+   * Get stake address for a vault account
+   * Extracts the BASE address and derives the stake address
+   */
+  public async getStakeAddress(vaultAccountId: string): Promise<string> {
+    const { baseAddress } = await this.getBaseAddress(vaultAccountId);
+    return getStakeAddressFromBaseAddress(baseAddress, this.network === Networks.MAINNET);
+  }
+
+  /**
+   * Query staking rewards for a vault account
+   */
+  public async queryStakingRewards(vaultAccountId: string): Promise<RewardsData> {
+    try {
+      this.logger.info(`Querying staking rewards for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+
+      // Query rewards
+      return await this.queryRewards(stakeAddress);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "querying staking rewards");
+    }
+  }
+
+  /**
+   * Get delegation history for a vault account
+   * Shows the history of pool delegations
+   */
+  public async getDelegationHistory(vaultAccountId: string, limit: number = 100) {
+    try {
+      this.logger.info(`Getting delegation history for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+
+      return await this.iagonApiService.getDelegationHistory(stakeAddress, 0, limit);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "getting delegation history");
+    }
+  }
+
+  /**
+   * Get registration/deregistration history for a vault account
+   * Shows when the stake key was registered or deregistered
+   */
+  public async getRegistrationHistory(vaultAccountId: string, limit: number = 100) {
+    try {
+      this.logger.info(`Getting registration history for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+
+      return await this.iagonApiService.getRegistrationHistory(stakeAddress, limit);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "getting registration history");
+    }
+  }
+
+  /**
+   * Get complete stake account information
+   * Includes active status, pool delegation, and reward totals
+   */
+  public async getStakeAccountInfo(vaultAccountId: string) {
+    try {
+      this.logger.info(`Getting stake account info for vault account ${vaultAccountId}`);
+
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+
+      return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "getting stake account info");
+    }
+  }
+
+  private async buildSignAndSubmit(params: {
+    vaultAccountId: string;
+    address: string;
+    addressIndex: number;
+    utxo: any;
+    netAmount: number;
+    fee: number;
+    certificates?: Array<any>;
+    withdrawals?: Map<Uint8Array, number>;
+    operation: string;
+    skipValidation?: boolean;
+  }): Promise<TransferResponse> {
+    const {
+      vaultAccountId,
+      address,
+      addressIndex,
+      utxo,
+      netAmount,
+      fee,
+      certificates,
+      withdrawals,
+      operation,
+      skipValidation = false,
+    } = params;
+
+    const ttl = await this.getTtl();
+
+    const { serialized, deserialized } = buildPayload({
+      toAddress: address,
+      netAmount,
+      txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
+      feeAmount: fee,
+      ttl,
+      certificates,
+      withdrawals,
+      network: this.network,
+    });
+
+    const txHash = getSigningPayload(serialized);
+    const witnesses = await this.sendForSigning(
+      txHash.toString("hex"),
+      vaultAccountId,
+      operation,
+      addressIndex
+    );
+
+    const signedTx = embedSignaturesInTx(deserialized, witnesses);
+
+    this.logTransactionDetails(serialized, txHash, witnesses, signedTx);
+
+    const submitResponse = await this.iagonApiService.submitTransfer(
+      signedTx.toString("hex"),
+      skipValidation
+    );
+
+    return submitResponse;
+  }
+
+  /**
+   * Build, sign, and submit registration transaction
+   */
+  private async buildAndSubmitRegistration(params: {
+    vaultAccountId: string;
+    address: string;
+    addressIndex: number;
+    utxo: any;
+    depositAmount: number;
+    fee: number;
+  }): Promise<string> {
+    const { vaultAccountId, address, addressIndex, utxo, depositAmount, fee } = params;
+
+    // Get stake credential
+    const certificate = getCertificateFromBaseAddress(address, this.network === Networks.MAINNET);
+
+    // Calculate output amount
+    const netAmount = utxo.nativeAmount - fee - depositAmount;
+
+    // Build certificate
+    const registrationCertificate = buildRegistrationCertificate(certificate);
+
+    // Build transaction body
+    const ttl = await this.getTtl();
+    const { serialized, deserialized } = buildPayload({
+      toAddress: address,
+      netAmount,
+      txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
+      feeAmount: fee,
+      ttl,
+      certificates: [registrationCertificate],
+      network: this.network,
+    });
+
+    // Sign transaction
+    const txHash = getSigningPayload(serialized);
+    const witnesses = await this.sendForSigning(
+      txHash.toString("hex"),
+      vaultAccountId,
+      "register staking credential",
+      addressIndex
+    );
+
+    // Create signed transaction
+    const signedTx = embedSignaturesInTx(deserialized, witnesses);
+
+    // Log transaction details (optional - could be extracted to a separate method)
+    this.logTransactionDetails(serialized, txHash, witnesses, signedTx);
+
+    // Submit to blockchain
+    const submitResponse = await this.iagonApiService.submitTransfer(
+      signedTx.toString("hex"),
+      true
+    );
+
+    this.logger.info(`Registration transaction submitted: ${submitResponse.data.txHash}`);
+
+    return submitResponse.data.txHash;
+  }
+
+  /**
    * Send transaction hash for signing with Fireblocks
    */
   private async sendForSigning(
@@ -134,53 +668,171 @@ export class StakingService {
   }
 
   /**
-   * Get current TTL based on latest slot
+   * Check if stake credential is already registered
    */
-  private async getTtl(): Promise<number> {
+  private async checkExistingRegistration(vaultAccountId: string): Promise<boolean> {
     try {
-      const epochResponse = await this.iagonApiService.getCurrentEpoch();
+      const stakeAddress = await this.getStakeAddress(vaultAccountId);
+      const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
 
-      const currentSlot = epochResponse.data.tip.slot;
-      this.logger.info(`Current slot: ${currentSlot}`);
-      return calculateTtl(currentSlot);
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, `fetching current slot for TTL`);
+      return accountInfo.data.active;
+    } catch (error) {
+      // Account doesn't exist - not registered yet
+      this.logger.info("Stake key not yet registered");
     }
+
+    return false;
   }
 
-  /**
-   * Get stake address for a vault account
-   * Extracts the BASE address and derives the stake address
-   */
-  public async getStakeAddress(vaultAccountId: string): Promise<string> {
+  private async validateDelegationPrerequisites(
+    vaultAccountId: string,
+    poolId: string
+  ): Promise<void> {
+    // Check registration
+    const stakeAddress = await this.getStakeAddress(vaultAccountId);
+    const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+
+    if (!accountInfo.data.active) {
+      throw new SdkApiError(
+        "Stake credential must be registered first",
+        400,
+        "NOT_REGISTERED",
+        { vaultAccountId },
+        "staking-service"
+      );
+    }
+
+    // Check if already delegated
+    if (accountInfo.data.pool_id === poolId) {
+      this.logger.info(`Already delegated to pool ${poolId}`);
+      // Could throw or return early
+    }
+
+    // Validate pool exists
+    await this.iagonApiService.getPoolInfo(poolId);
+  }
+
+  private async getBaseAddress(
+    vaultAccountId: string,
+    addressIndex?: number
+  ): Promise<{
+    baseAddress: string;
+    addressIndex: number;
+  }> {
     const addresses = await this.fireblocksService.getVaultAccountAddresses(
       vaultAccountId,
       this.assetId
     );
 
-    const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
-    if (!baseAddressObj) {
-      throw new SdkApiError(
-        `No BASE address found for vault account ${vaultAccountId}`,
-        400,
-        "NO_BASE_ADDRESS",
-        { vaultAccountId },
-        "staking-service"
-      );
-    }
-    const baseAddress = baseAddressObj.address;
+    let baseAddressObj;
 
-    if (!baseAddress) {
+    if (addressIndex !== undefined) {
+      baseAddressObj = addresses.find(
+        (addr) => addr.addressFormat === "BASE" && addr.bip44AddressIndex === addressIndex
+      );
+    } else {
+      baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
+    }
+
+    if (!baseAddressObj?.address) {
       throw new SdkApiError(
-        `No BASE address found for vault account ${vaultAccountId}`,
+        "No BASE address found for vault account",
         400,
         "NO_BASE_ADDRESS",
-        { vaultAccountId },
+        { vaultAccountId, addressIndex },
         "staking-service"
       );
     }
 
-    return getStakeAddressFromBaseAddress(baseAddress, this.network === Networks.MAINNET);
+    return {
+      baseAddress: baseAddressObj.address,
+      addressIndex: baseAddressObj.bip44AddressIndex! || 0,
+    };
+  }
+
+  /**
+   * Find an address with a suitable pure ADA UTXO
+   */
+  private async findAddressWithSuitableUtxo(
+    vaultAccountId: string,
+    minAmount: number
+  ): Promise<{ address: string; addressIndex: number; utxo: UtxoForStaking }> {
+    const addresses = await this.fireblocksService.getVaultAccountAddresses(
+      vaultAccountId,
+      this.assetId
+    );
+
+    if (!addresses || addresses.length === 0) {
+      throw new SdkApiError(
+        "No addresses found for vault account",
+        400,
+        "NO_ADDRESSES",
+        { vaultAccountId },
+        "staking-service"
+      );
+    }
+
+    for (const addrObj of addresses) {
+      if (addrObj.addressFormat !== "BASE" || !addrObj.address) {
+        continue;
+      }
+
+      try {
+        const utxo = await this.findUtxoForAddress(addrObj.address, minAmount, vaultAccountId);
+
+        return {
+          address: addrObj.address,
+          addressIndex: addrObj.bip44AddressIndex || 0,
+          utxo,
+        };
+      } catch (error) {
+        // No suitable UTXO for this address, try next one
+        this.logger.debug(`No suitable UTXO for address ${addrObj.address}`);
+        continue;
+      }
+    }
+
+    // No address had a suitable UTXO
+    throw new SdkApiError(
+      `No address with pure ADA UTXO of at least ${(minAmount / 1000000).toFixed(1)} ADA found. ` +
+        `Please send ${(minAmount / 1000000).toFixed(1)} ADA (without tokens) to this vault.`,
+      400,
+      "INSUFFICIENT_PURE_ADA",
+      { vaultAccountId, requiredAmount: minAmount },
+      "staking-service"
+    );
+  }
+
+  private async findUtxoForAddress(
+    address: string,
+    minAmount: number,
+    vaultAccountId: string
+  ): Promise<UtxoForStaking> {
+    const utxosResponse = await this.iagonApiService.getUtxosByAddress(address);
+
+    if (!utxosResponse.data || utxosResponse.data.length === 0) {
+      throw new SdkApiError(
+        "No UTXOs available for transaction",
+        400,
+        "NO_UTXOS",
+        { vaultAccountId, address },
+        "staking-service"
+      );
+    }
+
+    const utxo = findSuitableUtxo(utxosResponse.data, minAmount);
+
+    if (!utxo) {
+      throw new SdkApiError(
+        `No pure ADA UTXO found with at least ${(minAmount / 1000000).toFixed(1)} ADA`,
+        400,
+        "INSUFFICIENT_PURE_ADA",
+        { vaultAccountId, address, required: minAmount },
+        "staking-service"
+      );
+    }
+
+    return utxo;
   }
 
   /**
@@ -256,535 +908,18 @@ export class StakingService {
   }
 
   /**
-   * Register staking credential for a vault account
-   * Automatically finds an address with suitable pure ADA UTXO
+   * Get current TTL based on latest slot
    */
-  public async registerStakingCredential(
-    options: RegisterStakingOptions
-  ): Promise<(StakingTransactionResult & { stakeAddress: string; addressIndex: number }) | null> {
-    const { vaultAccountId, depositAmount = DEPOSIT_AMOUNT, fee = DEFAULT_NATIVE_TX_FEE } = options;
-
-    this.logger.info(`Registering staking credential for vault account ${vaultAccountId}`);
-
+  private async getTtl(): Promise<number> {
     try {
-      const existingRegistration = await this.checkExistingRegistration(vaultAccountId);
-      if (existingRegistration) {
-        return null;
-      }
+      const epochResponse = await this.iagonApiService.getCurrentEpoch();
 
-      const { address, addressIndex, utxo } = await this.findAddressWithSuitableUtxo(
-        vaultAccountId,
-        depositAmount + fee
-      );
-
-      const txHash = await this.buildAndSubmitRegistration({
-        vaultAccountId,
-        address,
-        addressIndex,
-        utxo,
-        depositAmount,
-        fee,
-      });
-
-      const stakeAddress = await this.getStakeAddress(vaultAccountId);
-
-      this.verifyRegistrationAsync(stakeAddress);
-
-      return {
-        txHash,
-        status: "submitted",
-        operation: StakingOperation.REGISTER,
-        stakeAddress,
-        addressIndex,
-      };
+      const currentSlot = epochResponse.data.tip.slot;
+      this.logger.info(`Current slot: ${currentSlot}`);
+      return calculateTtl(currentSlot);
     } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "registering staking credential");
+      throw this.errorHandler.handleApiError(error, `fetching current slot for TTL`);
     }
-  }
-
-  /**
-   * Delegate to a stake pool
-   */
-  public async delegateToPool(options: DelegationOptions): Promise<StakingTransactionResult> {
-    try {
-      const { vaultAccountId, poolId, fee = DEFAULT_NATIVE_TX_FEE } = options;
-
-      this.logger.info(`Delegating to pool ${poolId} for vault account ${vaultAccountId}`);
-
-      // Find address with suitable UTXO
-      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-      const {
-        address: baseAddress,
-        addressIndex,
-        utxo,
-      } = await this.findAddressWithSuitableUtxo(vaultAccountId, minInputAmount);
-
-      // Get stake credential
-      const certificate = getCertificateFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
-
-      // Build delegation certificate
-      const delegationCertificate = buildDelegationCertificate(certificate, poolId);
-
-      // Calculate net amount
-      const netAmount = utxo.nativeAmount - fee;
-
-      // Build, sign and submit transaction
-      const submitResponse = await this.buildSignAndSubmit({
-        vaultAccountId,
-        address: baseAddress,
-        addressIndex,
-        utxo,
-        netAmount,
-        fee,
-        certificates: [delegationCertificate],
-        operation: `delegate to pool ${poolId}`,
-      });
-
-      this.logger.info(`Delegation transaction submitted: ${submitResponse.data.txHash}`);
-
-      return {
-        txHash: submitResponse.data.txHash,
-        status: "submitted",
-        operation: StakingOperation.DELEGATE,
-        addressIndex,
-      };
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "delegating to stake pool");
-    }
-  }
-
-  /**
-   * Deregister staking credential (includes reward withdrawal)
-   */
-  public async deregisterStakingCredential(
-    options: DeregisterStakingOptions
-  ): Promise<StakingTransactionResult> {
-    try {
-      const { vaultAccountId, fee } = options;
-
-      this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
-
-      const baseAddress = await this.getBaseAddress(vaultAccountId);
-
-      // Get stake credential and stake address
-      const certificate = getCertificateFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
-      const stakeAddress = getStakeAddressFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
-
-      // Get withdrawals
-      const { withdrawal, rewardAmount } = await this.getWithdrawals(
-        stakeAddress,
-        certificate,
-        Infinity
-      );
-
-      // Get UTXOs
-      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-
-      const utxo = await this.findUtxoForAddress(baseAddress, minInputAmount, vaultAccountId);
-
-      const netAmount = utxo.nativeAmount - fee + DEPOSIT_AMOUNT + rewardAmount;
-
-      // Build deregistration certificate (Conway era)
-      const deregistrationCertificate = buildDeregistrationCertificate(certificate);
-
-      // Serialize withdrawals
-      const withdrawalsDict = serializeWithdrawals([withdrawal]);
-
-      // Build transaction
-      const ttl = await this.getTtl();
-      const { serialized, deserialized } = buildPayload({
-        toAddress: baseAddress,
-        netAmount,
-        txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
-        feeAmount: fee,
-        ttl,
-        certificates: [deregistrationCertificate],
-        withdrawals: withdrawalsDict,
-        network: this.network,
-      });
-
-      // Sign transaction
-      const txHash = getSigningPayload(serialized);
-      const witnesses = await this.sendForSigning(
-        txHash.toString("hex"),
-        vaultAccountId,
-        "deregister staking credential"
-      );
-
-      // Embed signatures
-      const signedTx = embedSignaturesInTx(deserialized, witnesses);
-
-      // Submit transaction
-      const submitResponse = await this.iagonApiService.submitTransfer(signedTx.toString("hex"));
-
-      this.logger.info(`Deregistration transaction submitted: ${submitResponse.data.txHash}`);
-
-      return {
-        txHash: submitResponse.data.txHash,
-        status: "submitted",
-        operation: StakingOperation.DEREGISTER,
-      };
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "deregistering staking credential");
-    }
-  }
-
-  /**
-   * Withdraw staking rewards
-   */
-  public async withdrawRewards(options: WithdrawRewardsOptions): Promise<TransferResponse> {
-    try {
-      const { vaultAccountId, limit, fee = DEFAULT_NATIVE_TX_FEE } = options;
-
-      this.logger.info(`Withdrawing rewards for vault account ${vaultAccountId}`);
-
-      const baseAddress = await this.getBaseAddress(vaultAccountId);
-
-      // Get stake credential and stake address
-      const certificate = getCertificateFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
-      const stakeAddress = getStakeAddressFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
-
-      // Get withdrawals
-      const maxWithdrawal = limit !== undefined ? limit : Infinity;
-      const { withdrawal, rewardAmount } = await this.getWithdrawals(
-        stakeAddress,
-        certificate,
-        maxWithdrawal
-      );
-
-      if (rewardAmount === 0) {
-        return {
-          success: false,
-          data: {
-            txHash: "",
-          },
-          error: "No rewards available for withdrawal",
-        };
-      }
-
-      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-
-      const utxo = await this.findUtxoForAddress(baseAddress, minInputAmount, vaultAccountId);
-
-      const netAmount = utxo.nativeAmount - fee + rewardAmount;
-
-      // Serialize withdrawals
-      const withdrawalsDict = serializeWithdrawals([withdrawal]);
-
-      // Build transaction
-      const ttl = await this.getTtl();
-      const { serialized, deserialized } = buildPayload({
-        toAddress: baseAddress,
-        netAmount,
-        txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
-        feeAmount: fee,
-        ttl,
-        withdrawals: withdrawalsDict,
-        network: this.network,
-      });
-
-      // Sign transaction
-      const txHash = getSigningPayload(serialized);
-      const witnesses = await this.sendForSigning(
-        txHash.toString("hex"),
-        vaultAccountId,
-        "withdraw staking rewards"
-      );
-
-      // Embed signatures
-      const signedTx = embedSignaturesInTx(deserialized, witnesses);
-
-      // Submit transaction
-      const submitResponse = await this.iagonApiService.submitTransfer(signedTx.toString("hex"));
-
-      this.logger.info(`Reward withdrawal transaction submitted: ${submitResponse.data.txHash}`);
-
-      return submitResponse;
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "withdrawing staking rewards");
-    }
-  }
-
-  /**
-   * Delegate voting power to a DRep (Conway era governance)
-   */
-  public async delegateToDRep(options: DRepDelegationOptions): Promise<StakingTransactionResult> {
-    try {
-      const { vaultAccountId, drepAction, drepId, fee = 1000000 } = options;
-
-      this.logger.info(`Delegating to DRep (${drepAction}) for vault account ${vaultAccountId}`);
-
-      const baseAddress = await this.getBaseAddress(vaultAccountId);
-
-      // Get stake credential
-      const certificate = getCertificateFromBaseAddress(
-        baseAddress,
-        this.network === Networks.MAINNET
-      );
-
-      // Convert DRep action to DRepInfo
-      const drepInfo = drepActionToDRepInfo(drepAction, drepId);
-
-      // Get UTXOs
-      const minInputAmount = fee * 2; // At least 2 ADA
-      const utxo = await this.findUtxoForAddress(baseAddress, minInputAmount, vaultAccountId);
-      const netAmount = utxo.nativeAmount - fee;
-
-      // Build vote delegation certificate
-      const voteDelegationCertificate = buildVoteDelegationCertificate(certificate, drepInfo);
-
-      // Build transaction
-      const ttl = await this.getTtl();
-      const { serialized, deserialized } = buildPayload({
-        toAddress: baseAddress,
-        netAmount,
-        txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
-        feeAmount: fee,
-        ttl,
-        certificates: [voteDelegationCertificate],
-        network: this.network,
-      });
-
-      // Sign transaction
-      const txHash = getSigningPayload(serialized);
-      const witnesses = await this.sendForSigning(
-        txHash.toString("hex"),
-        vaultAccountId,
-        `delegate to DRep (${drepAction})`
-      );
-
-      // Embed signatures
-      const signedTx = embedSignaturesInTx(deserialized, witnesses);
-
-      // Submit transaction
-      const submitResponse = await this.iagonApiService.submitTransfer(signedTx.toString("hex"));
-
-      this.logger.info(`DRep delegation transaction submitted: ${submitResponse.data.txHash}`);
-
-      return {
-        txHash: submitResponse.data.txHash,
-        status: "submitted",
-        operation: StakingOperation.VOTE_DELEGATE,
-      };
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "delegating to DRep");
-    }
-  }
-
-  /**
-   * Query staking rewards for a vault account
-   */
-  public async queryStakingRewards(vaultAccountId: string): Promise<RewardsData> {
-    try {
-      this.logger.info(`Querying staking rewards for vault account ${vaultAccountId}`);
-
-      const stakeAddress = await this.getStakeAddress(vaultAccountId);
-
-      // Query rewards
-      return await this.queryRewards(stakeAddress);
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "querying staking rewards");
-    }
-  }
-
-  /**
-   * Get delegation history for a vault account
-   * Shows the history of pool delegations
-   */
-  public async getDelegationHistory(vaultAccountId: string, limit: number = 100) {
-    try {
-      this.logger.info(`Getting delegation history for vault account ${vaultAccountId}`);
-
-      const stakeAddress = await this.getStakeAddress(vaultAccountId);
-
-      return await this.iagonApiService.getDelegationHistory(stakeAddress, 0, limit);
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "getting delegation history");
-    }
-  }
-
-  /**
-   * Get registration/deregistration history for a vault account
-   * Shows when the stake key was registered or deregistered
-   */
-  public async getRegistrationHistory(vaultAccountId: string, limit: number = 100) {
-    try {
-      this.logger.info(`Getting registration history for vault account ${vaultAccountId}`);
-
-      const stakeAddress = await this.getStakeAddress(vaultAccountId);
-
-      return await this.iagonApiService.getRegistrationHistory(stakeAddress, limit);
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "getting registration history");
-    }
-  }
-
-  /**
-   * Get complete stake account information
-   * Includes active status, pool delegation, and reward totals
-   */
-  public async getStakeAccountInfo(vaultAccountId: string) {
-    try {
-      this.logger.info(`Getting stake account info for vault account ${vaultAccountId}`);
-
-      const stakeAddress = await this.getStakeAddress(vaultAccountId);
-
-      return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
-    } catch (error: any) {
-      throw this.errorHandler.handleApiError(error, "getting stake account info");
-    }
-  }
-
-  /**
-   * Check if stake credential is already registered
-   */
-  private async checkExistingRegistration(vaultAccountId: string): Promise<boolean> {
-    try {
-      const stakeAddress = await this.getStakeAddress(vaultAccountId);
-      const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
-
-      return accountInfo.data.active;
-    } catch (error) {
-      // Account doesn't exist - not registered yet
-      this.logger.info("Stake key not yet registered");
-    }
-
-    return false;
-  }
-
-  /**
-   * Find an address with a suitable pure ADA UTXO
-   */
-  private async findAddressWithSuitableUtxo(
-    vaultAccountId: string,
-    minAmount: number
-  ): Promise<{ address: string; addressIndex: number; utxo: any }> {
-    const addresses = await this.fireblocksService.getVaultAccountAddresses(
-      vaultAccountId,
-      this.assetId
-    );
-
-    if (!addresses || addresses.length === 0) {
-      throw new SdkApiError(
-        "No addresses found for vault account",
-        400,
-        "NO_ADDRESSES",
-        { vaultAccountId },
-        "staking-service"
-      );
-    }
-
-    for (const addrObj of addresses) {
-      if (addrObj.addressFormat !== "BASE" || !addrObj.address) {
-        continue;
-      }
-
-      const result = await this.tryFindUtxoForAddress(addrObj.address, minAmount);
-
-      if (result) {
-        return {
-          address: addrObj.address,
-          addressIndex: addrObj.bip44AddressIndex || 0,
-          utxo: result,
-        };
-      }
-    }
-
-    throw new SdkApiError(
-      `No address with pure ADA UTXO of at least ${minAmount} Lovelace found. ` +
-        `Please send ${(minAmount / 1000000).toFixed(1)} ADA (without tokens) to this vault.`,
-      400,
-      "INSUFFICIENT_FUNDS",
-      { vaultAccountId },
-      "staking-service"
-    );
-  }
-
-  /**
-   * Try to find suitable UTXO for a specific address
-   */
-  private async tryFindUtxoForAddress(address: string, minAmount: number): Promise<any | null> {
-    try {
-      return await this.findUtxoForAddress(address, minAmount, "");
-    } catch (error) {
-      this.logger.warn(`Error fetching UTXOs for ${address}: ${error}`);
-      return null;
-    }
-  }
-
-  /**
-   * Build, sign, and submit registration transaction
-   */
-  private async buildAndSubmitRegistration(params: {
-    vaultAccountId: string;
-    address: string;
-    addressIndex: number;
-    utxo: any;
-    depositAmount: number;
-    fee: number;
-  }): Promise<string> {
-    const { vaultAccountId, address, addressIndex, utxo, depositAmount, fee } = params;
-
-    // Get stake credential
-    const certificate = getCertificateFromBaseAddress(address, this.network === Networks.MAINNET);
-
-    // Calculate output amount
-    const netAmount = utxo.nativeAmount - fee - depositAmount;
-
-    // Build certificate
-    const registrationCertificate = buildRegistrationCertificate(certificate);
-
-    // Build transaction body
-    const ttl = await this.getTtl();
-    const { serialized, deserialized } = buildPayload({
-      toAddress: address,
-      netAmount,
-      txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
-      feeAmount: fee,
-      ttl,
-      certificates: [registrationCertificate],
-      network: this.network,
-    });
-
-    // Sign transaction
-    const txHash = getSigningPayload(serialized);
-    const witnesses = await this.sendForSigning(
-      txHash.toString("hex"),
-      vaultAccountId,
-      "register staking credential",
-      addressIndex
-    );
-
-    // Create signed transaction
-    const signedTx = embedSignaturesInTx(deserialized, witnesses);
-
-    // Log transaction details (optional - could be extracted to a separate method)
-    this.logTransactionDetails(serialized, txHash, witnesses, signedTx);
-
-    // Submit to blockchain
-    const submitResponse = await this.iagonApiService.submitTransfer(
-      signedTx.toString("hex"),
-      true
-    );
-
-    this.logger.info(`Registration transaction submitted: ${submitResponse.data.txHash}`);
-
-    return submitResponse.data.txHash;
   }
 
   /**
@@ -814,142 +949,24 @@ export class StakingService {
    * Verify registration asynchronously (non-blocking)
    */
   private verifyRegistrationAsync(stakeAddress: string): void {
-    // Run verification in background without blocking
-    setTimeout(async () => {
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 30000)); // Wait 30s
-
-        const verifyInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
-
-        if (verifyInfo.data.active) {
-          this.logger.info("Registration verified! Stake key is active.");
-          this.logger.info(`Stake address: ${stakeAddress}`);
-          this.logger.info(`Active epoch: ${verifyInfo.data.active_epoch}`);
-        } else {
-          this.logger.warn("Registration pending. Check status later.");
-        }
-      } catch (error) {
-        this.logger.warn(`Could not verify registration: ${error}`);
-      }
+    setTimeout(() => {
+      this.performVerification(stakeAddress).catch((error) => {
+        this.logger.warn(`Background verification failed: ${error}`);
+      });
     }, 0);
   }
 
-  private async getBaseAddress(vaultAccountId: string, addressIndex?: number): Promise<string> {
-    const addresses = await this.fireblocksService.getVaultAccountAddresses(
-      vaultAccountId,
-      this.assetId
-    );
+  private async performVerification(stakeAddress: string): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 30000));
 
-    let baseAddressObj;
+    const verifyInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
 
-    if (addressIndex !== undefined) {
-      baseAddressObj = addresses.find(
-        (addr) => addr.addressFormat === "BASE" && addr.bip44AddressIndex === addressIndex
-      );
+    if (verifyInfo.data.active) {
+      this.logger.info("Registration verified! Stake key is active.");
+      this.logger.info(`Stake address: ${stakeAddress}`);
+      this.logger.info(`Active epoch: ${verifyInfo.data.active_epoch}`);
     } else {
-      baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
+      this.logger.warn("Registration pending. Check status later.");
     }
-
-    if (!baseAddressObj?.address) {
-      throw new SdkApiError(
-        "No BASE address found for vault account",
-        400,
-        "NO_BASE_ADDRESS",
-        { vaultAccountId, addressIndex },
-        "staking-service"
-      );
-    }
-
-    return baseAddressObj.address;
-  }
-
-  private async findUtxoForAddress(
-    address: string,
-    minAmount: number,
-    vaultAccountId: string
-  ): Promise<UtxoForStaking> {
-    const utxosResponse = await this.iagonApiService.getUtxosByAddress(address);
-
-    if (!utxosResponse.data || utxosResponse.data.length === 0) {
-      throw new SdkApiError(
-        "No UTXOs available for transaction",
-        400,
-        "NO_UTXOS",
-        { vaultAccountId, address },
-        "staking-service"
-      );
-    }
-
-    const utxo = findSuitableUtxo(utxosResponse.data, minAmount);
-
-    if (!utxo) {
-      throw new SdkApiError(
-        `No pure ADA UTXO found with at least ${(minAmount / 1000000).toFixed(1)} ADA`,
-        400,
-        "INSUFFICIENT_PURE_ADA",
-        { vaultAccountId, address, required: minAmount },
-        "staking-service"
-      );
-    }
-
-    return utxo;
-  }
-
-  private async buildSignAndSubmit(params: {
-    vaultAccountId: string;
-    address: string;
-    addressIndex: number;
-    utxo: any;
-    netAmount: number;
-    fee: number;
-    certificates?: Array<any>;
-    withdrawals?: Map<Uint8Array, number>;
-    operation: string;
-    skipValidation?: boolean;
-  }): Promise<TransferResponse> {
-    const {
-      vaultAccountId,
-      address,
-      addressIndex,
-      utxo,
-      netAmount,
-      fee,
-      certificates,
-      withdrawals,
-      operation,
-      skipValidation = false,
-    } = params;
-
-    const ttl = await this.getTtl();
-
-    const { serialized, deserialized } = buildPayload({
-      toAddress: address,
-      netAmount,
-      txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
-      feeAmount: fee,
-      ttl,
-      certificates,
-      withdrawals,
-      network: this.network,
-    });
-
-    const txHash = getSigningPayload(serialized);
-    const witnesses = await this.sendForSigning(
-      txHash.toString("hex"),
-      vaultAccountId,
-      operation,
-      addressIndex
-    );
-
-    const signedTx = embedSignaturesInTx(deserialized, witnesses);
-
-    this.logTransactionDetails(serialized, txHash, witnesses, signedTx);
-
-    const submitResponse = await this.iagonApiService.submitTransfer(
-      signedTx.toString("hex"),
-      skipValidation
-    );
-
-    return submitResponse;
   }
 }
