@@ -7,6 +7,10 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   const apiController = new ApiController(sdkManager);
 
   /**
+   * BALANCE
+   */
+
+  /**
    * @swagger
    * /api/balance/address/{vaultAccountId}:
    *   get:
@@ -272,6 +276,10 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.get("/balance/stake-key/:vaultAccountId/:stakeKey", apiController.getBalanceByStakeKey);
+
+  /**
+   * TRANSACTIONS
+   */
 
   /**
    * @swagger
