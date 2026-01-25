@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { Logger } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, IagonApiError } from "../../types/index.js";
+import { STAKING_DEPOSIT_AMOUNT, STAKING_DEPOSIT_FEE } from "../../constants.js";
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.
@@ -201,7 +202,7 @@ export class ApiController {
    */
   public registerStaking = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId, index, depositAmount, fee } = req.body;
+      const { vaultAccountId, index } = req.body;
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -209,6 +210,9 @@ export class ApiController {
           error: "vaultAccountId is required",
         });
       }
+
+      const depositAmount = STAKING_DEPOSIT_AMOUNT;
+      const fee = STAKING_DEPOSIT_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.registerStakingCredential({
