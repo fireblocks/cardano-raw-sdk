@@ -1,4 +1,4 @@
-import { GroupByOptions } from "../enums.js";
+import { GroupByOptions } from "../index.js";
 
 export interface getBalanceByAddressOpts {
   address: string;
