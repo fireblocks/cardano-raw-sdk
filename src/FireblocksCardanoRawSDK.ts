@@ -65,6 +65,7 @@ import {
   Vkeywitnesses,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { blake2b } from "blakejs";
+import { DEFAULT_NATIVE_TX_FEE } from "./utils/staking.utils.js";
 
 export interface SDKConfig {
   vaultAccountId: string;
@@ -1079,7 +1080,9 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Deregistering staking credential for vault account ${options.vaultAccountId}`
     );
-    return await this.stakingService.deregisterStakingCredential(options);
+    const { vaultAccountId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+
+    return await this.stakingService.deregisterStakingCredential({ vaultAccountId, fee });
   };
 
   /**

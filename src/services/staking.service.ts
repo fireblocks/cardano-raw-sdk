@@ -419,7 +419,7 @@ export class StakingService {
     options: DeregisterStakingOptions
   ): Promise<StakingTransactionResult> {
     try {
-      const { vaultAccountId, index = 0, fee = DEFAULT_NATIVE_TX_FEE } = options;
+      const { vaultAccountId, fee } = options;
 
       this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
 

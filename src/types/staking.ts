@@ -26,8 +26,7 @@ export interface DelegationOptions {
 
 export interface DeregisterStakingOptions {
   vaultAccountId: string;
-  index?: number;
-  fee?: number; // Default: 300000 (0.3 ADA)
+  fee: number; // Default: 300000 (0.3 ADA)
 }
 
 export interface WithdrawRewardsOptions {

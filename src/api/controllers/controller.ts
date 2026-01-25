@@ -243,6 +243,38 @@ export class ApiController {
   };
 
   /**
+   * Deregister staking credential
+   * POST /api/staking/deregister
+   */
+  public deregisterStaking = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const fee = STAKING_DEPOSIT_FEE;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.deregisterStakingCredential({
+        vaultAccountId,
+        fee,
+      });
+
+      this.logger.info(`Staking deregistration successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "deregisterStaking");
+    }
+  };
+
+  /**
    * Delegate to a stake pool
    * POST /api/staking/delegate
    */
@@ -279,38 +311,6 @@ export class ApiController {
       });
     } catch (error: any) {
       this.handleError(error, res, "delegateToPool");
-    }
-  };
-
-  /**
-   * Deregister staking credential
-   * POST /api/staking/deregister
-   */
-  public deregisterStaking = async (req: Request, res: Response) => {
-    try {
-      const { vaultAccountId, index, fee } = req.body;
-
-      if (!vaultAccountId) {
-        return res.status(400).json({
-          success: false,
-          error: "vaultAccountId is required",
-        });
-      }
-
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.deregisterStakingCredential({
-        vaultAccountId,
-        index,
-        fee,
-      });
-
-      this.logger.info(`Staking deregistration successful for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (error: any) {
-      this.handleError(error, res, "deregisterStaking");
     }
   };
 
