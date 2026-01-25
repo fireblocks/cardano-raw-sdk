@@ -49,6 +49,7 @@ import {
   RewardsData,
   WebhookEventTypes,
   TransferResponse,
+  StakeAccountInfoResponse,
 } from "./types/index.js";
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
 import { MIN_CHANGE_LOVELACE, MIN_RECIPIENT_LOVELACE, tokenTransactionFee } from "./constants.js";
@@ -1019,7 +1020,9 @@ export class FireblocksCardanoRawSDK {
    */
   public registerStakingCredential = async (
     options: RegisterStakingOptions
-  ): Promise<StakingTransactionResult> => {
+  ): Promise<
+    (StakingTransactionResult & { stakeAddress: string; addressIndex: number }) | null
+  > => {
     this.logger.info(`Registering staking credential for vault account ${options.vaultAccountId}`);
     return await this.stakingService.registerStakingCredential(options);
   };
@@ -1109,6 +1112,15 @@ export class FireblocksCardanoRawSDK {
   public withdrawRewards = async (options: WithdrawRewardsOptions): Promise<TransferResponse> => {
     this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
     return await this.stakingService.withdrawRewards(options);
+  };
+
+  public getStakeAccountInfo = async (
+    vaultAccountId: string
+  ): Promise<StakeAccountInfoResponse> => {
+    this.logger.info(`Getting staking account info for vault account ${vaultAccountId}`);
+
+    const stakeAddress = await this.stakingService.getStakeAddress(vaultAccountId);
+    return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
   };
 
   /**
