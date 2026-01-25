@@ -222,6 +222,16 @@ export class ApiController {
         fee,
       });
 
+      if (!result) {
+        this.logger.info(`Staking credential already registered for vault ${vaultAccountId}`);
+        return res.status(200).json({
+          success: true,
+          data: {
+            message: "Stake credential is already registered",
+          },
+        });
+      }
+
       this.logger.info(`Staking registration successful for vault ${vaultAccountId}`);
       res.status(200).json({
         success: true,
@@ -341,6 +351,30 @@ export class ApiController {
       });
     } catch (error: any) {
       this.handleError(error, res, "withdrawRewards");
+    }
+  };
+
+  public getStakeAccountInfo = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.params;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getStakeAccountInfo(vaultAccountId);
+
+      this.logger.info(`Staking account info retrieved successfully for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "getStakeAccountInfo");
     }
   };
 
