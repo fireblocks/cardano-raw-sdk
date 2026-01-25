@@ -133,19 +133,22 @@ export class StakingService {
     this.logger.info(`Delegating to pool ${poolId} for vault account ${vaultAccountId}`);
 
     try {
-      // 1. Validate and check prerequisites
+      // Validate and check prerequisites
       await this.validateDelegationPrerequisites(vaultAccountId, poolId);
 
-      // 2. Get address and stake credential
-      const { baseAddress, addressIndex } = await this.getBaseAddress(vaultAccountId);
+      // Find suitable UTXO
+      const minAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const {
+        address: baseAddress,
+        addressIndex,
+        utxo,
+      } = await this.findAddressWithSuitableUtxo(vaultAccountId, minAmount);
+
+      // Get address and stake credential
       const certificate = getCertificateFromBaseAddress(
         baseAddress,
         this.network === Networks.MAINNET
       );
-
-      // Find suitable UTXO
-      const minAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
-      const utxo = await this.findUtxoForAddress(baseAddress, minAmount, vaultAccountId);
 
       // Build delegation certificate
       const delegationCertificate = buildDelegationCertificate(certificate, poolId);
