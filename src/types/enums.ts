@@ -43,3 +43,45 @@ export enum PoolStatus {
   RETIRING = "retiring",
   RETRIED = "retried",
 }
+
+/**
+ * DRep kind enum matching Conway era specification
+ */
+export enum DRepKind {
+  KEY_HASH = 0,
+  SCRIPT_HASH = 1,
+  ALWAYS_ABSTAIN = 2,
+  ALWAYS_NO_CONFIDENCE = 3,
+}
+
+/**
+ * Certificate types for Cardano staking and governance
+ */
+export enum CertificateType {
+  // Pre-Conway era certificates (Shelley through Babbage)
+  STAKE_KEY_REGISTRATION = 0, // Shelley era (not 7)
+  STAKE_KEY_DEREGISTRATION = 1, // Shelley era (not 8)
+  DELEGATION = 2,
+
+  // Conway era certificates
+  STAKE_REGISTRATION = 7, // Conway: includes deposit amount
+  STAKE_DEREGISTRATION = 8, // Conway: includes refund amount
+  VOTE_DELEGATION = 9, // Conway: voting delegation
+}
+
+/**
+ * DRep (Delegated Representative) action types for Conway governance
+ */
+export enum DRepAction {
+  ALWAYS_ABSTAIN = "always-abstain",
+  ALWAYS_NO_CONFIDENCE = "always-no-confidence",
+  CUSTOM_DREP = "custom-drep",
+}
+
+export enum StakingOperation {
+  REGISTER = "register",
+  DELEGATE = "delegate",
+  DEREGISTER = "deregister",
+  WITHDRAW_REWARDS = "withdraw-rewards",
+  VOTE_DELEGATE = "vote-delegate",
+}
