@@ -1115,7 +1115,13 @@ export class FireblocksCardanoRawSDK {
    * console.log(`Withdrawal TX: ${result.txHash}`);
    * ```
    */
-  public withdrawRewards = async (options: WithdrawRewardsOptions): Promise<TransferResponse> => {
+  public withdrawRewards = async (
+    options: WithdrawRewardsOptions
+  ): Promise<
+    StakingTransactionResult & {
+      rewardAmount?: number;
+    }
+  > => {
     this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
     return await this.stakingService.withdrawRewards(options);
   };
