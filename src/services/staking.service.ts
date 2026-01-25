@@ -41,7 +41,7 @@ import {
   SupportedAssets,
   TransferResponse,
   StakingOperation,
-  IagonApiError,
+  SdkApiError,
 } from "../types/index.js";
 import { TransactionRequest, TransactionOperation, TransferPeerPathType } from "@fireblocks/ts-sdk";
 
@@ -99,7 +99,7 @@ export class StakingService {
       const transactionResponse = await this.fireblocksService.broadcastTransaction(payload);
 
       if (transactionResponse === null) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "Transaction response is null",
           503,
           "NULL_RESPONSE",
@@ -112,7 +112,7 @@ export class StakingService {
 
       // Extract BOTH signatures
       if (!txData || txData.length !== 2) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           `Expected 2 signatures (payment + staking keys), got ${txData?.length || 0}`,
           500,
           "INVALID_SIGNATURE_COUNT",
@@ -159,7 +159,7 @@ export class StakingService {
 
     const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
     if (!baseAddressObj) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         `No BASE address found for vault account ${vaultAccountId}`,
         400,
         "NO_BASE_ADDRESS",
@@ -170,7 +170,7 @@ export class StakingService {
     const baseAddress = baseAddressObj.address;
 
     if (!baseAddress) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         `No BASE address found for vault account ${vaultAccountId}`,
         400,
         "NO_BASE_ADDRESS",
@@ -318,7 +318,7 @@ export class StakingService {
 
       const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
       if (!baseAddressObj) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -329,7 +329,7 @@ export class StakingService {
       const baseAddress = baseAddressObj.address;
 
       if (!baseAddress) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -347,7 +347,7 @@ export class StakingService {
       // Get UTXOs
       const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
       if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No UTXOs available for transaction",
           400,
           "NO_UTXOS",
@@ -360,7 +360,7 @@ export class StakingService {
       const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
       const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
       if (!utxo) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           `No UTXO found with at least ${minInputAmount} Lovelace`,
           400,
           "NO_SUITABLE_UTXO",
@@ -431,7 +431,7 @@ export class StakingService {
 
       const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
       if (!baseAddressObj) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -442,7 +442,7 @@ export class StakingService {
       const baseAddress = baseAddressObj.address;
 
       if (!baseAddress) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -471,7 +471,7 @@ export class StakingService {
       // Get UTXOs
       const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
       if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No UTXOs available for transaction",
           400,
           "NO_UTXOS",
@@ -484,7 +484,7 @@ export class StakingService {
       const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
       const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
       if (!utxo) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           `No UTXO found with at least ${minInputAmount} Lovelace`,
           400,
           "NO_SUITABLE_UTXO",
@@ -557,7 +557,7 @@ export class StakingService {
 
       const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
       if (!baseAddressObj) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -568,7 +568,7 @@ export class StakingService {
       const baseAddress = baseAddressObj.address;
 
       if (!baseAddress) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -608,7 +608,7 @@ export class StakingService {
       // Get UTXOs
       const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
       if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No UTXOs available for transaction",
           400,
           "NO_UTXOS",
@@ -621,7 +621,7 @@ export class StakingService {
       const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
       const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
       if (!utxo) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           `No UTXO found with at least ${minInputAmount} Lovelace`,
           400,
           "NO_SUITABLE_UTXO",
@@ -686,7 +686,7 @@ export class StakingService {
 
       const baseAddressObj = addresses.find((addr) => addr.addressFormat === "BASE");
       if (!baseAddressObj) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -697,7 +697,7 @@ export class StakingService {
       const baseAddress = baseAddressObj.address;
 
       if (!baseAddress) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No BASE address found for vault account",
           400,
           "NO_BASE_ADDRESS",
@@ -718,7 +718,7 @@ export class StakingService {
       // Get UTXOs
       const utxosResponse = await this.iagonApiService.getUtxosByAddress(baseAddress);
       if (!utxosResponse.data || utxosResponse.data.length === 0) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           "No UTXOs available for transaction",
           400,
           "NO_UTXOS",
@@ -731,7 +731,7 @@ export class StakingService {
       const minInputAmount = fee * 2; // At least 2 ADA
       const utxo = findSuitableUtxo(utxosResponse.data, minInputAmount);
       if (!utxo) {
-        throw new IagonApiError(
+        throw new SdkApiError(
           `No UTXO found with at least ${minInputAmount} Lovelace`,
           400,
           "NO_SUITABLE_UTXO",
@@ -877,7 +877,7 @@ export class StakingService {
     );
 
     if (!addresses || addresses.length === 0) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         "No addresses found for vault account",
         400,
         "NO_ADDRESSES",
@@ -902,7 +902,7 @@ export class StakingService {
       }
     }
 
-    throw new IagonApiError(
+    throw new SdkApiError(
       `No address with pure ADA UTXO of at least ${minAmount} Lovelace found. ` +
         `Please send ${(minAmount / 1000000).toFixed(1)} ADA (without tokens) to this vault.`,
       400,

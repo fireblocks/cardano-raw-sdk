@@ -39,7 +39,7 @@ import {
   VaultBalanceByAddress,
   VaultBalancePolicyResponse,
   VaultBalanceByPolicy,
-  IagonApiError,
+  SdkApiError,
   RegisterStakingOptions,
   StakingTransactionResult,
   DelegationOptions,
@@ -515,7 +515,7 @@ export class FireblocksCardanoRawSDK {
    *
    * @param options - Transfer configuration options
    * @returns Transaction result with hash, sender address, and token name
-   * @throws IagonApiError with 400 status code for validation errors
+   * @throws SdkApiError with 400 status code for validation errors
    * @throws Error if any step of the transfer process fails
    */
   public transfer = async (
@@ -537,7 +537,7 @@ export class FireblocksCardanoRawSDK {
 
     // Validate that exactly one recipient option is provided
     if (!recipientAddress && !recipientVaultAccountId) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         "Either recipientAddress or recipientVaultAccountId must be provided",
         400,
         "ValidationError",
@@ -546,7 +546,7 @@ export class FireblocksCardanoRawSDK {
       );
     }
     if (recipientAddress && recipientVaultAccountId) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         "Cannot specify both recipientAddress and recipientVaultAccountId",
         400,
         "ValidationError",
@@ -572,7 +572,7 @@ export class FireblocksCardanoRawSDK {
           recipientIndex
         );
         if (!recipientAddressData.address) {
-          throw new IagonApiError(
+          throw new SdkApiError(
             `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
             404,
             "AddressNotFound",

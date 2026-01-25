@@ -13,7 +13,7 @@ import {
   GetTransactionHistoryOpts,
   TransactionDetailsResponse,
   Networks,
-  IagonApiError,
+  SdkApiError,
   StakeAccountRewardsResponse,
   StakeAccountInfoResponse,
   CurrentEpochResponse,
@@ -49,7 +49,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching UTXOs for address ${address}`);
     }
@@ -67,7 +67,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching UTXOs for credential ${credential}`);
     }
@@ -86,7 +86,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching UTXOs for stake key ${stakeKey}`);
     }
@@ -109,7 +109,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching balance for address ${address}`);
     }
@@ -131,7 +131,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,
@@ -156,7 +156,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching balance for stake key ${stakeKey}`);
     }
@@ -208,7 +208,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, operationName);
     }
@@ -226,7 +226,10 @@ export class IagonApiService {
         },
       });
 
-      return response.data.success ? response.data : null;
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching transaction ${hash} details`);
     }
@@ -265,7 +268,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `submitting transfer`);
     }
@@ -292,7 +295,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,
@@ -317,7 +320,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,
@@ -342,7 +345,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching current epoch`);
     }
@@ -364,7 +367,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching pool info for ${poolId}`);
     }
@@ -388,7 +391,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,
@@ -415,7 +418,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,
@@ -441,7 +444,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,
@@ -468,7 +471,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching account assets for ${stakeAddress}`);
     }
@@ -492,7 +495,7 @@ export class IagonApiService {
       if (response.status === 200) {
         return response.data;
       }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(
         error,

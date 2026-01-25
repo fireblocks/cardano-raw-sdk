@@ -1,4 +1,4 @@
-export class IagonApiError extends Error {
+export class SdkApiError extends Error {
   constructor(
     message: string,
     public statusCode?: number,
@@ -7,6 +7,6 @@ export class IagonApiError extends Error {
     public service?: string
   ) {
     super(message);
-    this.name = "IagonApiError";
+    this.name = "SdkApiError";
   }
 }

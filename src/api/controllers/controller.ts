@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { Logger } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
-import { GroupByOptions, IagonApiError } from "../../types/index.js";
+import { GroupByOptions, SdkApiError } from "../../types/index.js";
 import { STAKING_DEPOSIT_AMOUNT, STAKING_DEPOSIT_FEE } from "../../constants.js";
 
 /**
@@ -490,7 +490,7 @@ export class ApiController {
    * Handles errors that occur during API operations.
    *
    * This private method provides centralized error handling, distinguishing between
-   * IagonApiError instances (which have structured error information) and generic
+   * SdkApiError instances (which have structured error information) and generic
    * errors. It logs the error details and sends an appropriate HTTP response.
    *
    * @param error - The error that occurred
@@ -499,7 +499,7 @@ export class ApiController {
    * @returns void
    *
    * @remarks
-   * For IagonApiError instances, returns a structured JSON response with statusCode,
+   * For SdkApiError instances, returns a structured JSON response with statusCode,
    * errorType, service, message, and additional error info.
    * For generic errors, returns a 500 status with a simple error message.
    */
@@ -521,7 +521,7 @@ export class ApiController {
    * For generic errors, returns a 500 status with a simple error message.
    */
   private handleError(error: unknown, res: Response, endpoint: string): void {
-    if (error instanceof IagonApiError) {
+    if (error instanceof SdkApiError) {
       const statusCode = error.statusCode || 500;
 
       this.logger.error(`${endpoint} - ApiError:`, {
