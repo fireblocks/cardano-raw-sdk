@@ -12,8 +12,9 @@ import {
   CardanoRewardWithdrawal,
   DRepKind,
   DRepInfo,
-} from "../types/staking.js";
-import { Networks } from "../types/index.js";
+  Networks,
+  DRepAction,
+} from "../types/index.js";
 
 // Constants from Python code
 export const BIP_44_CONSTANT = 44;
@@ -84,7 +85,6 @@ export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer 
     );
   }
 
-  // Cardano addresses can exceed the default bech32 length limit of 90
   // Use a higher limit (1000) to accommodate Cardano addresses
   const decoded = bech32.decode(encodedAddress, 1000);
   const addressBytes = Buffer.from(bech32.fromWords(decoded.words));
@@ -97,13 +97,12 @@ export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer 
 export function getCertificateFromBaseAddress(baseAddress: string, mainnet: boolean): Buffer {
   const decoded = decodeAddress(baseAddress, mainnet);
 
-  // Base address structure: 1 byte header + 28 bytes payment credential + 28 bytes stake credential
   if (decoded.length < 57) {
     throw new Error(`Invalid base address length: ${decoded.length}, expected at least 57 bytes`);
   }
 
   // Extract stake credential (last 28 bytes)
-  return decoded.slice(29);
+  return decoded.subarray(29);
 }
 
 /**
@@ -124,29 +123,45 @@ export function getStakeAddressFromBaseAddress(baseAddress: string, mainnet: boo
 }
 
 /**
+ * Convert Buffer to Uint8Array for CBOR encoding
+ */
+function toUint8Array(buffer: Buffer): Uint8Array {
+  return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+}
+
+/**
  * Serialize certificate for CBOR encoding
  * Returns [0, certificate] array
  */
-export function serializeCertificate(certificate: Buffer): [number, Buffer] {
-  return [0, certificate];
+export function serializeCertificate(certificate: Buffer): [number, Uint8Array] {
+  const certBuffer = Buffer.isBuffer(certificate) ? certificate : Buffer.from(certificate, "hex");
+
+  return [0, toUint8Array(certBuffer)];
 }
 
 /**
- * Build stake key registration certificate
- * Certificate type: 0 (STAKE_KEY_REGISTRATION)
+ * Build stake key registration certificate (Conway era)
+ * Certificate type: 7 (STAKE_REGISTRATION) - includes deposit amount
  */
 export function buildRegistrationCertificate(credential: Buffer): Array<any> {
   const serializedCert = serializeCertificate(credential);
-  return [CertificateType.STAKE_KEY_REGISTRATION, serializedCert];
+
+  return [
+    CertificateType.STAKE_KEY_REGISTRATION, // Type 0 for Shelley
+    serializedCert, // [0, credential_buffer]
+  ];
 }
 
 /**
- * Build stake key deregistration certificate
- * Certificate type: 1 (STAKE_KEY_DEREGISTRATION)
+ * Build stake key deregistration certificate (Shelley era)
+ * Certificate type: 1 (STAKE_DEREGISTRATION)
  */
 export function buildDeregistrationCertificate(credential: Buffer): Array<any> {
   const serializedCert = serializeCertificate(credential);
-  return [CertificateType.STAKE_KEY_DEREGISTRATION, serializedCert];
+  return [
+    CertificateType.STAKE_DEREGISTRATION, // Type 1 for Shelley
+    serializedCert,
+  ];
 }
 
 /**
@@ -156,7 +171,7 @@ export function buildDeregistrationCertificate(credential: Buffer): Array<any> {
 export function buildDelegationCertificate(credential: Buffer, poolId: string): Array<any> {
   const serializedCert = serializeCertificate(credential);
   const poolIdBytes = Buffer.from(poolId, "hex");
-  return [CertificateType.DELEGATION, serializedCert, poolIdBytes];
+  return [CertificateType.DELEGATION, serializedCert, toUint8Array(poolIdBytes)];
 }
 
 /**
@@ -179,13 +194,13 @@ export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInf
       if (!drep.keyHash) {
         throw new Error("KEY_HASH DRep requires keyHash");
       }
-      drepArray = [DRepKind.KEY_HASH, drep.keyHash];
+      drepArray = [DRepKind.KEY_HASH, toUint8Array(drep.keyHash)];
       break;
     case DRepKind.SCRIPT_HASH:
       if (!drep.keyHash) {
         throw new Error("SCRIPT_HASH DRep requires keyHash");
       }
-      drepArray = [DRepKind.SCRIPT_HASH, drep.keyHash];
+      drepArray = [DRepKind.SCRIPT_HASH, toUint8Array(drep.keyHash)];
       break;
     default:
       throw new Error(`Unknown DRep kind: ${drep.kind}`);
@@ -197,10 +212,12 @@ export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInf
 /**
  * Serialize withdrawals as a map for CBOR encoding
  */
-export function serializeWithdrawals(withdrawals: CardanoRewardWithdrawal[]): Map<Buffer, number> {
-  const withdrawalMap = new Map<Buffer, number>();
+export function serializeWithdrawals(
+  withdrawals: CardanoRewardWithdrawal[]
+): Map<Uint8Array, number> {
+  const withdrawalMap = new Map<Uint8Array, number>();
   for (const withdrawal of withdrawals) {
-    withdrawalMap.set(withdrawal.certificate, withdrawal.reward);
+    withdrawalMap.set(toUint8Array(withdrawal.certificate), withdrawal.reward);
   }
   return withdrawalMap;
 }
@@ -209,25 +226,26 @@ export function serializeWithdrawals(withdrawals: CardanoRewardWithdrawal[]): Ma
  * Embed signatures in transaction to create final signed transaction
  */
 export function embedSignaturesInTx(
-  deserializedTxPayload: Record<string, any>,
-  signatures: CardanoWitness[],
+  deserializedTxPayload: Map<number, any>,
+  signatures: CardanoWitness[]
 ): Buffer {
-  const witnessesArr: Array<[Buffer, Buffer]> = [];
+  // Convert witness buffers to Uint8Array for proper CBOR byte string encoding
+  const witnessesArr: Array<[Uint8Array, Uint8Array]> = signatures.map((sig) => [
+    toUint8Array(sig.pubKey),
+    toUint8Array(sig.signature),
+  ]);
 
-  for (const sig of signatures) {
-    witnessesArr.push([sig.pubKey, sig.signature]);
-  }
+  const witnessSet = new Map([[0, witnessesArr]]);
 
   // Transaction structure: [txBody, witnesses, metadata]
-  const deserialized = [
-    deserializedTxPayload,
-    { 0: witnessesArr }, // Witness set with vkey witnesses
-    null, // No auxiliary data
+  const signedTx = [
+    deserializedTxPayload, // Transaction body (Map)
+    witnessSet, // Witness set (Map)
+    null, // Auxiliary data/metadata (null)
   ];
 
-  return Buffer.from(cborEncode(deserialized));
+  return Buffer.from(cborEncode(signedTx));
 }
-
 /**
  * Build transaction payload (transaction body) for CBOR encoding
  */
@@ -239,46 +257,54 @@ export interface BuildPayloadOptions {
   feeAmount: number;
   ttl: number;
   certificates?: Array<any>;
-  withdrawals?: Map<Buffer, number>; // Changed from Record<string, number>
+  withdrawals?: Map<Uint8Array, number>;
   network: Networks;
 }
 
 export function buildPayload(options: BuildPayloadOptions): {
   serialized: Buffer;
-  deserialized: Record<number, any>;
+  deserialized: Map<number, any>;
 } {
   const { toAddress, netAmount, txInputs, feeAmount, ttl, certificates, withdrawals, network } =
     options;
 
   // Build inputs array
-  const inputsArr = txInputs.map((input) => [input.txHash, input.indexInTx]);
+  const inputsArr = txInputs.map((input) => {
+    const txHashBuffer = Buffer.isBuffer(input.txHash)
+      ? input.txHash
+      : Buffer.from(input.txHash, "hex");
+
+    return [toUint8Array(txHashBuffer), input.indexInTx];
+  });
 
   // Build outputs array
   const decodedToAddress = decodeAddress(toAddress, network === Networks.MAINNET);
-  const outputsArr = [[decodedToAddress, netAmount]];
+  const addressBuffer = Buffer.isBuffer(decodedToAddress)
+    ? decodedToAddress
+    : Buffer.from(decodedToAddress, "hex");
 
-  // Build transaction body
-  const deserialized: Record<number, any> = {
-    0: inputsArr, // inputs
-    1: outputsArr, // outputs
-    2: feeAmount, // fee
-    3: ttl, // TTL
-  };
+  const outputsArr = [[toUint8Array(addressBuffer), netAmount]];
+
+  // Build transaction body using Map for integer keys
+  const deserialized = new Map<number, any>([
+    [0, inputsArr], // inputs
+    [1, outputsArr], // outputs
+    [2, feeAmount], // fee
+    [3, ttl], // TTL
+  ]);
 
   if (certificates && certificates.length > 0) {
-    deserialized[4] = certificates;
+    deserialized.set(4, certificates);
   }
 
   if (withdrawals && withdrawals.size > 0) {
-    // withdrawals should be a Map, not an object
-    deserialized[5] = withdrawals;
+    deserialized.set(5, withdrawals);
   }
 
   const serialized = Buffer.from(cborEncode(deserialized));
 
   return { serialized, deserialized };
 }
-
 /**
  * Calculate TTL (time to live) for transaction
  */
@@ -296,11 +322,21 @@ export interface UtxoForStaking {
 }
 
 export function findSuitableUtxo(
-  utxos: Array<{ transaction_id: string; output_index: number; value: { lovelace: number } }>,
+  utxos: Array<{
+    transaction_id: string;
+    output_index: number;
+    value: {
+      lovelace: number;
+      assets?: any;
+    };
+  }>,
   minAmount: number
 ): UtxoForStaking | null {
   for (const utxo of utxos) {
-    if (utxo.value.lovelace > minAmount) {
+    // Skip UTXOs that contain tokens - only use pure ADA UTXOs for staking
+    const hasTokens = utxo.value.assets && Object.keys(utxo.value.assets).length > 0;
+
+    if (!hasTokens && utxo.value.lovelace > minAmount) {
       return {
         txHash: utxo.transaction_id,
         indexInTx: utxo.output_index,
@@ -314,16 +350,13 @@ export function findSuitableUtxo(
 /**
  * Convert DRep action string to DRepInfo
  */
-export function drepActionToDRepInfo(
-  action: "always-abstain" | "always-no-confidence" | "custom-drep",
-  drepId?: string
-): DRepInfo {
+export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepInfo {
   switch (action) {
-    case "always-abstain":
+    case DRepAction.ALWAYS_ABSTAIN:
       return { kind: DRepKind.ALWAYS_ABSTAIN };
-    case "always-no-confidence":
+    case DRepAction.ALWAYS_NO_CONFIDENCE:
       return { kind: DRepKind.ALWAYS_NO_CONFIDENCE };
-    case "custom-drep":
+    case DRepAction.CUSTOM_DREP:
       if (!drepId) {
         throw new Error("custom-drep requires drepId");
       }
