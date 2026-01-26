@@ -27,6 +27,7 @@ import {
   MIN_UTXO_VALUE_ADA_ONLY,
   stakeAddressBytesPrefix,
   UtxoForStaking,
+  sortWitnesses,
 } from "../utils/staking.utils.js";
 import {
   RegisterStakingOptions,
@@ -93,10 +94,11 @@ export class StakingService {
           addressIndex: 0,
         };
       }
+      const minInputAmount = depositAmount + fee;
 
       const { address, addressIndex, utxo } = await this.findAddressWithSuitableUtxo(
         vaultAccountId,
-        depositAmount + fee
+        minInputAmount
       );
 
       const txHash = await this.buildAndSubmitRegistration({
@@ -144,6 +146,9 @@ export class StakingService {
         utxo,
       } = await this.findAddressWithSuitableUtxo(vaultAccountId, minAmount);
 
+      this.logger.info(`Using address: ${baseAddress}`);
+      this.logger.info(`Address index: ${addressIndex}`);
+
       // Get address and stake credential
       const certificate = getCertificateFromBaseAddress(
         baseAddress,
@@ -163,6 +168,7 @@ export class StakingService {
         fee,
         certificates: [delegationCertificate],
         operation: "delegate to pool",
+        skipValidation: true,
       });
 
       this.logger.info(`Delegation transaction submitted: ${txHash}`);
@@ -183,17 +189,30 @@ export class StakingService {
   public async deregisterStakingCredential(
     options: DeregisterStakingOptions
   ): Promise<StakingTransactionResult> {
+    const { vaultAccountId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+
+    this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
+
     try {
-      const { vaultAccountId, fee } = options;
+      // Check if registered
+      const existingRegistration = await this.checkExistingRegistration(vaultAccountId);
+      if (!existingRegistration) {
+        this.logger.info(`Staking credential not registered for vault ${vaultAccountId}`);
+        return {
+          txHash: "",
+          status: "not_registered",
+          operation: StakingOperation.DEREGISTER,
+        };
+      }
 
-      this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
-
+      // Find suitable UTXO
       const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
       const {
         address: baseAddress,
         addressIndex,
         utxo,
       } = await this.findAddressWithSuitableUtxo(vaultAccountId, minInputAmount);
+
       // Get stake credential and stake address
       const certificate = getCertificateFromBaseAddress(
         baseAddress,
@@ -211,31 +230,23 @@ export class StakingService {
         Infinity
       );
 
-      const netAmount = utxo.nativeAmount - fee + DEPOSIT_AMOUNT + rewardAmount;
-
-      // Build deregistration certificate
-      const deregistrationCertificate = buildDeregistrationCertificate(certificate);
-
       // Serialize withdrawals
-      const withdrawalsDict = serializeWithdrawals([withdrawal]);
+      const withdrawalsDict = rewardAmount > 0 ? serializeWithdrawals([withdrawal]) : undefined;
 
-      // Build transaction
-      const submitResponse = await this.buildSignAndSubmit({
+      // Build, sign, and submit
+      const txHash = await this.buildAndSubmitDeregistration({
         vaultAccountId,
         address: baseAddress,
         addressIndex,
         utxo,
-        netAmount,
+        certificate,
+        withdrawals: withdrawalsDict, // Will be undefined if no rewards
+        rewardAmount,
         fee,
-        certificates: [deregistrationCertificate],
-        withdrawals: withdrawalsDict,
-        operation: "deregister staking credential",
       });
 
-      this.logger.info(`Deregistration transaction submitted: ${submitResponse.data.txHash}`);
-
       return {
-        txHash: submitResponse.data.txHash,
+        txHash,
         status: "submitted",
         operation: StakingOperation.DEREGISTER,
       };
@@ -319,6 +330,7 @@ export class StakingService {
         netAmount,
         fee,
         withdrawals: withdrawalsDict,
+        requiredSigners: [certificate], // Add this
         operation: "withdraw staking rewards",
       });
 
@@ -494,6 +506,7 @@ export class StakingService {
     fee: number;
     certificates?: Array<any>;
     withdrawals?: Map<Uint8Array, number>;
+    requiredSigners?: Buffer[];
     operation: string;
     skipValidation?: boolean;
   }): Promise<TransferResponse> {
@@ -506,6 +519,7 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
+      requiredSigners,
       operation,
       skipValidation = false,
     } = params;
@@ -520,16 +534,17 @@ export class StakingService {
       ttl,
       certificates,
       withdrawals,
+      requiredSigners,
       network: this.network,
     });
 
     const txHash = getSigningPayload(serialized);
-    const witnesses = await this.sendForSigning(
-      txHash.toString("hex"),
+    const witnesses = await this.sendForSigning({
+      txHash: txHash.toString("hex"),
       vaultAccountId,
       operation,
-      addressIndex
-    );
+      addressIndex,
+    });
 
     const signedTx = embedSignaturesInTx(deserialized, witnesses);
 
@@ -579,12 +594,12 @@ export class StakingService {
 
     // Sign transaction
     const txHash = getSigningPayload(serialized);
-    const witnesses = await this.sendForSigning(
-      txHash.toString("hex"),
+    const witnesses = await this.sendForSigning({
+      txHash: txHash.toString("hex"),
       vaultAccountId,
-      "register staking credential",
-      addressIndex
-    );
+      operation: "register staking credential",
+      addressIndex,
+    });
 
     // Create signed transaction
     const signedTx = embedSignaturesInTx(deserialized, witnesses);
@@ -604,14 +619,79 @@ export class StakingService {
   }
 
   /**
+   * Build, sign, and submit deregistration transaction
+   */
+  private async buildAndSubmitDeregistration(params: {
+    vaultAccountId: string;
+    address: string;
+    addressIndex: number;
+    utxo: UtxoForStaking;
+    certificate: Buffer;
+    withdrawals?: Map<Uint8Array, number>;
+    rewardAmount: number;
+    fee: number;
+  }): Promise<string> {
+    const {
+      vaultAccountId,
+      address,
+      addressIndex,
+      utxo,
+      certificate,
+      withdrawals,
+      rewardAmount,
+      fee,
+    } = params;
+
+    const netAmount = utxo.nativeAmount - fee + DEPOSIT_AMOUNT + rewardAmount;
+
+    const deregistrationCertificate = buildDeregistrationCertificate(certificate);
+
+    const ttl = await this.getTtl();
+
+    const { serialized, deserialized } = buildPayload({
+      toAddress: address,
+      netAmount,
+      txInputs: [{ txHash: Buffer.from(utxo.txHash, "hex"), indexInTx: utxo.indexInTx }],
+      feeAmount: fee,
+      ttl,
+      certificates: [deregistrationCertificate],
+      withdrawals,
+      network: this.network,
+    });
+
+    const txHash = getSigningPayload(serialized);
+    const witnesses = await this.sendForSigning({
+      txHash: txHash.toString("hex"),
+      vaultAccountId,
+      operation: "deregister staking credential",
+      addressIndex,
+    });
+
+    const signedTx = embedSignaturesInTx(deserialized, witnesses);
+
+    this.logTransactionDetails(serialized, txHash, witnesses, signedTx);
+
+    const submitResponse = await this.iagonApiService.submitTransfer(
+      signedTx.toString("hex"),
+      true 
+    );
+
+    this.logger.info(`Deregistration transaction submitted: ${submitResponse.data.txHash}`);
+
+    return submitResponse.data.txHash;
+  }
+
+  /**
    * Send transaction hash for signing with Fireblocks
    */
-  private async sendForSigning(
-    txHash: string,
-    vaultAccountId: string,
-    operation: string,
-    addressIndex: number = 0
-  ): Promise<CardanoWitness[]> {
+  private async sendForSigning(params: {
+    txHash: string;
+    vaultAccountId: string;
+    operation: string;
+    addressIndex: number;
+  }): Promise<CardanoWitness[]> {
+    const { txHash, vaultAccountId, operation, addressIndex } = params;
+
     try {
       const payload: TransactionRequest = {
         assetId: this.assetId,
@@ -624,8 +704,8 @@ export class StakingService {
         extraParameters: {
           rawMessageData: {
             messages: [
-              { content: txHash, bip44addressIndex: addressIndex }, // Payment key signature
-              { content: txHash, bip44addressIndex: 2 }, // Staking key signature
+              { content: txHash, bip44addressIndex: addressIndex }, // Payment key
+              { content: txHash, bip44change: 2 }, // Stake key
             ],
           },
         },
@@ -633,36 +713,48 @@ export class StakingService {
 
       this.logger.info(`Sending transaction for signing: ${operation}`);
 
-      // Need to use different method that returns ALL signed messages
       const transactionResponse = await this.fireblocksService.broadcastTransaction(payload);
 
       if (transactionResponse === null) {
-        throw new SdkApiError(
-          "Transaction response is null",
-          503,
-          "NULL_RESPONSE",
-          {},
-          "staking-service"
-        );
+        throw new SdkApiError("Transaction response is null", 503, "NULL_RESPONSE");
       }
 
       const txData = transactionResponse.data;
 
-      // Extract BOTH signatures
       if (!txData || txData.length !== 2) {
         throw new SdkApiError(
-          `Expected 2 signatures (payment + staking keys), got ${txData?.length || 0}`,
+          `Expected 2 signatures, got ${txData?.length || 0}`,
           500,
-          "INVALID_SIGNATURE_COUNT",
-          {},
-          "staking-service"
+          "INVALID_SIGNATURE_COUNT"
         );
       }
 
-      const witnesses: CardanoWitness[] = txData.map((msg) => ({
-        pubKey: Buffer.from(msg.publicKey!, "hex"),
-        signature: Buffer.from(msg.signature!.fullSig!, "hex"),
+      const paymentPubKey = await this.fireblocksService.getAssetPublicKey(
+        vaultAccountId,
+        this.assetId,
+        0, // change
+        addressIndex
+      );
+
+      const stakePubKey = await this.fireblocksService.getAssetPublicKey(
+        vaultAccountId,
+        this.assetId,
+        0, // change
+        2 // stake key index
+      );
+
+      this.logger.info(`Expected payment key: ${paymentPubKey}`);
+      this.logger.info(`Expected stake key: ${stakePubKey}`);
+
+      // Map witnesses by matching public keys
+      const witnesses: CardanoWitness[] = txData.map((sig) => ({
+        pubKey: Buffer.from(sig.publicKey!, "hex"),
+        signature: Buffer.from(sig.signature!.fullSig!, "hex"),
       }));
+
+      witnesses.forEach((w, i) => {
+        this.logger.info(`Received witness ${i} - PubKey: ${w.pubKey.toString("hex")}`);
+      });
 
       return witnesses;
     } catch (error: any) {
@@ -939,9 +1031,11 @@ export class StakingService {
     this.logger.info(`TX hash for signing: ${txHash.toString("hex")}`);
     this.logger.info(`Witnesses count: ${witnesses.length}`);
 
-    witnesses.forEach((w, i) => {
-      this.logger.info(`Witness ${i} - PubKey: ${w.pubKey.toString("hex")}`);
-      this.logger.info(`Witness ${i} - Signature: ${w.signature.toString("hex")}`);
+    const sortedWitnesses = sortWitnesses(witnesses);
+
+    sortedWitnesses.forEach((w, i) => {
+      this.logger.info(`Sorted Witness ${i} - PubKey: ${w.pubKey.toString("hex")}`);
+      this.logger.info(`Sorted Witness ${i} - Signature: ${w.signature.toString("hex")}`);
     });
 
     this.logger.info(`Final signed TX (hex): ${signedTx.toString("hex")}`);

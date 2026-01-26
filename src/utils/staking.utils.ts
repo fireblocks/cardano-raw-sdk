@@ -159,7 +159,7 @@ export function buildRegistrationCertificate(credential: Buffer): Array<any> {
 export function buildDeregistrationCertificate(credential: Buffer): Array<any> {
   const serializedCert = serializeCertificate(credential);
   return [
-    CertificateType.STAKE_DEREGISTRATION, // Type 1 for Shelley
+    CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 for Shelley
     serializedCert,
   ];
 }
@@ -224,13 +224,17 @@ export function serializeWithdrawals(
 
 /**
  * Embed signatures in transaction to create final signed transaction
+ * Witnesses are automatically sorted by key hash as required by Cardano
  */
 export function embedSignaturesInTx(
   deserializedTxPayload: Map<number, any>,
   signatures: CardanoWitness[]
 ): Buffer {
+  // Sort witnesses by public key hash
+  const sortedSignatures = sortWitnesses(signatures);
+
   // Convert witness buffers to Uint8Array for proper CBOR byte string encoding
-  const witnessesArr: Array<[Uint8Array, Uint8Array]> = signatures.map((sig) => [
+  const witnessesArr: Array<[Uint8Array, Uint8Array]> = sortedSignatures.map((sig) => [
     toUint8Array(sig.pubKey),
     toUint8Array(sig.signature),
   ]);
@@ -246,6 +250,7 @@ export function embedSignaturesInTx(
 
   return Buffer.from(cborEncode(signedTx));
 }
+
 /**
  * Build transaction payload (transaction body) for CBOR encoding
  */
@@ -258,6 +263,7 @@ export interface BuildPayloadOptions {
   ttl: number;
   certificates?: Array<any>;
   withdrawals?: Map<Uint8Array, number>;
+  requiredSigners?: Buffer[]; // Add this
   network: Networks;
 }
 
@@ -265,8 +271,17 @@ export function buildPayload(options: BuildPayloadOptions): {
   serialized: Buffer;
   deserialized: Map<number, any>;
 } {
-  const { toAddress, netAmount, txInputs, feeAmount, ttl, certificates, withdrawals, network } =
-    options;
+  const {
+    toAddress,
+    netAmount,
+    txInputs,
+    feeAmount,
+    ttl,
+    certificates,
+    withdrawals,
+    requiredSigners,
+    network,
+  } = options;
 
   // Build inputs array
   const inputsArr = txInputs.map((input) => {
@@ -286,13 +301,14 @@ export function buildPayload(options: BuildPayloadOptions): {
   const outputsArr = [[toUint8Array(addressBuffer), netAmount]];
 
   // Build transaction body using Map for integer keys
-  const deserialized = new Map<number, any>([
-    [0, inputsArr], // inputs
-    [1, outputsArr], // outputs
-    [2, feeAmount], // fee
-    [3, ttl], // TTL
-  ]);
+  const deserialized = new Map<number, any>();
 
+  deserialized.set(0, inputsArr); // inputs
+  deserialized.set(1, outputsArr); // outputs
+  deserialized.set(2, feeAmount); // fee
+  deserialized.set(3, ttl); // TTL
+
+  // Optional fields - add in numerical order
   if (certificates && certificates.length > 0) {
     deserialized.set(4, certificates);
   }
@@ -301,10 +317,18 @@ export function buildPayload(options: BuildPayloadOptions): {
     deserialized.set(5, withdrawals);
   }
 
+  if (requiredSigners && requiredSigners.length > 0) {
+    deserialized.set(
+      14,
+      requiredSigners.map((signer) => toUint8Array(signer))
+    );
+  }
+
   const serialized = Buffer.from(cborEncode(deserialized));
 
   return { serialized, deserialized };
 }
+
 /**
  * Calculate TTL (time to live) for transaction
  */
@@ -367,4 +391,24 @@ export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepI
     default:
       throw new Error(`Unknown DRep action: ${action}`);
   }
+}
+
+/**
+ * Hash public key to get key hash (28 bytes)
+ * Used for requiredSigners field
+ */
+export function hashPublicKey(pubKey: Buffer): Buffer {
+  return blakeHash(pubKey, 28);
+}
+
+/**
+ * Sort witnesses by public key hash in lexicographic order
+ * Cardano requires witnesses to be sorted for transaction validation
+ */
+export function sortWitnesses(witnesses: CardanoWitness[]): CardanoWitness[] {
+  return witnesses.slice().sort((a, b) => {
+    const hashA = blakeHash(a.pubKey, 28);
+    const hashB = blakeHash(b.pubKey, 28);
+    return hashA.compare(hashB);
+  });
 }
