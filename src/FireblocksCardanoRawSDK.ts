@@ -50,6 +50,7 @@ import {
   WebhookEventTypes,
   TransferResponse,
   StakeAccountInfoResponse,
+  CardanoAmounts,
 } from "./types/index.js";
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
 import { MIN_CHANGE_LOVELACE, MIN_RECIPIENT_LOVELACE, tokenTransactionFee } from "./constants.js";
@@ -65,7 +66,6 @@ import {
   Vkeywitnesses,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { blake2b } from "blakejs";
-import { DEFAULT_NATIVE_TX_FEE } from "./utils/staking.utils.js";
 
 export interface SDKConfig {
   vaultAccountId: string;
@@ -1053,7 +1053,7 @@ export class FireblocksCardanoRawSDK {
       `Delegating to pool ${options.poolId} for vault account ${options.vaultAccountId}`
     );
 
-    const { vaultAccountId, poolId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, poolId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
 
     return await this.stakingService.delegateToPool({ vaultAccountId, poolId, fee });
   };
@@ -1083,7 +1083,7 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Deregistering staking credential for vault account ${options.vaultAccountId}`
     );
-    const { vaultAccountId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
 
     return await this.stakingService.deregisterStakingCredential({ vaultAccountId, fee });
   };

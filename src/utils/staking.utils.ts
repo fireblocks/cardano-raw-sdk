@@ -14,19 +14,11 @@ import {
   DRepInfo,
   Networks,
   DRepAction,
+  CardanoAmounts,
+  BuildPayloadOptions,
+  CardanoCertificate,
 } from "../types/index.js";
-
-// Constants from Python code
-export const BIP_44_CONSTANT = 44;
-export const ADA_COIN_TYPE = 1815;
-export const ADA_TEST_COIN_TYPE = 1;
-export const CHANGE_INDEX = 0;
-export const PERMANENT_ACCOUNT_INDEX = 0;
-export const CHIMERIC_INDEX = 2; // For staking key
-export const DEFAULT_NATIVE_TX_FEE = 300000; // 0.3 ADA
-export const DEPOSIT_AMOUNT = 2000000; // 2 ADA
-export const TX_TTL_SECS = 7200; // 2 hours
-export const MIN_UTXO_VALUE_ADA_ONLY = 1000000; // 1 ADA
+import { CARDANO_BASE_ADDRESS_MIN_LENGTH, CARDANO_PAYMENT_CREDENTIAL_OFFSET } from "../index.js";
 
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
@@ -97,12 +89,14 @@ export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer 
 export function getCertificateFromBaseAddress(baseAddress: string, mainnet: boolean): Buffer {
   const decoded = decodeAddress(baseAddress, mainnet);
 
-  if (decoded.length < 57) {
-    throw new Error(`Invalid base address length: ${decoded.length}, expected at least 57 bytes`);
+  if (decoded.length < CARDANO_BASE_ADDRESS_MIN_LENGTH) {
+    throw new Error(
+      `Invalid base address length: ${decoded.length}, expected at least ${CARDANO_BASE_ADDRESS_MIN_LENGTH} bytes`
+    );
   }
 
   // Extract stake credential (last 28 bytes)
-  return decoded.subarray(29);
+  return decoded.subarray(CARDANO_PAYMENT_CREDENTIAL_OFFSET);
 }
 
 /**
@@ -143,7 +137,7 @@ export function serializeCertificate(certificate: Buffer): [number, Uint8Array] 
  * Build stake key registration certificate (Conway era)
  * Certificate type: 7 (STAKE_REGISTRATION) - includes deposit amount
  */
-export function buildRegistrationCertificate(credential: Buffer): Array<any> {
+export function buildRegistrationCertificate(credential: Buffer): CardanoCertificate {
   const serializedCert = serializeCertificate(credential);
 
   return [
@@ -156,7 +150,7 @@ export function buildRegistrationCertificate(credential: Buffer): Array<any> {
  * Build stake key deregistration certificate (Shelley era)
  * Certificate type: 1 (STAKE_DEREGISTRATION)
  */
-export function buildDeregistrationCertificate(credential: Buffer): Array<any> {
+export function buildDeregistrationCertificate(credential: Buffer): CardanoCertificate {
   const serializedCert = serializeCertificate(credential);
   return [
     CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 for Shelley
@@ -168,7 +162,7 @@ export function buildDeregistrationCertificate(credential: Buffer): Array<any> {
  * Build pool delegation certificate
  * Certificate type: 2 (DELEGATION)
  */
-export function buildDelegationCertificate(credential: Buffer, poolId: string): Array<any> {
+export function buildDelegationCertificate(credential: Buffer, poolId: string): CardanoCertificate {
   const serializedCert = serializeCertificate(credential);
   const poolIdBytes = Buffer.from(poolId, "hex");
   return [CertificateType.DELEGATION, serializedCert, toUint8Array(poolIdBytes)];
@@ -254,18 +248,6 @@ export function embedSignaturesInTx(
 /**
  * Build transaction payload (transaction body) for CBOR encoding
  */
-// staking.utils.ts - Update the interface
-export interface BuildPayloadOptions {
-  toAddress: string;
-  netAmount: number;
-  txInputs: Array<{ txHash: Buffer; indexInTx: number }>;
-  feeAmount: number;
-  ttl: number;
-  certificates?: Array<any>;
-  withdrawals?: Map<Uint8Array, number>;
-  requiredSigners?: Buffer[]; // Add this
-  network: Networks;
-}
 
 export function buildPayload(options: BuildPayloadOptions): {
   serialized: Buffer;
@@ -332,7 +314,10 @@ export function buildPayload(options: BuildPayloadOptions): {
 /**
  * Calculate TTL (time to live) for transaction
  */
-export function calculateTtl(currentSlot: number, ttlSecs: number = TX_TTL_SECS): number {
+export function calculateTtl(
+  currentSlot: number,
+  ttlSecs: number = CardanoAmounts.TX_TTL_SECS
+): number {
   return currentSlot + ttlSecs;
 }
 

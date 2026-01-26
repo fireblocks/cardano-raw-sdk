@@ -1,4 +1,4 @@
-import { DRepAction, DRepKind, StakingOperation } from "./index.js";
+import { DRepAction, DRepKind, Networks, StakingOperation } from "./index.js";
 
 export interface CardanoWitness {
   pubKey: Buffer;
@@ -106,4 +106,18 @@ export interface StakeAddressInfo {
   treasurySum: string;
   withdrawableAmount: string;
   poolId: string | null;
+}
+
+export type CardanoCertificate = [number, [number, Uint8Array], ...any[]];
+
+export interface BuildPayloadOptions {
+  toAddress: string;
+  netAmount: number;
+  txInputs: Array<{ txHash: Buffer; indexInTx: number }>;
+  feeAmount: number;
+  ttl: number;
+  certificates?: CardanoCertificate[];
+  withdrawals?: Map<Uint8Array, number>;
+  requiredSigners?: Buffer[];
+  network: Networks;
 }

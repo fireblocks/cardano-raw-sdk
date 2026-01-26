@@ -22,9 +22,6 @@ import {
   calculateTtl,
   findSuitableUtxo,
   drepActionToDRepInfo,
-  DEFAULT_NATIVE_TX_FEE,
-  DEPOSIT_AMOUNT,
-  MIN_UTXO_VALUE_ADA_ONLY,
   stakeAddressBytesPrefix,
   UtxoForStaking,
   sortWitnesses,
@@ -44,6 +41,7 @@ import {
   TransferResponse,
   StakingOperation,
   SdkApiError,
+  CardanoAmounts,
 } from "../types/index.js";
 import { TransactionRequest, TransactionOperation, TransferPeerPathType } from "@fireblocks/ts-sdk";
 
@@ -74,7 +72,11 @@ export class StakingService {
   public async registerStakingCredential(
     options: RegisterStakingOptions
   ): Promise<StakingTransactionResult & { stakeAddress: string; addressIndex: number }> {
-    const { vaultAccountId, depositAmount = DEPOSIT_AMOUNT, fee = DEFAULT_NATIVE_TX_FEE } = options;
+    const {
+      vaultAccountId,
+      depositAmount = CardanoAmounts.DEPOSIT_AMOUNT,
+      fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
+    } = options;
 
     this.logger.info(`Registering staking credential for vault account ${vaultAccountId}`);
 
@@ -130,7 +132,7 @@ export class StakingService {
    * Delegate to a stake pool
    */
   public async delegateToPool(options: DelegationOptions): Promise<StakingTransactionResult> {
-    const { vaultAccountId, poolId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, poolId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
 
     this.logger.info(`Delegating to pool ${poolId} for vault account ${vaultAccountId}`);
 
@@ -139,7 +141,7 @@ export class StakingService {
       await this.validateDelegationPrerequisites(vaultAccountId, poolId);
 
       // Find suitable UTXO
-      const minAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const minAmount = CardanoAmounts.MIN_UTXO_VALUE_ADA_ONLY + fee;
       const {
         address: baseAddress,
         addressIndex,
@@ -189,7 +191,7 @@ export class StakingService {
   public async deregisterStakingCredential(
     options: DeregisterStakingOptions
   ): Promise<StakingTransactionResult> {
-    const { vaultAccountId, fee = DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
 
     this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
 
@@ -206,7 +208,7 @@ export class StakingService {
       }
 
       // Find suitable UTXO
-      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const minInputAmount = CardanoAmounts.MIN_UTXO_VALUE_ADA_ONLY + fee;
       const {
         address: baseAddress,
         addressIndex,
@@ -262,7 +264,7 @@ export class StakingService {
     options: WithdrawRewardsOptions
   ): Promise<StakingTransactionResult & { rewardAmount?: number }> {
     try {
-      const { vaultAccountId, limit, fee = DEFAULT_NATIVE_TX_FEE } = options;
+      const { vaultAccountId, limit, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
 
       if (limit !== undefined && limit < 0) {
         throw new SdkApiError(
@@ -289,7 +291,7 @@ export class StakingService {
 
       this.logger.info(`Withdrawing rewards for vault account ${vaultAccountId}`);
 
-      const minInputAmount = MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const minInputAmount = CardanoAmounts.MIN_UTXO_VALUE_ADA_ONLY + fee;
       const {
         address: baseAddress,
         addressIndex,
@@ -642,7 +644,7 @@ export class StakingService {
       fee,
     } = params;
 
-    const netAmount = utxo.nativeAmount - fee + DEPOSIT_AMOUNT + rewardAmount;
+    const netAmount = utxo.nativeAmount - fee + CardanoAmounts.DEPOSIT_AMOUNT + rewardAmount;
 
     const deregistrationCertificate = buildDeregistrationCertificate(certificate);
 
@@ -673,7 +675,7 @@ export class StakingService {
 
     const submitResponse = await this.iagonApiService.submitTransfer(
       signedTx.toString("hex"),
-      true 
+      true
     );
 
     this.logger.info(`Deregistration transaction submitted: ${submitResponse.data.txHash}`);
