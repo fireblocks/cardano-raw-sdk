@@ -95,8 +95,8 @@ export class TransactionSigner implements ITransactionSigner {
       this.fireblocksService.getAssetPublicKey(
         vaultAccountId,
         this.networkConfig.assetId,
-        PAYMENT_KEY_CHANGE_INDEX,
-        STAKE_KEY_PATH_INDEX
+        STAKE_KEY_PATH_INDEX,
+        0 // Stake key always uses addressIndex 0
       ),
     ]);
 
