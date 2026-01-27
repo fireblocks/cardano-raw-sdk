@@ -27,7 +27,6 @@ import {
   TransactionHistoryResponse,
   TransactionDetailsResponse,
   WebhookPayloadData,
-  EnrichedWebhookPayloadData,
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
@@ -51,6 +50,7 @@ import {
   TransferResponse,
   StakeAccountInfoResponse,
 } from "./types/index.js";
+
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
 import { CardanoAmounts } from "./constants.js";
 
@@ -1206,7 +1206,7 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Delegating to DRep (${options.drepAction}) for vault account ${options.vaultAccountId}`
     );
-    
+
     const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.DREP_TX_FEE } = options;
 
     return await this.stakingService.delegateToDRep({ vaultAccountId, drepAction, drepId, fee });
