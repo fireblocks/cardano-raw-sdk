@@ -290,7 +290,8 @@ export class StakingService {
       );
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
 
-      const maxWithdrawal = limit ?? Infinity;
+      // Treat 0, undefined, or null as "no limit" (withdraw all available rewards)
+      const maxWithdrawal = limit && limit > 0 ? limit : Infinity;
       const { withdrawal, rewardAmount } = await this.rewardsService.getWithdrawals(
         stakeAddress,
         certificate,
@@ -634,7 +635,7 @@ export class StakingService {
   private validateWithdrawalLimit(limit: number | undefined): void {
     if (limit !== undefined && limit < 0) {
       throw new SdkApiError(
-        "Withdrawal limit must be positive",
+        "Withdrawal limit cannot be negative",
         400,
         "INVALID_LIMIT",
         { limit },
