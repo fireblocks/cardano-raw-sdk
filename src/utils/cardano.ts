@@ -360,27 +360,6 @@ export const buildTransaction = ({
   return txBody;
 };
 
-export const calculateTtl = async (bufferSlots: number = 7200): Promise<number> => {
-  try {
-    // NOTE: Iagon API doesn't currently provide a "latest block" endpoint
-    // Using a reasonable default based on current time
-    // 1 slot = 1 second on Cardano mainnet
-    // This is a temporary solution - consider using a dedicated blockchain data provider for this
-    const currentSlot = Math.floor(Date.now() / 1000);
-    const ttl = currentSlot + bufferSlots;
-
-    logger.info(`Calculated TTL: ${ttl} (estimated slot: ${currentSlot}, buffer: ${bufferSlots})`);
-    logger.warn(
-      "WARNING: Using estimated slot number. Consider using a blockchain data provider for accurate slot information."
-    );
-
-    return ttl;
-  } catch (error) {
-    logger.error(`Failed to calculate TTL: ${error}`);
-    throw new Error(`Unable to calculate TTL. ${error instanceof Error ? error.message : error}`);
-  }
-};
-
 export const submitTransaction = async (
   iagonApiService: IagonApiService,
   signedTx: Transaction

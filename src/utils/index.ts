@@ -6,4 +6,5 @@ export * from "./general.js";
 export * from "./httpClient.js";
 export * from "./logger.js";
 export * from "./sanitizer.js";
+export * from "./staking.utils.js";
 export * from "./swagger.js";
