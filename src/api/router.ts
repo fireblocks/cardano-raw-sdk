@@ -755,5 +755,30 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    */
   router.post("/transfers", apiController.transfer);
 
+  /**
+   * @swagger
+   * /api/webhook:
+   *   post:
+   *     summary: Enrich webhook payload
+   *     description: Enriches the incoming webhook payload with additional data, including CNT (Cardano Native Token) details.
+   *     tags: [Webhooks]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *     responses:
+   *       200:
+   *         description: Webhook payload enriched successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/webhook", apiController.enrichWebhookPayload);
+
   return router;
 };

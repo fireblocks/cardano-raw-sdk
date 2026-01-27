@@ -26,6 +26,8 @@ import {
   transferOpts,
   TransactionHistoryResponse,
   TransactionDetailsResponse,
+  WebhookPayloadData,
+  EnrichedWebhookPayloadData,
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
@@ -38,6 +40,7 @@ import {
   VaultBalancePolicyResponse,
   VaultBalanceByPolicy,
   IagonApiError,
+  WebhookEventTypes,
 } from "./types/index.js";
 import { FireblocksService } from "./services/fireblocks.service.js";
 import { IagonApiService } from "./services/iagon.api.service.js";
@@ -283,7 +286,7 @@ export class FireblocksCardanoRawSDK {
   /**
    * Get transaction details by hash
    */
-  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
+  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse | null> => {
     return await this.iagonApiService.getTransactionDetails(hash);
   };
 
@@ -634,6 +637,66 @@ export class FireblocksCardanoRawSDK {
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, assetId);
+  };
+
+  /**
+   * Enriches a webhook payload with detailed Cardano transaction data
+   *
+   * @param payload - The webhook payload to enrich
+   * @returns The enriched webhook payload with cardanoTokensData if applicable
+   */
+
+  public enrichWebhookPayload = async (
+    payload: WebhookPayloadData
+  ): Promise<any> => {
+    if (
+      payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
+      payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
+      payload.eventType !== WebhookEventTypes.TRANSACTION_APPROVAL_STATUS_UPDATED &&
+      payload.eventType !== WebhookEventTypes.TRANSACTION_NETWORK_RECORDS_PROCESSING_COMPLETED
+    ) {
+      return payload;
+    }
+
+    const transactionAsset = payload.data.assetId;
+    if (transactionAsset !== SupportedAssets.ADA && transactionAsset !== SupportedAssets.ADA_TEST) {
+      this.logger.info(
+        `Webhook received for non-ADA asset: ${transactionAsset}, skipping enrichment.`
+      );
+      return payload;
+    }
+    const txHash = payload.data.txHash;
+    if (!txHash) {
+      this.logger.warn("Webhook payload missing txHash, cannot enrich.");
+      return payload;
+    }
+
+    this.logger.info(`Enriching webhook payload for ADA transaction: ${txHash}`);
+
+    const detailedTx = await this.iagonApiService.getTransactionDetails(txHash);
+
+    if (!detailedTx) {
+      this.logger.warn(`Transaction not found: ${txHash}`);
+      return payload;
+    }
+
+    const filteredInputs = detailedTx.data.inputs.filter((input) => input.value.assets);
+
+    if (filteredInputs.length === 0) {
+      this.logger.info(`No asset inputs found in transaction: ${txHash}`);
+      return payload;
+    }
+
+    const enrichedPayload = {
+      ...payload,
+      data: {
+        ...payload.data,
+        cardanoTokensData: detailedTx.data,
+      },
+    };
+
+    this.logger.info(`Webhook payload enriched for transaction: ${txHash}`);
+    return enrichedPayload;
   };
 
   /**

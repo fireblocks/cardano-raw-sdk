@@ -205,7 +205,9 @@ export class IagonApiService {
     }
   }
 
-  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse> => {
+  public getTransactionDetails = async (
+    hash: string
+  ): Promise<TransactionDetailsResponse | null> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/tx/hash/${encodeURIComponent(hash)}`;
       const response = await axios.get(url, {
@@ -215,10 +217,7 @@ export class IagonApiService {
         },
       });
 
-      if (response.status === 200) {
-        return response.data;
-      }
-      throw new IagonApiError(`Unexpected response status: ${response.status}`, response.status);
+      return response.data.success ? response.data : null;
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching transaction ${hash} details`);
     }

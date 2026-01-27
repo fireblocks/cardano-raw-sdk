@@ -141,7 +141,10 @@ export const calculateTokenAmount = (
     return 0;
   }
 
-  if (tokenName === "ADA" && policyId === "") {
+  if (
+    (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
+    policyId === ""
+  ) {
     return utxo.value.lovelace;
   }
 

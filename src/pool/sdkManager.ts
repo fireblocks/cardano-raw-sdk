@@ -171,7 +171,7 @@ export class SdkManager {
     }
 
     // Create new SDK
-    this.logger.info(`Creating new SDK for vault ${vaultAccountId}`);
+    this.logger.info(`Creating new SDK for Vault #${vaultAccountId}`);
     const sdk = await this.sdkFactory(vaultAccountId, this.baseConfig, this.network);
 
     this.sdkPool.set(key, {
