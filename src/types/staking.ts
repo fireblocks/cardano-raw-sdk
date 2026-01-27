@@ -41,7 +41,7 @@ export interface DRepDelegationOptions {
   vaultAccountId: string;
   drepAction: DRepAction;
   drepId?: string; // Required if drepAction is 'custom-drep' (hex format)
-  fee?: number; // Default: 1000000 (1 ADA)
+  fee: number; // Default: 1000000 (1 ADA)
 }
 
 export interface StakingReward {

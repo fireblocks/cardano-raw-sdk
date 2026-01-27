@@ -397,7 +397,7 @@ export class ApiController {
    */
   public delegateToDRep = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId, drepAction, drepId, index, fee } = req.body;
+      const { vaultAccountId, drepAction, drepId } = req.body;
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -419,6 +419,8 @@ export class ApiController {
           error: "drepId is required when drepAction is custom-drep",
         });
       }
+
+      const fee = CardanoAmounts.DREP_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToDRep({

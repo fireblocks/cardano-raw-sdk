@@ -32,6 +32,7 @@ import {
   TransferResponse,
   StakingOperation,
   SdkApiError,
+  DRepAction,
 } from "../../types/index.js";
 
 import {
@@ -644,8 +645,8 @@ export class StakingService {
     }
   }
 
-  private validateDRepOptions(drepAction: string, drepId: string | undefined): void {
-    if (drepAction === "custom-drep" && !drepId) {
+  private validateDRepOptions(drepAction: DRepAction, drepId: string | undefined): void {
+    if (drepAction === DRepAction.CUSTOM_DREP && !drepId) {
       throw new SdkApiError(
         "drepId is required for custom-drep action",
         400,

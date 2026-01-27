@@ -1206,7 +1206,10 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Delegating to DRep (${options.drepAction}) for vault account ${options.vaultAccountId}`
     );
-    return await this.stakingService.delegateToDRep(options);
+    
+    const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.DREP_TX_FEE } = options;
+
+    return await this.stakingService.delegateToDRep({ vaultAccountId, drepAction, drepId, fee });
   };
 
   /**
