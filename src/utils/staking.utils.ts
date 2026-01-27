@@ -14,11 +14,10 @@ import {
   DRepInfo,
   Networks,
   DRepAction,
-  CardanoAmounts,
   BuildPayloadOptions,
   CardanoCertificate,
 } from "../types/index.js";
-import { CARDANO_BASE_ADDRESS_MIN_LENGTH, CARDANO_PAYMENT_CREDENTIAL_OFFSET } from "../index.js";
+import { CardanoAmounts, CardanoConstants } from "../index.js";
 
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
@@ -89,14 +88,14 @@ export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer 
 export function getCertificateFromBaseAddress(baseAddress: string, mainnet: boolean): Buffer {
   const decoded = decodeAddress(baseAddress, mainnet);
 
-  if (decoded.length < CARDANO_BASE_ADDRESS_MIN_LENGTH) {
+  if (decoded.length < CardanoConstants.CARDANO_BASE_ADDRESS_MIN_LENGTH) {
     throw new Error(
-      `Invalid base address length: ${decoded.length}, expected at least ${CARDANO_BASE_ADDRESS_MIN_LENGTH} bytes`
+      `Invalid base address length: ${decoded.length}, expected at least ${CardanoConstants.CARDANO_BASE_ADDRESS_MIN_LENGTH} bytes`
     );
   }
 
   // Extract stake credential (last 28 bytes)
-  return decoded.subarray(CARDANO_PAYMENT_CREDENTIAL_OFFSET);
+  return decoded.subarray(CardanoConstants.CARDANO_PAYMENT_CREDENTIAL_OFFSET);
 }
 
 /**

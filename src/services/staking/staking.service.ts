@@ -32,7 +32,6 @@ import {
   TransferResponse,
   StakingOperation,
   SdkApiError,
-  CardanoAmounts,
 } from "../../types/index.js";
 
 import {
@@ -58,6 +57,8 @@ import {
   TransactionLogger,
   RegistrationVerifier,
 } from "./helpers/index.js";
+
+import { CardanoAmounts } from "../../constants.js";
 
 /**
  * Main Staking Service
@@ -270,7 +271,7 @@ export class StakingService {
     options: WithdrawRewardsOptions
   ): Promise<StakingTransactionResult & { rewardAmount?: number }> {
     try {
-      const { vaultAccountId, limit, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+      const { vaultAccountId, limit, fee } = options;
 
       this.validateWithdrawalLimit(limit);
       await this.validator.validateRegistrationStatus(vaultAccountId, true);

@@ -85,19 +85,3 @@ export enum StakingOperation {
   WITHDRAW_REWARDS = "withdraw-rewards",
   VOTE_DELEGATE = "vote-delegate",
 }
-
-export enum CardanoConstants {
-  BIP_44_CONSTANT = 44,
-  ADA_COIN_TYPE = 1815,
-  ADA_TEST_COIN_TYPE = 1,
-  CHANGE_INDEX = 0,
-  PERMANENT_ACCOUNT_INDEX = 0,
-  CHIMERIC_INDEX = 2,
-}
-
-export enum CardanoAmounts {
-  DEFAULT_NATIVE_TX_FEE = 300000,
-  DEPOSIT_AMOUNT = 2000000,
-  MIN_UTXO_VALUE_ADA_ONLY = 1000000,
-  TX_TTL_SECS = 7200,
-}

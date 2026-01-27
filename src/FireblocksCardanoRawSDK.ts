@@ -50,10 +50,9 @@ import {
   WebhookEventTypes,
   TransferResponse,
   StakeAccountInfoResponse,
-  CardanoAmounts,
 } from "./types/index.js";
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
-import { MIN_CHANGE_LOVELACE, MIN_RECIPIENT_LOVELACE, tokenTransactionFee } from "./constants.js";
+import { CardanoAmounts } from "./constants.js";
 
 import {
   Address,
@@ -556,8 +555,8 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    const minRecipientLovelace = MIN_RECIPIENT_LOVELACE;
-    const minChangeLovelace = MIN_CHANGE_LOVELACE;
+    const minRecipientLovelace = CardanoAmounts.MIN_RECIPIENT_LOVELACE;
+    const minChangeLovelace = CardanoAmounts.MIN_CHANGE_LOVELACE;
 
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
@@ -602,7 +601,7 @@ export class FireblocksCardanoRawSDK {
         tokenPolicyId,
         tokenName,
         requiredTokenAmount,
-        transactionFee: tokenTransactionFee,
+        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
         minRecipientLovelace,
         minChangeLovelace,
       });
@@ -616,7 +615,7 @@ export class FireblocksCardanoRawSDK {
         tokenName,
         requiredTokenAmount,
         minRecipientLovelace,
-        transactionFee: tokenTransactionFee,
+        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
       });
 
       // Sign transaction with Fireblocks
@@ -1123,7 +1122,9 @@ export class FireblocksCardanoRawSDK {
     }
   > => {
     this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
-    return await this.stakingService.withdrawRewards(options);
+    const { vaultAccountId, limit, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+
+    return await this.stakingService.withdrawRewards({ vaultAccountId, limit, fee });
   };
 
   public getStakeAccountInfo = async (

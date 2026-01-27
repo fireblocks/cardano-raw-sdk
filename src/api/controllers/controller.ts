@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import { Logger } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, SdkApiError } from "../../types/index.js";
-import { STAKING_DEPOSIT_AMOUNT, STAKING_DEPOSIT_FEE } from "../../constants.js";
+import { CardanoAmounts } from "../../constants.js";
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.
@@ -211,8 +211,8 @@ export class ApiController {
         });
       }
 
-      const depositAmount = STAKING_DEPOSIT_AMOUNT;
-      const fee = STAKING_DEPOSIT_FEE;
+      const depositAmount = CardanoAmounts.DEPOSIT_AMOUNT;
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.registerStakingCredential({
@@ -247,7 +247,7 @@ export class ApiController {
         });
       }
 
-      const fee = STAKING_DEPOSIT_FEE;
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.deregisterStakingCredential({
         vaultAccountId,
@@ -286,7 +286,7 @@ export class ApiController {
         });
       }
 
-      const fee = STAKING_DEPOSIT_FEE;
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToPool({
@@ -311,7 +311,7 @@ export class ApiController {
    */
   public withdrawRewards = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId, limit, index, fee } = req.body;
+      const { vaultAccountId, limit } = req.body;
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -320,11 +320,12 @@ export class ApiController {
         });
       }
 
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.withdrawRewards({
         vaultAccountId,
         limit,
-        index,
         fee,
       });
 

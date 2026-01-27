@@ -31,8 +31,7 @@ export interface DeregisterStakingOptions {
 export interface WithdrawRewardsOptions {
   vaultAccountId: string;
   limit?: number; // Maximum amount to withdraw (in Lovelace). If not specified, withdraw all
-  index?: number;
-  fee?: number; // Default: 300000 (0.3 ADA)
+  fee: number; // Default: 300000 (0.3 ADA)
 }
 
 /**
