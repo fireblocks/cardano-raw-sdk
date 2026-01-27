@@ -374,7 +374,33 @@ export function findSuitableUtxo(
 }
 
 /**
+ * Decode DRep ID from bech32 or hex format
+ * Bech32 format: drep1... or drep_script1...
+ * Hex format: 28-byte hex string
+ */
+function decodeDRepId(drepId: string): { keyHash: Buffer; isScript: boolean } {
+  // Check if it's bech32 format (starts with drep1 or drep_script1)
+  if (drepId.startsWith("drep1") || drepId.startsWith("drep_script1")) {
+    const decoded = bech32.decode(drepId, 1000);
+    const fullBytes = Buffer.from(bech32.fromWords(decoded.words));
+
+    // First byte is the header indicating the type
+    const header = fullBytes[0];
+    const keyHash = Buffer.from(fullBytes.subarray(1)); // Skip header byte to get 28-byte key hash
+
+    // Header format: 0b00100010 (0x22) for key hash, 0b00100011 (0x23) for script hash
+    const isScript = (header & 0x01) === 1;
+
+    return { keyHash, isScript };
+  }
+
+  // Otherwise treat as hex
+  return { keyHash: Buffer.from(drepId, "hex"), isScript: false };
+}
+
+/**
  * Convert DRep action string to DRepInfo
+ * Supports both bech32 (drep1...) and hex formats for custom DReps
  */
 export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepInfo {
   switch (action) {
@@ -386,9 +412,12 @@ export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepI
       if (!drepId) {
         throw new Error("custom-drep requires drepId");
       }
+
+      const { keyHash, isScript } = decodeDRepId(drepId);
+
       return {
-        kind: DRepKind.KEY_HASH,
-        keyHash: Buffer.from(drepId, "hex"),
+        kind: isScript ? DRepKind.SCRIPT_HASH : DRepKind.KEY_HASH,
+        keyHash,
       };
     default:
       throw new Error(`Unknown DRep action: ${action}`);
