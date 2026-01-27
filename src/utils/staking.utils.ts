@@ -5,7 +5,7 @@
 
 import { bech32 } from "bech32";
 import { blake2b } from "blakejs";
-import { encode as cborEncode } from "cbor2";
+import { encode as cborEncode, decode } from "cbor2";
 import {
   CertificateType,
   CardanoWitness,
@@ -18,6 +18,7 @@ import {
   CardanoCertificate,
 } from "../types/index.js";
 import { CardanoAmounts, CardanoConstants } from "../index.js";
+import * as CardanoWasm from "@emurgo/cardano-serialization-lib-nodejs";
 
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
@@ -159,47 +160,58 @@ export function buildDeregistrationCertificate(credential: Buffer): CardanoCerti
 
 /**
  * Build pool delegation certificate
- * Certificate type: 2 (DELEGATION)
  */
-export function buildDelegationCertificate(credential: Buffer, poolId: string): CardanoCertificate {
-  const serializedCert = serializeCertificate(credential);
-  const poolIdBytes = Buffer.from(poolId, "hex");
-  return [CertificateType.DELEGATION, serializedCert, toUint8Array(poolIdBytes)];
+export function buildDelegationCertificate(
+  credential: Buffer,
+  poolId: string
+): CardanoWasm.Certificate {
+  const credentialHash = CardanoWasm.Ed25519KeyHash.from_bytes(credential);
+  const stakeCredential = CardanoWasm.Credential.from_keyhash(credentialHash);
+
+  const poolKeyHash = CardanoWasm.Ed25519KeyHash.from_hex(poolId);
+  const stakeDelegation = CardanoWasm.StakeDelegation.new(stakeCredential, poolKeyHash);
+
+  return CardanoWasm.Certificate.new_stake_delegation(stakeDelegation);
 }
 
 /**
  * Build vote delegation certificate (Conway era)
- * Certificate type: 9 (VOTE_DELEGATION)
  */
-export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInfo): Array<any> {
-  const serializedCert = serializeCertificate(credential);
+export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInfo): any {
+  // Stake credential: [0, credential_bytes]
+  const stakeCredential = [0, toUint8Array(credential)];
 
-  let drepArray: Array<any>;
+  let drepValue: Array<any>;
 
   switch (drep.kind) {
     case DRepKind.ALWAYS_ABSTAIN:
-      drepArray = [DRepKind.ALWAYS_ABSTAIN];
+      // [2] for ALWAYS_ABSTAIN
+      drepValue = [2];
       break;
     case DRepKind.ALWAYS_NO_CONFIDENCE:
-      drepArray = [DRepKind.ALWAYS_NO_CONFIDENCE];
+      // [3] for ALWAYS_NO_CONFIDENCE
+      drepValue = [3];
       break;
     case DRepKind.KEY_HASH:
       if (!drep.keyHash) {
         throw new Error("KEY_HASH DRep requires keyHash");
       }
-      drepArray = [DRepKind.KEY_HASH, toUint8Array(drep.keyHash)];
+      // [0, key_hash]
+      drepValue = [0, toUint8Array(drep.keyHash)];
       break;
     case DRepKind.SCRIPT_HASH:
       if (!drep.keyHash) {
         throw new Error("SCRIPT_HASH DRep requires keyHash");
       }
-      drepArray = [DRepKind.SCRIPT_HASH, toUint8Array(drep.keyHash)];
+      // [1, script_hash]
+      drepValue = [1, toUint8Array(drep.keyHash)];
       break;
     default:
       throw new Error(`Unknown DRep kind: ${drep.kind}`);
   }
 
-  return [CertificateType.VOTE_DELEGATION, serializedCert, drepArray];
+  // Return: [9, [0, credential], drep_value]
+  return [9, stakeCredential, drepValue];
 }
 
 /**
@@ -234,10 +246,11 @@ export function embedSignaturesInTx(
 
   const witnessSet = new Map([[0, witnessesArr]]);
 
-  // Transaction structure: [txBody, witnesses, metadata]
+  // Transaction structure for Conway era: [txBody, witnesses, validity, auxiliary_data]
   const signedTx = [
     deserializedTxPayload, // Transaction body (Map)
     witnessSet, // Witness set (Map)
+    true, // Transaction validity (required in Conway era)
     null, // Auxiliary data/metadata (null)
   ];
 
@@ -247,7 +260,6 @@ export function embedSignaturesInTx(
 /**
  * Build transaction payload (transaction body) for CBOR encoding
  */
-
 export function buildPayload(options: BuildPayloadOptions): {
   serialized: Buffer;
   deserialized: Map<number, any>;
@@ -287,22 +299,28 @@ export function buildPayload(options: BuildPayloadOptions): {
   deserialized.set(0, inputsArr); // inputs
   deserialized.set(1, outputsArr); // outputs
   deserialized.set(2, feeAmount); // fee
-  deserialized.set(3, ttl); // TTL
+
+  // TTL (invalid_hereafter) - optional, only include if provided
+  if (ttl !== undefined && ttl !== null) {
+    deserialized.set(3, ttl);
+  }
 
   // Optional fields - add in numerical order
   if (certificates && certificates.length > 0) {
-    deserialized.set(4, certificates);
-  }
-
-  if (withdrawals && withdrawals.size > 0) {
-    deserialized.set(5, withdrawals);
-  }
-
-  if (requiredSigners && requiredSigners.length > 0) {
-    deserialized.set(
-      14,
-      requiredSigners.map((signer) => toUint8Array(signer))
-    );
+    const certsArr = certificates.map((cert: any) => {
+      // If it's already an array (manual certificate), use it directly
+      if (Array.isArray(cert)) {
+        return cert;
+      }
+      // If it's a CSL Certificate object, decode it
+      if (typeof cert.to_bytes === "function") {
+        const certBytes = cert.to_bytes();
+        return decode(certBytes);
+      }
+      // Otherwise return as-is
+      return cert;
+    });
+    deserialized.set(4, certsArr);
   }
 
   const serialized = Buffer.from(cborEncode(deserialized));

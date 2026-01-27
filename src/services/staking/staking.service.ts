@@ -373,6 +373,8 @@ export class StakingService {
         fee,
         certificates: [voteDelegationCertificate],
         operation: `delegate to DRep (${drepAction})`,
+        skipValidation: true,
+        skipTtl: true, // Conway-era governance transactions don't use TTL
       });
 
       this.logger.info(`DRep delegation transaction submitted: ${submitResponse.data.txHash}`);
@@ -481,6 +483,7 @@ export class StakingService {
     requiredSigners?: Buffer[];
     operation: string;
     skipValidation?: boolean;
+    skipTtl?: boolean; // Skip TTL for Conway-era governance transactions
   }): Promise<string> {
     const {
       vaultAccountId,
@@ -492,10 +495,12 @@ export class StakingService {
       requiredSigners,
       operation,
       skipValidation = false,
+      skipTtl = false,
     } = params;
 
     // Get TTL and build transaction
-    const ttl = await this.transactionBuilder.getCurrentTtl();
+    // Conway-era governance transactions (vote delegation) should not include TTL
+    const ttl = skipTtl ? undefined : await this.transactionBuilder.getCurrentTtl();
     const { serialized, deserialized } = await this.transactionBuilder.buildTransaction({
       toAddress: addressWithUtxo.address,
       netAmount,
@@ -604,6 +609,7 @@ export class StakingService {
     requiredSigners?: Buffer[];
     operation: string;
     skipValidation?: boolean;
+    skipTtl?: boolean;
   }): Promise<TransferResponse> {
     const {
       vaultAccountId,
@@ -615,6 +621,7 @@ export class StakingService {
       requiredSigners,
       operation,
       skipValidation = false,
+      skipTtl = false,
     } = params;
 
     const txHash = await this.executeTransaction({
@@ -627,6 +634,7 @@ export class StakingService {
       requiredSigners,
       operation,
       skipValidation,
+      skipTtl,
     });
 
     // Return the full response for methods that need it

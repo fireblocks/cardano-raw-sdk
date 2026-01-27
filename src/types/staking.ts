@@ -1,3 +1,4 @@
+import { Certificate } from "@emurgo/cardano-serialization-lib-nodejs";
 import { DRepAction, DRepKind, Networks, StakingOperation } from "./index.js";
 
 export interface CardanoWitness {
@@ -114,8 +115,8 @@ export interface BuildPayloadOptions {
   netAmount: number;
   txInputs: Array<{ txHash: Buffer; indexInTx: number }>;
   feeAmount: number;
-  ttl: number;
-  certificates?: CardanoCertificate[];
+  ttl?: number; // Optional for Conway-era governance transactions
+  certificates?: Certificate[];
   withdrawals?: Map<Uint8Array, number>;
   requiredSigners?: Buffer[];
   network: Networks;

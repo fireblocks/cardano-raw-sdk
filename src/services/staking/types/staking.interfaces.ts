@@ -74,7 +74,7 @@ export interface TransactionBuildContext {
   readonly netAmount: number;
   readonly utxo: UtxoForStaking;
   readonly fee: number;
-  readonly ttl: number;
+  readonly ttl?: number; // Optional for Conway-era governance transactions
   readonly certificates?: Array<any>;
   readonly withdrawals?: Map<Uint8Array, number>;
   readonly requiredSigners?: Buffer[];
