@@ -43,6 +43,4 @@ export const getSwaggerSpec = (): ReturnType<typeof swaggerJsdoc> => {
   return cachedSwaggerSpec;
 };
 
-// Maintain backward compatibility - export swaggerSpec as a getter
-export const swaggerSpec = getSwaggerSpec();
 export { swaggerUi };

@@ -4,7 +4,8 @@ import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Express } from "express-serve-static-core";
 import express, { Request, Response } from "express";
 
-import { config, Logger, LogLevel, swaggerSpec, swaggerUi } from "./utils/index.js";
+import { config, Logger, LogLevel } from "./utils/index.js";
+import { getSwaggerSpec, swaggerUi } from "./utils/swagger.js";
 import { SdkManager } from "./pool/sdkManager.js";
 import { configureRouter } from "./api/router.js";
 import { FireblocksCardanoRawSDK } from "./FireblocksCardanoRawSDK.js";
@@ -64,7 +65,8 @@ const startServer = () => {
     res.status(200).send("Alive");
   });
 
-  // Swagger documentation endpoints
+  // Swagger documentation endpoints (lazy loaded)
+  const swaggerSpec = getSwaggerSpec();
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get("/api-docs-json", (_req, res) => {
     res.setHeader("Content-Type", "application/json");
