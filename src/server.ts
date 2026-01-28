@@ -10,20 +10,17 @@ import { configureRouter } from "./api/router.js";
 import { FireblocksCardanoRawSDK } from "./FireblocksCardanoRawSDK.js";
 import { Networks } from "./types/index.js";
 
-// Validate required environment variables, additional variables can be added as needed
-(() => {
-  ["FIREBLOCKS_API_USER_KEY", "FIREBLOCKS_API_USER_SECRET_KEY_PATH"].forEach((key) => {
-    if (process.env[key] === undefined || process.env[key] === "") {
-      throw new Error(`Missing required environment variable: ${key}`);
-    }
-  });
-})();
-
 const logLevel = "INFO";
 Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("app:server-setup");
 
 const startServer = () => {
+  // Validate required environment variables for server mode
+  ["FIREBLOCKS_API_USER_KEY", "FIREBLOCKS_API_USER_SECRET_KEY_PATH"].forEach((key) => {
+    if (process.env[key] === undefined || process.env[key] === "") {
+      throw new Error(`Missing required environment variable: ${key}`);
+    }
+  });
   const app = express();
 
   configureMiddlewares(app);
