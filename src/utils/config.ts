@@ -153,7 +153,6 @@ export const config: Config = new Proxy({} as Config, {
   get(_target, prop: string) {
     // Lazy load config on first property access
     if (!configCache) {
-      logger.info(`Lazy loading config on access to property: ${prop}`);
       configCache = loadConfigFromEnv();
     }
     return configCache[prop as keyof Config];
