@@ -47,7 +47,6 @@ import {
   DRepDelegationOptions,
   RewardsData,
   WebhookEventTypes,
-  TransferResponse,
   StakeAccountInfoResponse,
 } from "./types/index.js";
 
@@ -107,18 +106,19 @@ export class FireblocksCardanoRawSDK {
     fireblocksConfig: ConfigurationOptions;
     vaultAccountId: string;
     network: Networks;
+    iagonApiKey: string;
   }): Promise<FireblocksCardanoRawSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-cardano-raw-sdk`);
 
-      const { fireblocksConfig, vaultAccountId, network } = params;
+      const { fireblocksConfig, vaultAccountId, network, iagonApiKey } = params;
 
       if (network === Networks.PREVIEW) {
         throw new Error(`Unsupported network: ${network}`);
       }
 
       const fireblocksService = new FireblocksService(fireblocksConfig);
-      const iagonApiService = new IagonApiService(network);
+      const iagonApiService = new IagonApiService(iagonApiKey, network);
       const stakingService = new StakingService(fireblocksService, iagonApiService, network);
       const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
       const wallet = await fireblocksService.getVaultAccountAddress(vaultAccountId, assetId);

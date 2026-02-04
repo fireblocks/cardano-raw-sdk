@@ -36,6 +36,9 @@ const startServer = () => {
   // Get network from environment variable
   const network = (process.env.CARDANO_NETWORK as Networks) || Networks.MAINNET;
 
+  // Get Iagon API key from environment variable
+  const iagonApiKey = process.env.IAGON_API_KEY || "";
+
   // Initialize SDK Manager with pool configuration
   const sdkManager = new SdkManager(
     baseConfig,
@@ -47,12 +50,14 @@ const startServer = () => {
       connectionTimeoutMs: parseInt(process.env.POOL_CONNECTION_TIMEOUT_MS || "30000"),
       retryAttempts: parseInt(process.env.POOL_RETRY_ATTEMPTS || "3"),
     },
+
     // SDK factory function to create FireblocksCardanoRawSDK instances
     async (vaultAccountId: string, fireblocksConfig: ConfigurationOptions, network: Networks) =>
       FireblocksCardanoRawSDK.createInstance({
         fireblocksConfig,
         vaultAccountId,
         network,
+        iagonApiKey,
       })
   );
 

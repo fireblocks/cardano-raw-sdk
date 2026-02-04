@@ -29,22 +29,27 @@ export class IagonApiService {
   private readonly logger = new Logger("services:iagon-api-service");
   private network: Networks;
   private readonly iagonBaseUrl = iagonBaseUrl;
-  private readonly iagonApiKey: string | null = process.env.IAGON_API_KEY || null;
+  private readonly iagonApiKey: string;
   private readonly errorHandler = new ErrorHandler("iagon-api", this.logger);
+  private readonly axiosInstance;
 
-  constructor(network: Networks = Networks.MAINNET) {
+  constructor(apiKey: string, network: Networks = Networks.MAINNET) {
+    this.iagonApiKey = apiKey;
     this.network = network;
+
+    // Create axios instance with default headers
+    this.axiosInstance = axios.create({
+      headers: {
+        Authorization: `Bearer ${this.iagonApiKey}`,
+        "Content-Type": "application/json",
+      },
+    });
   }
 
   public getUtxosByAddress = async (address: string): Promise<UtxoIagonResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/utxos/address/${encodeURIComponent(address)}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -58,12 +63,7 @@ export class IagonApiService {
   public getUtxosByCredential = async (credential: string): Promise<UtxoIagonResponse[]> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/utxos/credential/${credential}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
       if (response.status === 200) {
         return response.data;
       }
@@ -76,12 +76,7 @@ export class IagonApiService {
   public getUtxosByStakeKey = async (stakeKey: string): Promise<UtxoIagonResponse[]> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/utxos/stake/${stakeKey}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -99,12 +94,7 @@ export class IagonApiService {
 
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/address/${address}?groupByPolicy=${groupByPolicy}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -121,12 +111,7 @@ export class IagonApiService {
     const { credential, groupByPolicy = false } = params;
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/credential/${credential}?groupByPolicy=${groupByPolicy}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -146,12 +131,7 @@ export class IagonApiService {
     const { stakeKey, groupByPolicy = false } = params;
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/stake/${stakeKey}?groupByPolicy=${groupByPolicy}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -198,12 +178,7 @@ export class IagonApiService {
         queryString ? `?${queryString}` : ""
       }`;
 
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -219,12 +194,7 @@ export class IagonApiService {
   ): Promise<TransactionDetailsResponse | null> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/tx/hash/${encodeURIComponent(hash)}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -258,12 +228,7 @@ export class IagonApiService {
 
       const txData = { tx, skipValidation };
 
-      const response = await axios.post(url, txData, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.post(url, txData);
 
       if (response.status === 200) {
         return response.data;
@@ -285,12 +250,7 @@ export class IagonApiService {
   ): Promise<StakeAccountRewardsResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/rewards?offset=${offset}&limit=${limit}&order=${order}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -310,12 +270,7 @@ export class IagonApiService {
   public getStakeAccountInfo = async (stakeAddress: string): Promise<StakeAccountInfoResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -335,12 +290,7 @@ export class IagonApiService {
   public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/epochs/latest`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -357,12 +307,7 @@ export class IagonApiService {
   public getPoolInfo = async (poolId: string): Promise<PoolInfoResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/pools/${encodeURIComponent(poolId)}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -381,12 +326,7 @@ export class IagonApiService {
   ): Promise<DelegationHistoryResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/delegations?offset=${offset}&limit=${limit}&order=${order}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -408,12 +348,7 @@ export class IagonApiService {
   ): Promise<WithdrawalHistoryResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/withdrawals?offset=${offset}&limit=${limit}&order=${order}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -434,12 +369,7 @@ export class IagonApiService {
   ): Promise<PaymentAddressesResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/addresses?offset=${offset}&limit=${limit}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -461,12 +391,7 @@ export class IagonApiService {
   public getAccountAssets = async (stakeAddress: string): Promise<AccountAssetsResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/assets`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
@@ -485,12 +410,7 @@ export class IagonApiService {
   ): Promise<RegistrationHistoryResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/accounts/${encodeURIComponent(stakeAddress)}/registrations?offset=${offset}&limit=${limit}&order=${order}`;
-      const response = await axios.get(url, {
-        headers: {
-          Authorization: `Bearer ${this.iagonApiKey}`,
-          "Content-Type": "application/json",
-        },
-      });
+      const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
         return response.data;
