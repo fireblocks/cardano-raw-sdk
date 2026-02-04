@@ -1271,5 +1271,47 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    */
   router.post("/governance/delegate-drep", apiController.delegateToDRep);
 
+  /**
+   * NETWORK
+   */
+
+  /**
+   * @swagger
+   * /api/epochs:
+   *   get:
+   *     summary: Get current epoch information
+   *     description: Retrieves current epoch and slot information from the Cardano blockchain including epoch number, slot number, and block height
+   *     tags: [Network]
+   *     responses:
+   *       200:
+   *         description: Current epoch information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                   example: true
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     epoch:
+   *                       type: integer
+   *                       description: Current epoch number
+   *                       example: 450
+   *                     slot:
+   *                       type: integer
+   *                       description: Current slot number
+   *                       example: 123456789
+   *                     block:
+   *                       type: integer
+   *                       description: Current block height
+   *                       example: 9876543
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/epochs", apiController.getCurrentEpoch);
   return router;
 };

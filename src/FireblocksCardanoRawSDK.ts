@@ -49,6 +49,7 @@ import {
   WebhookEventTypes,
   StakeAccountInfoResponse,
   HealthStatusResponse,
+  CurrentEpochResponse,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -1139,6 +1140,11 @@ export class FireblocksCardanoRawSDK {
 
     const stakeAddress = await this.stakingService.getStakeAddress(vaultAccountId);
     return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+  };
+
+  public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
+    this.logger.info(`Getting current epoch`);
+    return await this.iagonApiService.getCurrentEpoch();
   };
 
   /**

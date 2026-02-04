@@ -383,6 +383,18 @@ export class ApiController {
     }
   };
 
+  public getCurrentEpoch = async (req: Request, res: Response) => {
+    try {
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
+      const result = await sdk.getCurrentEpoch();
+
+      this.logger.info(`Current epoch retrieved successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getCurrentEpoch");
+    }
+  };
+
   /**
    * Query staking rewards for a vault account
    * GET /api/staking/rewards/:vaultAccountId
