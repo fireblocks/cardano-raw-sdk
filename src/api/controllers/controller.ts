@@ -36,6 +36,26 @@ export class ApiController {
     this.sdkManager = sdkManager;
   }
 
+  public getIagonHealth = async (req: Request, res: Response) => {
+    try {
+      const iagonApiKey = process.env.IAGON_API_KEY;
+      if (!iagonApiKey) {
+        return res.status(500).json({
+          success: false,
+          error: "IAGON_API_KEY is not configured",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
+      const result = await sdk.checkIagonHealth();
+
+      this.logger.info(`Iagon health check successful`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getIagonHealth");
+    }
+  };
+
   public getBalanceByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params;
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;

@@ -7,6 +7,64 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   const apiController = new ApiController(sdkManager);
 
   /**
+   * IAGON HEALTH CHECK
+   */
+
+  /**
+   * @swagger
+   * /api/services/iagon/health:
+   *   get:
+   *     summary: Check Iagon API health status
+   *     description: Performs a health check on the Iagon API service to verify connectivity and availability
+   *     tags: [Health]
+   *     responses:
+   *       200:
+   *         description: Health check completed (check success field for actual status)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the Iagon API is healthy
+   *                   example: true
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     status:
+   *                       type: string
+   *                       enum: [healthy, unhealthy]
+   *                       description: Health status of the Iagon API
+   *                       example: healthy
+   *                     timestamp:
+   *                       type: string
+   *                       format: date-time
+   *                       description: ISO 8601 timestamp of the health check
+   *                       example: "2024-01-15T10:30:00.000Z"
+   *       500:
+   *         description: Health check failed
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: false
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     status:
+   *                       type: string
+   *                       example: unhealthy
+   *                     timestamp:
+   *                       type: string
+   *                       format: date-time
+   */
+  router.get("/services/iagon/health", apiController.getIagonHealth);
+
+  /**
    * BALANCE
    */
 

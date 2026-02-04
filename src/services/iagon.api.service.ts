@@ -23,6 +23,7 @@ import {
   RegistrationHistoryResponse,
   WithdrawalHistoryResponse,
   PaymentAddressesResponse,
+  HealthStatusResponse,
 } from "../types/index.js";
 
 export class IagonApiService {
@@ -45,6 +46,34 @@ export class IagonApiService {
       },
     });
   }
+
+  public checkHealth = async (): Promise<HealthStatusResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/health`;
+      const response = await this.axiosInstance.get(url);
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      this.logger.error(`Iagon health check failed with status: ${response.status}`);
+      return {
+        success: false,
+        data: {
+          status: "unhealthy",
+          timestamp: new Date().toISOString(),
+        },
+      };
+    } catch (error: any) {
+      this.logger.error(`Iagon health check error: ${error.message}`);
+      return {
+        success: false,
+        data: {
+          status: "unhealthy",
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+  };
 
   public getUtxosByAddress = async (address: string): Promise<UtxoIagonResponse> => {
     try {

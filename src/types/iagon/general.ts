@@ -30,3 +30,11 @@ export interface transferOpts {
   minChangeLovelace?: number;
   index?: number;
 }
+
+export interface HealthStatusResponse {
+  success: boolean;
+  data: {
+    status: "healthy" | string;
+    timestamp: string;
+  };
+}

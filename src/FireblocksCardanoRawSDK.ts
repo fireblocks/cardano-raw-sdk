@@ -48,6 +48,7 @@ import {
   RewardsData,
   WebhookEventTypes,
   StakeAccountInfoResponse,
+  HealthStatusResponse,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -146,6 +147,10 @@ export class FireblocksCardanoRawSDK {
         `Error creating FireblocksCardanoRawSDK: ${error instanceof Error ? error.message : error}`
       );
     }
+  };
+
+  public checkIagonHealth = async (): Promise<HealthStatusResponse> => {
+    return await this.iagonApiService.checkHealth();
   };
 
   /**
