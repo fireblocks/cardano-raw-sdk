@@ -38,6 +38,8 @@ export class IagonApiService {
     this.iagonApiKey = apiKey;
     this.network = network;
 
+    console.log('IagonApiService initialized with:', this.iagonApiKey, apiKey); //TODO: remove
+
     // Create axios instance with default headers
     this.axiosInstance = axios.create({
       headers: {
