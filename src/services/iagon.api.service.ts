@@ -330,6 +330,7 @@ export class IagonApiService {
       }
       throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
+      console.error("Error fetching current epoch:", error); //TODO: remove
       throw this.errorHandler.handleApiError(error, `fetching current epoch`);
     }
   };
