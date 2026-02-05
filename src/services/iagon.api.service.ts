@@ -1,4 +1,5 @@
 import axios from "axios";
+import https from "https";
 import { Logger, ErrorHandler } from "../utils/index.js";
 import { iagonBaseUrl } from "../constants.js";
 import {
@@ -45,8 +46,8 @@ export class IagonApiService {
       headers: {
         Authorization: `Bearer ${this.iagonApiKey}`,
         "Content-Type": "application/json",
-        rejectUnauthorized: "false", // TODO: verify if needed
       },
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }), //TODO: remove
     });
   }
 
