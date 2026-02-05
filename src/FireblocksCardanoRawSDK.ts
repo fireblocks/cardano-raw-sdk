@@ -1143,7 +1143,6 @@ export class FireblocksCardanoRawSDK {
   };
 
   public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
-    this.logger.info(`Getting current epoch`);
     return await this.iagonApiService.getCurrentEpoch();
   };
 
