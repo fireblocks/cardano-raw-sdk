@@ -479,6 +479,128 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/tx/history/{vaultAccountId}/all:
+   *   get:
+   *     summary: Get transaction history for all addresses
+   *     description: |
+   *       Retrieves basic transaction history for all addresses in a vault account with pagination and filtering.
+   *       When groupByAddress=false (default): Returns a flat array of transactions sorted by slot number (most recent first), with each transaction including an 'address' field. Duplicates are removed.
+   *       When groupByAddress=true: Returns transactions grouped by address in a nested object structure.
+   *     tags: [Transactions]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Maximum number of transactions to return per page
+   *       - in: query
+   *         name: offset
+   *         schema:
+   *           type: integer
+   *         description: Number of transactions to skip for pagination
+   *       - in: query
+   *         name: fromSlot
+   *         schema:
+   *           type: integer
+   *         description: Filter transactions from this slot number onwards
+   *       - in: query
+   *         name: groupByAddress
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: If true, groups transactions by address. If false (default), returns flat array with address field on each transaction.
+   *     responses:
+   *       200:
+   *         description: Transaction history retrieved successfully for all addresses
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                 data:
+   *                   oneOf:
+   *                     - type: array
+   *                       description: Flat array of transactions (when groupByAddress=false)
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           tx_hash:
+   *                             type: string
+   *                             description: Transaction hash
+   *                           block_hash:
+   *                             type: string
+   *                             description: Block hash where transaction was included
+   *                           slot_no:
+   *                             type: integer
+   *                             description: Slot number
+   *                           block_no:
+   *                             type: integer
+   *                             description: Block number
+   *                           block_time:
+   *                             type: string
+   *                             description: Block timestamp
+   *                           address:
+   *                             type: string
+   *                             description: The vault address this transaction belongs to
+   *                     - type: object
+   *                       description: Transactions grouped by address (when groupByAddress=true)
+   *                       additionalProperties:
+   *                         type: array
+   *                         items:
+   *                           type: object
+   *                           properties:
+   *                             tx_hash:
+   *                               type: string
+   *                             block_hash:
+   *                               type: string
+   *                             slot_no:
+   *                               type: integer
+   *                             block_no:
+   *                               type: integer
+   *                             block_time:
+   *                               type: string
+   *                 pagination:
+   *                   type: object
+   *                   description: Pagination metadata
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                       description: Items per page
+   *                     offset:
+   *                       type: integer
+   *                       description: Current offset
+   *                     total:
+   *                       type: integer
+   *                       description: Total number of transactions across all addresses
+   *                     hasMore:
+   *                       type: boolean
+   *                       description: Whether more results are available
+   *                 last_updated:
+   *                   type: object
+   *                   description: Last update information (most recent across all addresses)
+   *                   properties:
+   *                     slot_no:
+   *                       type: integer
+   *                     block_hash:
+   *                       type: string
+   *                     block_time:
+   *                       type: string
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/tx/history/:vaultAccountId/all", apiController.getAllTransactionHistory);
+
+  /**
+   * @swagger
    * /api/tx/history/{vaultAccountId}:
    *   get:
    *     summary: Get transaction history
@@ -577,6 +699,186 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.get("/tx/history/:vaultAccountId", apiController.getTransactionHistory);
+
+  /**
+   * @swagger
+   * /api/tx/address/{vaultAccountId}/all:
+   *   get:
+   *     summary: Get detailed transaction history for all addresses
+   *     description: |
+   *       Retrieves detailed transaction history for all addresses in a vault account with full input/output information, pagination, and filtering.
+   *       When groupByAddress=false (default): Returns a flat array of transactions sorted by slot number (most recent first), with each transaction including an 'address' field. Duplicates are removed.
+   *       When groupByAddress=true: Returns transactions grouped by address in a nested object structure.
+   *     tags: [Transactions]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *         description: Maximum number of transactions to return per page
+   *       - in: query
+   *         name: offset
+   *         schema:
+   *           type: integer
+   *         description: Number of transactions to skip for pagination
+   *       - in: query
+   *         name: fromSlot
+   *         schema:
+   *           type: integer
+   *         description: Filter transactions from this slot number onwards
+   *       - in: query
+   *         name: groupByAddress
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: If true, groups transactions by address. If false (default), returns flat array with address field on each transaction.
+   *     responses:
+   *       200:
+   *         description: Detailed transaction history retrieved successfully for all addresses
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   description: Indicates if the request was successful
+   *                 data:
+   *                   oneOf:
+   *                     - type: array
+   *                       description: Flat array of detailed transactions (when groupByAddress=false)
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           tx_hash:
+   *                             type: string
+   *                             description: Transaction hash
+   *                           block_hash:
+   *                             type: string
+   *                             description: Block hash where transaction was included
+   *                           slot_no:
+   *                             type: integer
+   *                             description: Slot number
+   *                           block_no:
+   *                             type: integer
+   *                             description: Block number
+   *                           block_time:
+   *                             type: string
+   *                             description: Block timestamp
+   *                           fee:
+   *                             type: integer
+   *                             description: Transaction fee in lovelace
+   *                           size:
+   *                             type: integer
+   *                             description: Transaction size in bytes
+   *                           address:
+   *                             type: string
+   *                             description: The vault address this transaction belongs to
+   *                           inputs:
+   *                             type: array
+   *                             description: Transaction inputs
+   *                             items:
+   *                               type: object
+   *                               properties:
+   *                                 tx_hash:
+   *                                   type: string
+   *                                 output_index:
+   *                                   type: integer
+   *                                 address:
+   *                                   type: string
+   *                                 value:
+   *                                   type: object
+   *                                   properties:
+   *                                     lovelace:
+   *                                       type: integer
+   *                                     assets:
+   *                                       type: object
+   *                                       additionalProperties:
+   *                                         type: integer
+   *                           outputs:
+   *                             type: array
+   *                             description: Transaction outputs
+   *                             items:
+   *                               type: object
+   *                               properties:
+   *                                 output_index:
+   *                                   type: integer
+   *                                 address:
+   *                                   type: string
+   *                                 value:
+   *                                   type: object
+   *                                   properties:
+   *                                     lovelace:
+   *                                       type: integer
+   *                                     assets:
+   *                                       type: object
+   *                                       additionalProperties:
+   *                                         type: integer
+   *                     - type: object
+   *                       description: Transactions grouped by address (when groupByAddress=true)
+   *                       additionalProperties:
+   *                         type: array
+   *                         items:
+   *                           type: object
+   *                           properties:
+   *                             tx_hash:
+   *                               type: string
+   *                             block_hash:
+   *                               type: string
+   *                             slot_no:
+   *                               type: integer
+   *                             block_no:
+   *                               type: integer
+   *                             block_time:
+   *                               type: string
+   *                             fee:
+   *                               type: integer
+   *                             size:
+   *                               type: integer
+   *                             inputs:
+   *                               type: array
+   *                               items:
+   *                                 type: object
+   *                             outputs:
+   *                               type: array
+   *                               items:
+   *                                 type: object
+   *                 pagination:
+   *                   type: object
+   *                   description: Pagination metadata
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                       description: Items per page
+   *                     offset:
+   *                       type: integer
+   *                       description: Current offset
+   *                     total:
+   *                       type: integer
+   *                       description: Total number of transactions across all addresses
+   *                     hasMore:
+   *                       type: boolean
+   *                       description: Whether more results are available
+   *                 last_updated:
+   *                   type: object
+   *                   description: Last update information (most recent across all addresses)
+   *                   properties:
+   *                     slot_no:
+   *                       type: integer
+   *                     block_hash:
+   *                       type: string
+   *                     block_time:
+   *                       type: string
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/tx/address/:vaultAccountId/all", apiController.getAllDetailedTxHistory);
 
   /**
    * @swagger

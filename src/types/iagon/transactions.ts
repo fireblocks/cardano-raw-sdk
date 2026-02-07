@@ -34,6 +34,7 @@ export interface DetailedTransaction {
   size: number;
   inputs: TransactionInput[];
   outputs: TransactionOutput[];
+  address?: string;
 }
 
 export interface TransactionPagination {
@@ -50,6 +51,7 @@ export interface TransactionHistoryItem {
   slot_no: number;
   block_no: number;
   block_time: string;
+  address?: string;
 }
 
 export interface DetailedTxHistoryResponse {
@@ -78,6 +80,20 @@ export interface createTransactionOutputsParams {
 export interface TransactionHistoryResponse {
   success: boolean;
   data: TransactionHistoryItem[];
+  pagination: TransactionPagination;
+  last_updated: LastUpdated;
+}
+
+export interface GroupedTransactionHistoryResponse {
+  success: boolean;
+  data: Record<string, TransactionHistoryItem[]>;
+  pagination: TransactionPagination;
+  last_updated: LastUpdated;
+}
+
+export interface GroupedDetailedTxHistoryResponse {
+  success: boolean;
+  data: Record<string, DetailedTransaction[]>;
   pagination: TransactionPagination;
   last_updated: LastUpdated;
 }

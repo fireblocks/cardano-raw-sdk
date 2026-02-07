@@ -187,6 +187,48 @@ export class ApiController {
     }
   };
 
+  public getAllTransactionHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const options = {
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      groupByAddress: req.query.groupByAddress === "true",
+    };
+
+    try {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getAllTransactionHistory(options);
+      this.logger.info(
+        `All transactions history retrieved successfully for vault ${vaultAccountId}`
+      );
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getAllTransactionHistory");
+    }
+  };
+
+  public getAllDetailedTxHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const options = {
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      groupByAddress: req.query.groupByAddress === "true",
+    };
+
+    try {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getAllDetailedTxHistory(options);
+      this.logger.info(
+        `All detailed transactions history retrieved successfully for vault ${vaultAccountId}`
+      );
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getAllDetailedTxHistory");
+    }
+  };
+
   public transfer = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;

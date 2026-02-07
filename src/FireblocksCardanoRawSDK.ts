@@ -25,6 +25,10 @@ import {
   DetailedTxHistoryResponse,
   transferOpts,
   TransactionHistoryResponse,
+  GroupedTransactionHistoryResponse,
+  GroupedDetailedTxHistoryResponse,
+  TransactionHistoryItem,
+  DetailedTransaction,
   TransactionDetailsResponse,
   WebhookPayloadData,
   SupportedAssets,
@@ -368,6 +372,262 @@ export class FireblocksCardanoRawSDK {
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
+  };
+
+  /**
+   * Get transaction history for all addresses in the vault account
+   * @param options.groupByAddress - If true, returns data grouped by address. If false, returns flat array with address field
+   */
+  public getAllTransactionHistory = async (
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+      groupByAddress?: boolean;
+    } = {}
+  ): Promise<TransactionHistoryResponse | GroupedTransactionHistoryResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+
+    this.logger.info(
+      `Getting transaction history for all addresses in vault ${this.vaultAccountId}`
+    );
+
+    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      assetId
+    );
+
+    if (!addressesResponse || addressesResponse.length === 0) {
+      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
+
+      if (options.groupByAddress) {
+        return {
+          success: true,
+          data: {},
+          pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+          last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+        };
+      }
+
+      return {
+        success: true,
+        data: [],
+        pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+        last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+      };
+    }
+
+    // Filter out addresses without address field and fetch history for each
+    const validAddresses = addressesResponse.filter((addr) => addr.address);
+    const allHistories = await Promise.all(
+      validAddresses.map((addr) =>
+        this.iagonApiService.getTransactionHistory({ address: addr.address!, ...options })
+      )
+    );
+
+    // Get the most recent last_updated from all histories
+    const mostRecentUpdate = allHistories.reduce((latest, current) => {
+      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+        return current.last_updated || latest;
+      }
+      return latest;
+    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+
+    if (options.groupByAddress) {
+      // Group transactions by address
+      const groupedData: Record<string, TransactionHistoryItem[]> = {};
+      let totalTransactions = 0;
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+        // Sort each address's transactions by slot number (descending - most recent first)
+        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+        groupedData[addr.address!] = transactions;
+        totalTransactions += transactions.length;
+      });
+
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: groupedData,
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    } else {
+      // Flat array with address field on each transaction
+      const flatData: TransactionHistoryItem[] = [];
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+
+        // Add address field to each transaction
+        transactions.forEach((tx) => {
+          flatData.push({ ...tx, address: addr.address });
+        });
+      });
+
+      // Sort by slot number (descending - most recent first)
+      flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+
+      // Deduplicate by tx_hash (same transaction may appear in multiple address histories)
+      const uniqueTransactions = flatData.filter(
+        (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
+      );
+
+      const totalTransactions = uniqueTransactions.length;
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    }
+  };
+
+  /**
+   * Get detailed transaction history for all addresses in the vault account
+   * @param options.groupByAddress - If true, returns data grouped by address. If false, returns flat array with address field
+   */
+  public getAllDetailedTxHistory = async (
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+      groupByAddress?: boolean;
+    } = {}
+  ): Promise<DetailedTxHistoryResponse | GroupedDetailedTxHistoryResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+
+    this.logger.info(
+      `Getting detailed transaction history for all addresses in vault ${this.vaultAccountId}`
+    );
+
+    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      assetId
+    );
+
+    if (!addressesResponse || addressesResponse.length === 0) {
+      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
+
+      if (options.groupByAddress) {
+        return {
+          success: true,
+          data: {},
+          pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+          last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+        };
+      }
+
+      return {
+        success: true,
+        data: [],
+        pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+        last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+      };
+    }
+
+    // Filter out addresses without address field and fetch detailed history for each
+    const validAddresses = addressesResponse.filter((addr) => addr.address);
+    const allHistories = await Promise.all(
+      validAddresses.map((addr) =>
+        this.iagonApiService.getDetailedTxHistory({ address: addr.address!, ...options })
+      )
+    );
+
+    // Get the most recent last_updated from all histories
+    const mostRecentUpdate = allHistories.reduce((latest, current) => {
+      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+        return current.last_updated || latest;
+      }
+      return latest;
+    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+
+    if (options.groupByAddress) {
+      // Group transactions by address
+      const groupedData: Record<string, DetailedTransaction[]> = {};
+      let totalTransactions = 0;
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+        // Sort each address's transactions by slot number (descending - most recent first)
+        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+        groupedData[addr.address!] = transactions;
+        totalTransactions += transactions.length;
+      });
+
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: groupedData,
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    } else {
+      // Flat array with address field on each transaction
+      const flatData: DetailedTransaction[] = [];
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+
+        // Add address field to each transaction
+        transactions.forEach((tx) => {
+          flatData.push({ ...tx, address: addr.address });
+        });
+      });
+
+      // Sort by slot number (descending - most recent first)
+      flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+
+      // Deduplicate by tx_hash (same transaction may appear in multiple address histories)
+      const uniqueTransactions = flatData.filter(
+        (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
+      );
+
+      const totalTransactions = uniqueTransactions.length;
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    }
   };
 
   /**
