@@ -168,7 +168,20 @@ export function buildDelegationCertificate(
   const credentialHash = CardanoWasm.Ed25519KeyHash.from_bytes(credential);
   const stakeCredential = CardanoWasm.Credential.from_keyhash(credentialHash);
 
-  const poolKeyHash = CardanoWasm.Ed25519KeyHash.from_hex(poolId);
+  // Handle both bech32 (pool1...) and hex formats
+  let poolIdHex: string;
+  if (poolId.startsWith("pool")) {
+    // Decode bech32 pool ID to hex
+    const decoded = bech32.decode(poolId, 1000);
+    const words = decoded.words;
+    const bytes = bech32.fromWords(words);
+    poolIdHex = Buffer.from(bytes).toString("hex");
+  } else {
+    // Already in hex format
+    poolIdHex = poolId;
+  }
+
+  const poolKeyHash = CardanoWasm.Ed25519KeyHash.from_hex(poolIdHex);
   const stakeDelegation = CardanoWasm.StakeDelegation.new(stakeCredential, poolKeyHash);
 
   return CardanoWasm.Certificate.new_stake_delegation(stakeDelegation);
