@@ -10,6 +10,11 @@ const logger = new Logger("app:server-initializer");
     logger.info("server starting...");
     startServer();
   } catch (e) {
-    logger.error("Error starting server:", e);
+    if (e instanceof Error) {
+      logger.error("Error starting server:", { message: e.message, stack: e.stack });
+    } else {
+      logger.error("Error starting server:", e);
+    }
+    process.exit(1);
   }
 })();
