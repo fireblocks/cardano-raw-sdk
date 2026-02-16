@@ -124,7 +124,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * /api/balance/vault/{vaultAccountId}:
    *   get:
    *     summary: Get total balance for vault account
-   *     description: Retrieves the aggregated balance for all addresses in a vault account. Supports multiple grouping options to view balances by token, address, or policy.
+   *     description: Retrieves the aggregated balance for all addresses in a vault account. Supports multiple grouping options to view balances by token, address, or policy. Optionally enrich tokens with metadata (names, decimals, etc.).
    *     tags: [Balance]
    *     parameters:
    *       - in: path
@@ -144,6 +144,21 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           - `token`: Groups all balances by token/asset (default). Returns total ADA and all tokens across all addresses.
    *           - `address`: Groups balances by address. Shows per-address breakdown with totals.
    *           - `policy`: Groups tokens by their policy ID. Useful for NFT collections and token families.
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: true
+   *         description: |
+   *           Whether to enrich tokens with on-chain metadata including:
+   *           - Official token name
+   *           - Ticker symbol
+   *           - Decimals for proper formatting
+   *           - Human-readable formatted amount
+   *           - Description
+   *           - Asset fingerprint
+   *
+   *           Set to `true` to include metadata. Note: This uses cached data (1-hour TTL) for performance.
    *     responses:
    *       200:
    *         description: Vault balance retrieved successfully

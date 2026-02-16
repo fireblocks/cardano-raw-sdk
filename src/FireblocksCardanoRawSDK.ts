@@ -54,6 +54,7 @@ import {
   HealthStatusResponse,
   CurrentEpochResponse,
   AssetInfoResponse,
+  TokenMetadata,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -188,15 +189,20 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Get total balance for all addresses in a vault account
+   * @param options.groupBy - How to group the balance data
+   * @param options.includeMetadata - Whether to enrich tokens with metadata (names, decimals, logos)
    */
   public getVaultBalance = async (
     options: {
       groupBy?: GroupByOptions;
+      includeMetadata?: boolean;
     } = {}
   ): Promise<VaultBalanceResponse> => {
-    const { groupBy = GroupByOptions.TOKEN } = options;
+    const { groupBy = GroupByOptions.TOKEN, includeMetadata = false } = options;
 
-    this.logger.info(`Getting vault balance for vault ${this.vaultAccountId}, groupBy: ${groupBy}`);
+    this.logger.info(
+      `Getting vault balance for vault ${this.vaultAccountId}, groupBy: ${groupBy}, includeMetadata: ${includeMetadata}`
+    );
 
     const addresses = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
@@ -230,7 +236,7 @@ export class FireblocksCardanoRawSDK {
     const results = await Promise.all(balancePromises);
 
     // Aggregate based on groupBy parameter
-    return this.aggregateVaultBalance(results, groupBy);
+    return this.aggregateVaultBalance(results, groupBy, includeMetadata);
   };
 
   /**
@@ -1107,35 +1113,93 @@ export class FireblocksCardanoRawSDK {
   };
 
   /**
+   * Helper to batch fetch and enrich asset metadata
+   * @param assetIds - Array of asset IDs (format: "policyId.assetName")
+   * @param amounts - Map of assetId to amount (for formatting)
+   * @returns Map of assetId to enriched metadata
+   */
+  private async enrichAssetMetadata(
+    assetIds: string[],
+    amounts: Map<string, string>
+  ): Promise<Map<string, TokenMetadata>> {
+    const metadataMap = new Map<string, TokenMetadata>();
+
+    // Fetch all metadata in parallel
+    const metadataPromises = assetIds.map(async (assetId) => {
+      try {
+        const [policyId, assetName] = assetId.split(".");
+        if (!policyId || !assetName) {
+          this.logger.warn(`Invalid assetId format: ${assetId}`);
+          return null;
+        }
+
+        const assetInfo = await this.iagonApiService.getAssetInfo(policyId, assetName);
+        const amount = amounts.get(assetId) || "0";
+        const decimals = assetInfo.data.metadata?.decimals || 0;
+        const amountNumber = Number(amount);
+        const formatted = formatWithDecimals(amountNumber, decimals);
+
+        const metadata: TokenMetadata = {
+          name: assetInfo.data.metadata?.name || null,
+          ticker: assetInfo.data.metadata?.ticker || null,
+          decimals,
+          formattedAmount: formatted.value,
+          description: assetInfo.data.metadata?.description || null,
+          fingerprint: assetInfo.data.fingerprint || null,
+        };
+
+        return { assetId, metadata };
+      } catch (error: any) {
+        this.logger.warn(`Failed to fetch metadata for ${assetId}: ${error.message}`);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(metadataPromises);
+
+    // Build metadata map
+    for (const result of results) {
+      if (result) {
+        metadataMap.set(result.assetId, result.metadata);
+      }
+    }
+
+    this.logger.debug(`Enriched metadata for ${metadataMap.size}/${assetIds.length} assets`);
+    return metadataMap;
+  }
+
+  /**
    * Helper to aggregate vault balances based on groupBy option
    */
-  private aggregateVaultBalance(
+  private async aggregateVaultBalance(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
     }>,
-    groupBy: GroupByOptions
-  ): VaultBalanceResponse {
+    groupBy: GroupByOptions,
+    includeMetadata: boolean
+  ): Promise<VaultBalanceResponse> {
     if (groupBy === GroupByOptions.ADDRESS) {
-      return this.aggregateByAddress(results);
+      return this.aggregateByAddress(results, includeMetadata);
     } else if (groupBy === GroupByOptions.POLICY) {
-      return this.aggregateByPolicy(results);
+      return this.aggregateByPolicy(results, includeMetadata);
     } else {
-      return this.aggregateByToken(results);
+      return this.aggregateByToken(results, includeMetadata);
     }
   }
 
   /**
    * Aggregate balances by token (default view)
    */
-  private aggregateByToken(
+  private async aggregateByToken(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
-    }>
-  ): VaultBalanceTokenResponse {
+    }>,
+    includeMetadata: boolean
+  ): Promise<VaultBalanceTokenResponse> {
     const tokenMap = new Map<string, bigint>();
     let totalLovelace = BigInt(0);
 
@@ -1165,6 +1229,23 @@ export class FireblocksCardanoRawSDK {
       })
     );
 
+    // Enrich with metadata if requested
+    if (includeMetadata && tokenMap.size > 0) {
+      const assetIds = Array.from(tokenMap.keys());
+      const amounts = new Map(
+        Array.from(tokenMap.entries()).map(([id, amt]) => [id, amt.toString()])
+      );
+      const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+
+      // Attach metadata to tokens
+      for (const token of tokens) {
+        const metadata = metadataMap.get(token.assetId);
+        if (metadata) {
+          token.metadata = metadata;
+        }
+      }
+    }
+
     return {
       balances: [{ assetId: "ADA", amount: totalLovelace.toString(), tokenName: "ADA" }, ...tokens],
     };
@@ -1173,13 +1254,14 @@ export class FireblocksCardanoRawSDK {
   /**
    * Aggregate balances by address
    */
-  private aggregateByAddress(
+  private async aggregateByAddress(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
-    }>
-  ): VaultBalanceAddressResponse {
+    }>,
+    includeMetadata: boolean
+  ): Promise<VaultBalanceAddressResponse> {
     const addresses: VaultBalanceByAddress[] = [];
     let totalLovelace = BigInt(0);
     const totalTokenMap = new Map<string, bigint>();
@@ -1242,6 +1324,37 @@ export class FireblocksCardanoRawSDK {
       tokenName: decodeAssetName(assetId),
     }));
 
+    // Enrich with metadata if requested
+    let metadataMap: Map<string, TokenMetadata> | null = null;
+    if (includeMetadata && totalTokenMap.size > 0) {
+      const assetIds = Array.from(totalTokenMap.keys());
+      const amounts = new Map(
+        Array.from(totalTokenMap.entries()).map(([id, amt]) => [id, amt.toString()])
+      );
+      metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+    }
+
+    // Attach metadata to tokens if available
+    if (metadataMap) {
+      // Attach to per-address tokens
+      for (const addr of addresses) {
+        for (const token of addr.tokens) {
+          const metadata = metadataMap.get(token.assetId);
+          if (metadata) {
+            (token as any).metadata = metadata;
+          }
+        }
+      }
+
+      // Attach to total tokens
+      for (const token of totalTokens) {
+        const metadata = metadataMap.get(token.assetId);
+        if (metadata) {
+          (token as any).metadata = metadata;
+        }
+      }
+    }
+
     return {
       addresses,
       totals: {
@@ -1254,13 +1367,14 @@ export class FireblocksCardanoRawSDK {
   /**
    * Aggregate balances by policy
    */
-  private aggregateByPolicy(
+  private async aggregateByPolicy(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
-    }>
-  ): VaultBalancePolicyResponse {
+    }>,
+    includeMetadata: boolean
+  ): Promise<VaultBalancePolicyResponse> {
     const policyMap = new Map<string, Map<string, bigint>>();
     let totalLovelace = BigInt(0);
 
@@ -1303,6 +1417,34 @@ export class FireblocksCardanoRawSDK {
         return { policyId, tokens: tokenObj };
       }
     );
+
+    // Enrich with metadata if requested
+    if (includeMetadata && policyMap.size > 0) {
+      // Build list of all assetIds
+      const assetIds: string[] = [];
+      const amounts = new Map<string, string>();
+
+      for (const [policyId, tokens] of policyMap.entries()) {
+        for (const [hexTokenName, amount] of tokens.entries()) {
+          const assetId = `${policyId}.${hexTokenName}`;
+          assetIds.push(assetId);
+          amounts.set(assetId, amount.toString());
+        }
+      }
+
+      const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+
+      // Attach metadata to tokens in balances
+      for (const balance of balances) {
+        for (const [hexTokenName, tokenData] of Object.entries(balance.tokens)) {
+          const assetId = `${balance.policyId}.${hexTokenName}`;
+          const metadata = metadataMap.get(assetId);
+          if (metadata) {
+            (tokenData as any).metadata = metadata;
+          }
+        }
+      }
+    }
 
     return {
       balances,

@@ -77,10 +77,11 @@ export class ApiController {
   public getVaultBalance = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
     const groupBy = req.query.groupBy as GroupByOptions | undefined;
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getVaultBalance({ groupBy });
+      const result = await sdk.getVaultBalance({ groupBy, includeMetadata });
 
       res.status(200).json(result);
     } catch (error: any) {

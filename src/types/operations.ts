@@ -128,10 +128,30 @@ export type ResultForOperation<T extends TransactionType> = Extract<
   { type: T }
 >["result"];
 
+/**
+ * Enriched token metadata from on-chain data
+ */
+export interface TokenMetadata {
+  /** Official token name from metadata */
+  name: string | null;
+  /** Token ticker symbol */
+  ticker: string | null;
+  /** Number of decimal places */
+  decimals: number;
+  /** Human-readable formatted amount using decimals */
+  formattedAmount: string;
+  /** Token description */
+  description: string | null;
+  /** Asset fingerprint */
+  fingerprint: string | null;
+}
+
 export interface VaultBalanceByToken {
   assetId: string;
   amount: string;
   tokenName?: string;
+  /** Enriched metadata (when includeMetadata=true) */
+  metadata?: TokenMetadata;
 }
 
 export interface VaultBalanceByAddress {
@@ -143,6 +163,8 @@ export interface VaultBalanceByAddress {
     assetId: string;
     amount: string;
     tokenName?: string;
+    /** Enriched metadata (when includeMetadata=true) */
+    metadata?: TokenMetadata;
   }>;
 }
 
@@ -152,6 +174,8 @@ export interface VaultBalanceByPolicy {
     [hexTokenName: string]: {
       tokenName: string;
       amount: string;
+      /** Enriched metadata (when includeMetadata=true) */
+      metadata?: TokenMetadata;
     };
   };
 }
@@ -162,6 +186,8 @@ export interface VaultBalanceSummary {
   tokens: Array<{
     assetId: string;
     amount: string;
+    /** Enriched metadata (when includeMetadata=true) */
+    metadata?: TokenMetadata;
   }>;
 }
 
@@ -178,6 +204,8 @@ export interface VaultBalanceAddressResponse {
       assetId: string;
       amount: string;
       tokenName?: string;
+      /** Enriched metadata (when includeMetadata=true) */
+      metadata?: TokenMetadata;
     }>;
   };
 }
