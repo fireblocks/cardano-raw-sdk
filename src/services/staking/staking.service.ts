@@ -136,7 +136,7 @@ export class StakingService {
     const {
       vaultAccountId,
       depositAmount = CardanoAmounts.DEPOSIT_AMOUNT,
-      fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
+      fee = CardanoAmounts.STAKING_TX_FEE,
     } = options;
 
     this.logger.info(`Registering staking credential for vault account ${vaultAccountId}`);
@@ -180,7 +180,7 @@ export class StakingService {
    * Delegate to a stake pool
    */
   async delegateToPool(options: DelegationOptions): Promise<StakingTransactionResult> {
-    const { vaultAccountId, poolId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, poolId, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     this.logger.info(`Delegating to pool ${poolId} for vault account ${vaultAccountId}`);
 
@@ -231,7 +231,7 @@ export class StakingService {
   async deregisterStakingCredential(
     options: DeregisterStakingOptions
   ): Promise<StakingTransactionResult> {
-    const { vaultAccountId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     this.logger.info(`Deregistering staking credential for vault account ${vaultAccountId}`);
 
@@ -343,7 +343,7 @@ export class StakingService {
         vaultAccountId,
         drepAction,
         drepId,
-        fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
+        fee = CardanoAmounts.GOVERNANCE_TX_FEE,
       } = options;
 
       this.logger.info(`Delegating to DRep (${drepAction}) for vault account ${vaultAccountId}`);
