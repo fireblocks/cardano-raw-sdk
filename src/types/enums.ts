@@ -12,8 +12,14 @@ export enum TransactionType {
   TRANSFER = "TRANSFER",
 }
 
+/**
+ * Fireblocks asset IDs for Cardano networks
+ * These map to internal Fireblocks asset identifiers used for transaction signing
+ */
 export enum SupportedAssets {
+  /** Fireblocks asset ID for Cardano mainnet */
   ADA = "ADA",
+  /** Fireblocks asset ID for Cardano testnets (preprod/preview) */
   ADA_TEST = "ADA_TEST",
 }
 
