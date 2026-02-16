@@ -131,7 +131,6 @@ export class IagonApiService {
   ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { address, groupByPolicy = false } = params;
 
-    console.log("IagonApiService: Fetching balance by address", this.iagonApiKey); //TODO: remove
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/address/${address}?groupByPolicy=${groupByPolicy}`;
       const response = await this.axiosInstance.get(url);
