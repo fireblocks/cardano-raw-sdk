@@ -7,7 +7,6 @@ import {
   transferRequestSchema,
   vaultAccountIdParamsSchema,
   credentialParamsSchema,
-  stakeKeyParamsSchema,
   hashParamsSchema,
 } from "./validation.js";
 
@@ -344,10 +343,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
-   * /api/balance/stake-key/{vaultAccountId}/{stakeKey}:
+   * /api/balance/stake/{vaultAccountId}:
    *   get:
    *     summary: Get balance by stake key
-   *     description: Retrieves the balance for a vault account using a stake key
+   *     description: |
+   *       Retrieves the balance for a vault account using the stake key.
+   *       The stake key is automatically derived from the vault account's base address.
    *     tags: [Balance]
    *     parameters:
    *       - in: path
@@ -356,12 +357,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         schema:
    *           type: string
    *         description: The vault account ID
-   *       - in: path
-   *         name: stakeKey
-   *         required: true
+   *       - in: query
+   *         name: index
    *         schema:
-   *           type: string
-   *         description: The stake key
+   *           type: integer
+   *           default: 0
+   *         description: The address index within the vault account (defaults to 0)
    *       - in: query
    *         name: groupByPolicy
    *         schema:
@@ -385,8 +386,8 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.get(
-    "/balance/stake-key/:vaultAccountId/:stakeKey",
-    validateParams(stakeKeyParamsSchema),
+    "/balance/stake/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
     apiController.getBalanceByStakeKey
   );
 

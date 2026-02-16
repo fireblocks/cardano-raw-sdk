@@ -16,6 +16,7 @@ import {
   submitTransaction,
   decodeAssetName,
   formatWithDecimals,
+  getStakeAddressFromBaseAddress,
 } from "./utils/index.js";
 
 import {
@@ -264,7 +265,9 @@ export class FireblocksCardanoRawSDK {
   }): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
     const { credential, groupByPolicy = false, includeMetadata = false } = options;
 
-    this.logger.info(`Getting balance for credential ${credential} (includeMetadata: ${includeMetadata})`);
+    this.logger.info(
+      `Getting balance for credential ${credential} (includeMetadata: ${includeMetadata})`
+    );
 
     const response = await this.iagonApiService.getBalanceByCredential({
       credential,
@@ -280,18 +283,30 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Get balance by stake key for a vault account
-   * @param options.stakeKey - Stake key
+   * Automatically derives the stake key from the vault account address
+   * @param options.index - Address index (default: 0)
    * @param options.groupByPolicy - Group assets by policy (default: false)
    * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
-  public getBalanceByStakeKey = async (options: {
-    stakeKey: string;
-    groupByPolicy?: boolean;
-    includeMetadata?: boolean;
-  }): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
-    const { stakeKey, groupByPolicy = false, includeMetadata = false } = options;
+  public getBalanceByStakeKey = async (
+    options: {
+      index?: number;
+      groupByPolicy?: boolean;
+      includeMetadata?: boolean;
+    } = {}
+  ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { index = 0, groupByPolicy = false, includeMetadata = false } = options;
 
-    this.logger.info(`Getting balance for stake key ${stakeKey} (includeMetadata: ${includeMetadata})`);
+    // Get the base address for this vault account
+    const baseAddress = await this.getAddressByIndex(this.assetId, index);
+
+    // Derive the stake key from the base address
+    const isMainnet = this.network === Networks.MAINNET;
+    const stakeKey = getStakeAddressFromBaseAddress(baseAddress, isMainnet);
+
+    this.logger.info(
+      `Getting balance for stake key ${stakeKey} (vault: ${this.vaultAccountId}, index: ${index}, includeMetadata: ${includeMetadata})`
+    );
 
     const response = await this.iagonApiService.getBalanceByStakeKey({
       stakeKey,

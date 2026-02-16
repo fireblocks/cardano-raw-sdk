@@ -74,14 +74,6 @@ export const credentialParamsSchema = z.object({
 });
 
 /**
- * Schema for stake key params
- */
-export const stakeKeyParamsSchema = z.object({
-  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
-  stakeKey: z.string().min(1, "stakeKey is required"),
-});
-
-/**
  * Schema for transaction hash params
  */
 export const hashParamsSchema = z.object({
