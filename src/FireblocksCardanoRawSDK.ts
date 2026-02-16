@@ -1,11 +1,9 @@
 import {
   ConfigurationOptions,
   VaultWalletAddress,
-  SignedMessageSignature,
   TransactionRequest,
   TransactionOperation,
   TransferPeerPathType,
-  SignedMessageAlgorithmEnum,
 } from "@fireblocks/ts-sdk";
 
 import {
@@ -799,7 +797,7 @@ export class FireblocksCardanoRawSDK {
     const txHashHex = this.calculateTransactionHash(txBody);
     const transactionPayload = this.createFireblocksTransactionPayload(assetId, txHashHex);
 
-    const txData = await this.fireblocksService.broadcastTransaction(transactionPayload);
+    const txData = await this.fireblocksService.signTransaction(transactionPayload);
 
     const signatureResponse = txData?.data[0];
 
@@ -1108,27 +1106,6 @@ export class FireblocksCardanoRawSDK {
     this.logger.debug(`Cached public key for ${cacheKey}`);
 
     return publicKey;
-  };
-
-  /**
-   * Broadcasts a transaction to the Fireblocks network and waits for signing completion.
-   *
-   * @param transactionRequest - The transaction request to broadcast
-   * @returns A promise that resolves to the signature data
-   * @throws Error if the transaction fails
-   */
-  public broadcastTransaction = async (
-    transactionRequest: TransactionRequest
-  ): Promise<{
-    id: string;
-    data: Array<{
-      signature: SignedMessageSignature;
-      content?: string;
-      publicKey?: string;
-      algorithm?: SignedMessageAlgorithmEnum;
-    }>;
-  } | null> => {
-    return await this.fireblocksService.broadcastTransaction(transactionRequest);
   };
 
   /**

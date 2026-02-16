@@ -30,7 +30,7 @@ export class TransactionSigner implements ITransactionSigner {
 
       this.logger.info(`Sending transaction for signing: ${context.operation}`);
 
-      const transactionResponse = await this.fireblocksService.broadcastTransaction(payload);
+      const transactionResponse = await this.fireblocksService.signTransaction(payload);
 
       if (!transactionResponse) {
         throw new SdkApiError("Transaction response is null", 503, "NULL_RESPONSE");
