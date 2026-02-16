@@ -4,10 +4,8 @@ import {
   TransactionResponse,
   TransactionStateEnum,
 } from "@fireblocks/ts-sdk";
-import { Logger, LogLevel } from "./logger.js";
+import { Logger } from "./logger.js";
 
-const logLevel = "INFO";
-Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("utils:fireblocks");
 
 /**
