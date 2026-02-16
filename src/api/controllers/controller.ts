@@ -57,7 +57,7 @@ export class ApiController {
   };
 
   public getBalanceByAddress = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const groupByPolicy = req.query.groupByPolicy === "true";
 
@@ -75,7 +75,7 @@ export class ApiController {
   };
 
   public getVaultBalance = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const groupBy = req.query.groupBy as GroupByOptions | undefined;
 
     try {
@@ -89,7 +89,7 @@ export class ApiController {
   };
 
   public getBalanceByCredential = async (req: Request, res: Response) => {
-    const { vaultAccountId, credential } = req.params;
+    const { vaultAccountId, credential } = req.params as { vaultAccountId: string; credential: string };
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
@@ -106,7 +106,7 @@ export class ApiController {
   };
 
   public getBalanceByStakeKey = async (req: Request, res: Response) => {
-    const { vaultAccountId, stakeKey } = req.params;
+    const { vaultAccountId, stakeKey } = req.params as { vaultAccountId: string; stakeKey: string };
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
@@ -123,7 +123,7 @@ export class ApiController {
   };
 
   public getTransactionDetails = async (req: Request, res: Response) => {
-    const { hash } = req.params;
+    const { hash } = req.params as { hash: string };
     try {
       const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId as hash is global
       const result = await sdk.getTransactionDetails(hash);
@@ -135,7 +135,7 @@ export class ApiController {
   };
 
   public getUtxosByAddress = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
 
     try {
@@ -152,7 +152,7 @@ export class ApiController {
    * Helper method to parse transaction history query parameters
    */
   private parseTransactionHistoryParams(req: Request) {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
@@ -188,7 +188,7 @@ export class ApiController {
   };
 
   public getAllTransactionHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       offset: req.query.offset ? Number(req.query.offset) : undefined,
@@ -209,7 +209,7 @@ export class ApiController {
   };
 
   public getAllDetailedTxHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       offset: req.query.offset ? Number(req.query.offset) : undefined,
@@ -403,7 +403,7 @@ export class ApiController {
 
   public getStakeAccountInfo = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId } = req.params;
+      const { vaultAccountId } = req.params as { vaultAccountId: string };
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -443,7 +443,7 @@ export class ApiController {
    */
   public queryStakingRewards = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId } = req.params;
+      const { vaultAccountId } = req.params as { vaultAccountId: string };
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -520,7 +520,7 @@ export class ApiController {
    */
   public getStakeAddress = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId } = req.params;
+      const { vaultAccountId } = req.params as { vaultAccountId: string };
 
       if (!vaultAccountId) {
         return res.status(400).json({
