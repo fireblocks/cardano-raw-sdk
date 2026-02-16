@@ -89,7 +89,10 @@ export class ApiController {
   };
 
   public getBalanceByCredential = async (req: Request, res: Response) => {
-    const { vaultAccountId, credential } = req.params as { vaultAccountId: string; credential: string };
+    const { vaultAccountId, credential } = req.params as {
+      vaultAccountId: string;
+      credential: string;
+    };
     const groupByPolicy = req.query.groupByPolicy === "true";
 
     try {
@@ -274,7 +277,7 @@ export class ApiController {
       }
 
       const depositAmount = CardanoAmounts.DEPOSIT_AMOUNT;
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.registerStakingCredential({
@@ -309,7 +312,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.deregisterStakingCredential({
         vaultAccountId,
@@ -348,7 +351,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToPool({
@@ -382,7 +385,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.withdrawRewards({
@@ -494,7 +497,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DREP_TX_FEE;
+      const fee = CardanoAmounts.GOVERNANCE_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToDRep({

@@ -19,14 +19,31 @@ export enum CardanoConstants {
   CHIMERIC_INDEX = 2,
   CARDANO_BASE_ADDRESS_MIN_LENGTH = 57, // 1 byte header + 28 bytes payment + 28 bytes stake
   CARDANO_PAYMENT_CREDENTIAL_OFFSET = 29, // 1 byte header + 28 bytes payment hash
+  ADA_DECIMALS = 6, // 1 ADA = 1,000,000 lovelace
 }
 
 export enum CardanoAmounts {
-  MIN_RECIPIENT_LOVELACE = 1_200_000,
-  MIN_CHANGE_LOVELACE = 1_200_000,
   DEPOSIT_AMOUNT = 2_000_000,
-  DEFAULT_NATIVE_TX_FEE = 300_000,
-  DREP_TX_FEE = 1_000_000,
+  /**
+   * Fee for staking operations (register, deregister, delegate, withdraw)
+   * These are ADA-only transactions with fixed-size certificates
+   */
+  STAKING_TX_FEE = 300_000,
+  /**
+   * Fee for governance operations (DRep delegation)
+   * These transactions involve governance certificates
+   */
+  GOVERNANCE_TX_FEE = 1_000_000,
   MIN_UTXO_VALUE_ADA_ONLY = 1_000_000,
+  /**
+   * Base minimum lovelace for any UTXO (Cardano protocol parameter)
+   * This is the minimum for ADA-only or single-policy UTXOs
+   */
+  MIN_UTXO_BASE_LOVELACE = 1_000_000,
+  /**
+   * Additional lovelace required per token policy (Cardano protocol parameter)
+   * Each distinct policy in a UTXO adds ~0.15 ADA to the minimum requirement
+   */
+  MIN_UTXO_PER_POLICY_LOVELACE = 150_000,
   TX_TTL_SECS = 7_200,
 }
