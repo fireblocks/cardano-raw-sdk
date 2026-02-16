@@ -113,7 +113,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/balance/address/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getBalanceByAddress);
+  router.get(
+    "/balance/address/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getBalanceByAddress
+  );
 
   /**
    * @swagger
@@ -247,9 +251,9 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                             additionalProperties:
    *                               type: string
    *                             description: Map of token names to amounts
-   *                     totalAda:
+   *                     totalLovelace:
    *                       type: string
-   *                       description: Total ADA in lovelace
+   *                       description: Total balance in lovelace (1 ADA = 1,000,000 lovelace)
    *                   example:
    *                     balances:
    *                       - policyId: "policy1"
@@ -259,11 +263,15 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                       - policyId: "policy2"
    *                         tokens:
    *                           nft1: "1"
-   *                     totalAda: "1500000000"
+   *                     totalLovelace: "1500000000"
    *       500:
    *         description: Internal server error
    */
-  router.get("/balance/vault/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getVaultBalance);
+  router.get(
+    "/balance/vault/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getVaultBalance
+  );
 
   /**
    * @swagger
@@ -343,7 +351,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/balance/stake-key/:vaultAccountId/:stakeKey", validateParams(stakeKeyParamsSchema), apiController.getBalanceByStakeKey);
+  router.get(
+    "/balance/stake-key/:vaultAccountId/:stakeKey",
+    validateParams(stakeKeyParamsSchema),
+    apiController.getBalanceByStakeKey
+  );
 
   /**
    * TRANSACTIONS
@@ -410,7 +422,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/hash/:hash", validateParams(hashParamsSchema), apiController.getTransactionDetails);
+  router.get(
+    "/tx/hash/:hash",
+    validateParams(hashParamsSchema),
+    apiController.getTransactionDetails
+  );
 
   /**
    * @swagger
@@ -485,7 +501,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/utxos/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getUtxosByAddress);
+  router.get(
+    "/utxos/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getUtxosByAddress
+  );
 
   /**
    * @swagger
@@ -607,7 +627,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/history/:vaultAccountId/all", validateParams(vaultAccountIdParamsSchema), apiController.getAllTransactionHistory);
+  router.get(
+    "/tx/history/:vaultAccountId/all",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getAllTransactionHistory
+  );
 
   /**
    * @swagger
@@ -708,7 +732,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/history/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getTransactionHistory);
+  router.get(
+    "/tx/history/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getTransactionHistory
+  );
 
   /**
    * @swagger
@@ -888,7 +916,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/address/:vaultAccountId/all", validateParams(vaultAccountIdParamsSchema), apiController.getAllDetailedTxHistory);
+  router.get(
+    "/tx/address/:vaultAccountId/all",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getAllDetailedTxHistory
+  );
 
   /**
    * @swagger
@@ -1035,7 +1067,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/address/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getDetailedTxHistory);
+  router.get(
+    "/tx/address/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getDetailedTxHistory
+  );
 
   /**
    * @swagger
@@ -1239,7 +1275,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/staking/accounts/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getStakeAccountInfo);
+  router.get(
+    "/staking/accounts/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getStakeAccountInfo
+  );
 
   /**
    * @swagger
@@ -1290,7 +1330,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/staking/rewards/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.queryStakingRewards);
+  router.get(
+    "/staking/rewards/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.queryStakingRewards
+  );
 
   /**
    * @swagger
@@ -1331,7 +1375,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/staking/stake-address/:vaultAccountId", validateParams(vaultAccountIdParamsSchema), apiController.getStakeAddress);
+  router.get(
+    "/staking/stake-address/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getStakeAddress
+  );
 
   /**
    * @swagger
