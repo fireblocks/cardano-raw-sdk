@@ -48,8 +48,6 @@ export interface fetchAndSelectUtxosParams {
   requiredTokenAmount: number;
   transactionFee: number;
   tokenName: string;
-  minRecipientLovelace: number;
-  minChangeLovelace: number;
 }
 
 /**
@@ -139,7 +137,8 @@ export interface VaultBalanceByToken {
 export interface VaultBalanceByAddress {
   address: string;
   index: number;
-  ada: string;
+  /** Balance in lovelace (1 ADA = 1,000,000 lovelace) */
+  lovelace: string;
   tokens: Array<{
     assetId: string;
     amount: string;
@@ -158,7 +157,8 @@ export interface VaultBalanceByPolicy {
 }
 
 export interface VaultBalanceSummary {
-  totalAda: string;
+  /** Total balance in lovelace (1 ADA = 1,000,000 lovelace) */
+  totalLovelace: string;
   tokens: Array<{
     assetId: string;
     amount: string;
@@ -172,7 +172,8 @@ export interface VaultBalanceTokenResponse {
 export interface VaultBalanceAddressResponse {
   addresses: VaultBalanceByAddress[];
   totals: {
-    ada: string;
+    /** Total balance in lovelace (1 ADA = 1,000,000 lovelace) */
+    lovelace: string;
     tokens: Array<{
       assetId: string;
       amount: string;
@@ -183,7 +184,8 @@ export interface VaultBalanceAddressResponse {
 
 export interface VaultBalancePolicyResponse {
   balances: VaultBalanceByPolicy[];
-  totalAda: string;
+  /** Total balance in lovelace (1 ADA = 1,000,000 lovelace) */
+  totalLovelace: string;
 }
 
 export type VaultBalanceResponse =

@@ -107,6 +107,14 @@ export class FireblocksCardanoRawSDK {
     this.logger.info("FireblocksCardanoRawSDK initialized successfully");
   }
 
+  /**
+   * Gets the Fireblocks asset ID for the current network
+   * @returns SupportedAssets.ADA for mainnet, SupportedAssets.ADA_TEST for testnets
+   */
+  private get assetId(): SupportedAssets {
+    return this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+  }
+
   public static createInstance = async (params: {
     fireblocksConfig: ConfigurationOptions;
     vaultAccountId: string;
@@ -165,11 +173,8 @@ export class FireblocksCardanoRawSDK {
   ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { index = 0, groupByPolicy = false } = options;
 
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     // Use cached address fetching
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
 
     this.logger.info(`Getting balance for address ${address} (vault: ${this.vaultAccountId})`);
     return await this.iagonApiService.getBalanceByAddress({
@@ -190,12 +195,9 @@ export class FireblocksCardanoRawSDK {
 
     this.logger.info(`Getting vault balance for vault ${this.vaultAccountId}, groupBy: ${groupBy}`);
 
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     const addresses = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
-      assetId
+      this.assetId
     );
 
     if (!addresses || addresses.length === 0) {
@@ -266,9 +268,9 @@ export class FireblocksCardanoRawSDK {
    */
   private getEmptyVaultBalance(groupBy: GroupByOptions): VaultBalanceResponse {
     if (groupBy === GroupByOptions.ADDRESS) {
-      return { addresses: [], totals: { ada: "0", tokens: [] } };
+      return { addresses: [], totals: { lovelace: "0", tokens: [] } };
     } else if (groupBy === GroupByOptions.POLICY) {
-      return { balances: [], totalAda: "0" };
+      return { balances: [], totalLovelace: "0" };
     } else {
       return { balances: [{ assetId: "ADA", amount: "0", tokenName: "ADA" }] };
     }
@@ -319,9 +321,7 @@ export class FireblocksCardanoRawSDK {
    * Get UTXOs for a vault account address
    */
   public getUtxosByAddress = async (index: number = 0): Promise<UtxoIagonResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
 
     this.logger.info(
       `Getting UTXOs for vault ${this.vaultAccountId} at index ${index} (address: ${address})`
@@ -341,11 +341,9 @@ export class FireblocksCardanoRawSDK {
       fromSlot?: number;
     } = {}
   ): Promise<TransactionHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
     this.logger.info(
-      `Getting transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
+      `Getting transaction history for vault ${this.vaultAccountId}, asset ${this.assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getTransactionHistory({ address, ...options });
@@ -362,12 +360,10 @@ export class FireblocksCardanoRawSDK {
       fromSlot?: number;
     } = {}
   ): Promise<DetailedTxHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
 
     this.logger.info(
-      `Getting detailed transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
+      `Getting detailed transaction history for vault ${this.vaultAccountId}, asset ${this.assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
@@ -385,16 +381,13 @@ export class FireblocksCardanoRawSDK {
       groupByAddress?: boolean;
     } = {}
   ): Promise<TransactionHistoryResponse | GroupedTransactionHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     this.logger.info(
       `Getting transaction history for all addresses in vault ${this.vaultAccountId}`
     );
 
     const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
-      assetId
+      this.assetId
     );
 
     if (!addressesResponse || addressesResponse.length === 0) {
@@ -516,16 +509,13 @@ export class FireblocksCardanoRawSDK {
       groupByAddress?: boolean;
     } = {}
   ): Promise<DetailedTxHistoryResponse | GroupedDetailedTxHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     this.logger.info(
       `Getting detailed transaction history for all addresses in vault ${this.vaultAccountId}`
     );
 
     const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
-      assetId
+      this.assetId
     );
 
     if (!addressesResponse || addressesResponse.length === 0) {
@@ -637,6 +627,7 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Selects and validates UTXOs for the transaction
+   * Minimum lovelace values are calculated dynamically based on policies
    */
   private async selectAndValidateUtxos(params: {
     address: string;
@@ -644,8 +635,6 @@ export class FireblocksCardanoRawSDK {
     tokenName: string;
     requiredTokenAmount: number;
     transactionFee: number;
-    minRecipientLovelace: number;
-    minChangeLovelace: number;
   }) {
     const utxoResult = await fetchAndSelectUtxos({
       iagonApiService: this.iagonApiService,
@@ -657,13 +646,23 @@ export class FireblocksCardanoRawSDK {
         "No suitable UTXOs found for this transaction",
         400,
         "UtxoSelectionFailed",
-        { address: params.address, tokenPolicyId: params.tokenPolicyId, tokenName: params.tokenName },
+        {
+          address: params.address,
+          tokenPolicyId: params.tokenPolicyId,
+          tokenName: params.tokenName,
+        },
         "FireblocksCardanoRawSDK"
       );
     }
 
-    const { selectedUtxos, accumulatedAda, accumulatedTokenAmount } = utxoResult;
-    const adaTarget = params.minRecipientLovelace + params.transactionFee;
+    const {
+      selectedUtxos,
+      accumulatedAda,
+      accumulatedTokenAmount,
+      minRecipientLovelace,
+      minChangeLovelace,
+    } = utxoResult;
+    const adaTarget = minRecipientLovelace + params.transactionFee;
 
     if (accumulatedTokenAmount < params.requiredTokenAmount || accumulatedAda < adaTarget) {
       const tokenShortfall = Math.max(0, params.requiredTokenAmount - accumulatedTokenAmount);
@@ -675,7 +674,7 @@ export class FireblocksCardanoRawSDK {
       }
       if (adaShortfall > 0) {
         const required = formatWithDecimals(adaTarget, CardanoConstants.ADA_DECIMALS);
-        const recipient = formatWithDecimals(params.minRecipientLovelace, CardanoConstants.ADA_DECIMALS);
+        const recipient = formatWithDecimals(minRecipientLovelace, CardanoConstants.ADA_DECIMALS);
         const fee = formatWithDecimals(params.transactionFee, CardanoConstants.ADA_DECIMALS);
         const have = formatWithDecimals(accumulatedAda, CardanoConstants.ADA_DECIMALS);
         const short = formatWithDecimals(adaShortfall, CardanoConstants.ADA_DECIMALS);
@@ -695,7 +694,8 @@ export class FireblocksCardanoRawSDK {
           accumulatedAda,
           adaShortfall,
           breakdown: {
-            minRecipientLovelace: params.minRecipientLovelace,
+            minRecipientLovelace,
+            minChangeLovelace,
             transactionFee: params.transactionFee,
           },
         },
@@ -703,13 +703,19 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    return { selectedUtxos, accumulatedAda, accumulatedTokenAmount };
+    return {
+      selectedUtxos,
+      accumulatedAda,
+      accumulatedTokenAmount,
+      minRecipientLovelace,
+      minChangeLovelace,
+    };
   }
 
   /**
-   * Builds the Cardano transaction body with dynamically calculated fees
-   * The fee is calculated based on actual transaction size to prevent
-   * rejection for wallets with many tokens (dust attack protection)
+   * Builds the Cardano transaction body with dynamically calculated fees and minimums
+   * Fee and minimum lovelace values are calculated based on actual transaction size
+   * and number of policies to prevent rejection for wallets with many tokens (dust attack protection)
    */
   private async buildTransactionBody(params: {
     selectedUtxos: any[];
@@ -718,8 +724,8 @@ export class FireblocksCardanoRawSDK {
     tokenPolicyId: string;
     tokenName: string;
     requiredTokenAmount: number;
-    minRecipientLovelace: number;
-    transactionFee?: number; // Now optional - will be calculated if not provided
+    minRecipientLovelace: number; // Calculated dynamically based on policies
+    transactionFee?: number; // Optional - will be calculated dynamically if not provided
   }) {
     const txInputs = createTransactionInputs(params.selectedUtxos);
     const recipientAddrObj = Address.from_bech32(params.recipientAddress);
@@ -915,12 +921,6 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    const minRecipientLovelace = CardanoAmounts.MIN_RECIPIENT_LOVELACE;
-    const minChangeLovelace = CardanoAmounts.MIN_CHANGE_LOVELACE;
-
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     try {
       // Resolve recipient address
       let resolvedRecipientAddress: string;
@@ -928,7 +928,7 @@ export class FireblocksCardanoRawSDK {
         // Vault-to-vault transfer: get the recipient address from the vault account
         const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
           recipientVaultAccountId,
-          assetId,
+          this.assetId,
           recipientIndex
         );
         if (!recipientAddressData.address) {
@@ -953,20 +953,19 @@ export class FireblocksCardanoRawSDK {
       }
 
       // Fetch sender address
-      const senderAddress = await this.getAddressByIndex(assetId, index);
+      const senderAddress = await this.getAddressByIndex(this.assetId, index);
 
       // Select and validate UTXOs
       // Use a conservative fee estimate for UTXO selection to ensure we have enough ADA
       // The actual fee will be calculated dynamically during transaction building
       const ESTIMATED_MAX_FEE = 500_000; // Conservative estimate for wallets with many tokens
-      const { selectedUtxos } = await this.selectAndValidateUtxos({
+      const { selectedUtxos, minRecipientLovelace } = await this.selectAndValidateUtxos({
         address: senderAddress,
         tokenPolicyId,
         tokenName,
         requiredTokenAmount,
         transactionFee: ESTIMATED_MAX_FEE,
-        minRecipientLovelace,
-        minChangeLovelace,
+        // minRecipientLovelace and minChangeLovelace will be calculated dynamically based on policies
       });
 
       // Build transaction body with dynamically calculated fee
@@ -977,7 +976,7 @@ export class FireblocksCardanoRawSDK {
         tokenPolicyId,
         tokenName,
         requiredTokenAmount,
-        minRecipientLovelace,
+        minRecipientLovelace, // Calculated dynamically based on policies
         // transactionFee is now optional and will be calculated dynamically
       });
 
@@ -1015,9 +1014,7 @@ export class FireblocksCardanoRawSDK {
    * @throws Error if the retrieval fails.
    */
   public getVaultAccountAddresses = async (): Promise<VaultWalletAddress[]> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, assetId);
+    return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, this.assetId);
   };
 
   /**
@@ -1082,10 +1079,8 @@ export class FireblocksCardanoRawSDK {
    * Get public key for a vault account address with caching
    */
   public getPublicKey = async (change: number = 0, addressIndex: number = 0): Promise<string> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     // Create cache key from all parameters
-    const cacheKey = `${assetId}-${change}-${addressIndex}`;
+    const cacheKey = `${this.assetId}-${change}-${addressIndex}`;
     const cachedPublicKey = this.publicKeys.get(cacheKey);
 
     if (cachedPublicKey) {
@@ -1096,7 +1091,7 @@ export class FireblocksCardanoRawSDK {
     // Fetch from Fireblocks if not cached
     const publicKey = await this.fireblocksService.getAssetPublicKey(
       this.vaultAccountId,
-      assetId,
+      this.assetId,
       change,
       addressIndex
     );
@@ -1139,7 +1134,7 @@ export class FireblocksCardanoRawSDK {
     }>
   ): VaultBalanceTokenResponse {
     const tokenMap = new Map<string, bigint>();
-    let totalAda = BigInt(0);
+    let totalLovelace = BigInt(0);
 
     for (const result of results) {
       if (!result.balance || !result.balance.success) continue;
@@ -1148,7 +1143,7 @@ export class FireblocksCardanoRawSDK {
       if (!bal) continue;
 
       // Add ADA
-      totalAda += BigInt(bal.lovelace || 0);
+      totalLovelace += BigInt(bal.lovelace || 0);
 
       // Add tokens
       if (bal.assets) {
@@ -1168,7 +1163,7 @@ export class FireblocksCardanoRawSDK {
     );
 
     return {
-      balances: [{ assetId: "ADA", amount: totalAda.toString(), tokenName: "ADA" }, ...tokens],
+      balances: [{ assetId: "ADA", amount: totalLovelace.toString(), tokenName: "ADA" }, ...tokens],
     };
   }
 
@@ -1183,7 +1178,7 @@ export class FireblocksCardanoRawSDK {
     }>
   ): VaultBalanceAddressResponse {
     const addresses: VaultBalanceByAddress[] = [];
-    let totalAda = BigInt(0);
+    let totalLovelace = BigInt(0);
     const totalTokenMap = new Map<string, bigint>();
 
     for (const result of results) {
@@ -1191,7 +1186,7 @@ export class FireblocksCardanoRawSDK {
         addresses.push({
           address: result.address,
           index: result.index,
-          ada: "0",
+          lovelace: "0",
           tokens: [],
         });
         continue;
@@ -1202,7 +1197,7 @@ export class FireblocksCardanoRawSDK {
         addresses.push({
           address: result.address,
           index: result.index,
-          ada: "0",
+          lovelace: "0",
           tokens: [],
         });
         continue;
@@ -1218,7 +1213,7 @@ export class FireblocksCardanoRawSDK {
         }
       }
 
-      totalAda += addressAda;
+      totalLovelace += addressAda;
 
       const tokens: Array<{ assetId: string; amount: string; tokenName: string }> = Array.from(
         addressTokens.entries()
@@ -1231,7 +1226,7 @@ export class FireblocksCardanoRawSDK {
       addresses.push({
         address: result.address,
         index: result.index,
-        ada: addressAda.toString(),
+        lovelace: addressAda.toString(),
         tokens,
       });
     }
@@ -1247,7 +1242,7 @@ export class FireblocksCardanoRawSDK {
     return {
       addresses,
       totals: {
-        ada: totalAda.toString(),
+        lovelace: totalLovelace.toString(),
         tokens: totalTokens,
       },
     };
@@ -1264,7 +1259,7 @@ export class FireblocksCardanoRawSDK {
     }>
   ): VaultBalancePolicyResponse {
     const policyMap = new Map<string, Map<string, bigint>>();
-    let totalAda = BigInt(0);
+    let totalLovelace = BigInt(0);
 
     for (const result of results) {
       if (!!!result.balance || !result.balance.success) continue;
@@ -1272,7 +1267,7 @@ export class FireblocksCardanoRawSDK {
       const balance = result.balance.data;
       if (!balance) continue;
 
-      totalAda += BigInt(balance.lovelace || 0);
+      totalLovelace += BigInt(balance.lovelace || 0);
 
       if (balance.assets && typeof balance.assets === "object") {
         for (const [policyId, tokens] of Object.entries(balance.assets)) {
@@ -1308,7 +1303,7 @@ export class FireblocksCardanoRawSDK {
 
     return {
       balances,
-      totalAda: totalAda.toString(),
+      totalLovelace: totalLovelace.toString(),
     };
   }
 
@@ -1394,7 +1389,7 @@ export class FireblocksCardanoRawSDK {
       `Delegating to pool ${options.poolId} for vault account ${options.vaultAccountId}`
     );
 
-    const { vaultAccountId, poolId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, poolId, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     return await this.stakingService.delegateToPool({ vaultAccountId, poolId, fee });
   };
@@ -1424,7 +1419,7 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Deregistering staking credential for vault account ${options.vaultAccountId}`
     );
-    const { vaultAccountId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     return await this.stakingService.deregisterStakingCredential({ vaultAccountId, fee });
   };
@@ -1464,7 +1459,7 @@ export class FireblocksCardanoRawSDK {
     }
   > => {
     this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
-    const { vaultAccountId, limit, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, limit, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     return await this.stakingService.withdrawRewards({ vaultAccountId, limit, fee });
   };
@@ -1553,7 +1548,7 @@ export class FireblocksCardanoRawSDK {
       `Delegating to DRep (${options.drepAction}) for vault account ${options.vaultAccountId}`
     );
 
-    const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.DREP_TX_FEE } = options;
+    const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.GOVERNANCE_TX_FEE } = options;
 
     return await this.stakingService.delegateToDRep({ vaultAccountId, drepAction, drepId, fee });
   };
