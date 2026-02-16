@@ -1,6 +1,6 @@
 import axios from "axios";
 import https from "https";
-import { Logger, ErrorHandler } from "../utils/index.js";
+import { Logger, ErrorHandler, decodeAssetName } from "../utils/index.js";
 import { iagonBaseUrl } from "../constants.js";
 import {
   BalanceResponse,
@@ -25,7 +25,16 @@ import {
   WithdrawalHistoryResponse,
   PaymentAddressesResponse,
   HealthStatusResponse,
+  AssetInfoResponse,
 } from "../types/index.js";
+
+/**
+ * Cached asset information with timestamp
+ */
+interface CachedAssetInfo {
+  data: AssetInfoResponse;
+  timestamp: number;
+}
 
 export class IagonApiService {
   private readonly logger = new Logger("services:iagon-api-service");
@@ -35,7 +44,15 @@ export class IagonApiService {
   private readonly errorHandler = new ErrorHandler("iagon-api", this.logger);
   private readonly axiosInstance;
 
-  constructor(apiKey: string, network: Networks = Networks.MAINNET) {
+  // Asset metadata cache
+  private assetInfoCache = new Map<string, CachedAssetInfo>();
+  private readonly ASSET_CACHE_TTL: number;
+
+  constructor(
+    apiKey: string,
+    network: Networks = Networks.MAINNET,
+    assetCacheTTL: number = 1000 * 60 * 60 * 24 // Default: 24 hours
+  ) {
     // Validate API key is provided and not empty
     if (!apiKey || apiKey.trim() === "") {
       throw new Error(
@@ -46,6 +63,7 @@ export class IagonApiService {
 
     this.iagonApiKey = apiKey;
     this.network = network;
+    this.ASSET_CACHE_TTL = assetCacheTTL;
 
     // Create axios instance with default headers
     this.axiosInstance = axios.create({
@@ -464,4 +482,113 @@ export class IagonApiService {
       );
     }
   };
+
+  /**
+   * Get asset information with caching
+   * @param policyId - The policy ID of the asset
+   * @param assetName - The asset name in hex format
+   * @param skipCache - Optional: bypass cache and fetch fresh data
+   * @returns Asset information including metadata
+   */
+  public getAssetInfo = async (
+    policyId: string,
+    assetName: string,
+    skipCache: boolean = false
+  ): Promise<AssetInfoResponse> => {
+    try {
+      const cacheKey = `${policyId}.${assetName}`;
+
+      // Check cache first (unless skipCache is true)
+      if (!skipCache) {
+        const cached = this.assetInfoCache.get(cacheKey);
+        if (cached) {
+          const age = Date.now() - cached.timestamp;
+          if (age < this.ASSET_CACHE_TTL) {
+            this.logger.debug(
+              `Asset info cache HIT for ${decodeAssetName(assetName)} (age: ${Math.round(age / 1000)}s)`
+            );
+            return cached.data;
+          } else {
+            // Cache expired, remove it
+            this.assetInfoCache.delete(cacheKey);
+            this.logger.debug(
+              `Asset info cache EXPIRED for ${decodeAssetName(assetName)} (age: ${Math.round(age / 1000)}s)`
+            );
+          }
+        }
+      }
+
+      // Cache miss or skipCache - fetch from API
+      this.logger.debug(
+        `Asset info cache MISS for ${decodeAssetName(assetName)}, fetching from API`
+      );
+      const url = `${this.iagonBaseUrl}/v1/assets/${cacheKey}`;
+      const response = await this.axiosInstance.get(url);
+
+      if (response.status === 200) {
+        const data: AssetInfoResponse = response.data;
+
+        // Store in cache
+        this.assetInfoCache.set(cacheKey, {
+          data,
+          timestamp: Date.now(),
+        });
+
+        this.logger.debug(
+          `Asset info cached for ${decodeAssetName(assetName)} (cache size: ${this.assetInfoCache.size})`
+        );
+
+        return data;
+      }
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(
+        error,
+        `fetching asset info for ${decodeAssetName(assetName)} (${assetName}) with policy ${policyId}`
+      );
+    }
+  };
+
+  /**
+   * Clear asset info cache
+   * @param policyId - Optional: Clear cache for specific policy ID only
+   * @param assetName - Optional: Clear cache for specific asset only (requires policyId)
+   */
+  public clearAssetInfoCache(policyId?: string, assetName?: string): void {
+    if (policyId && assetName) {
+      const cacheKey = `${policyId}.${assetName}`;
+      this.assetInfoCache.delete(cacheKey);
+      this.logger.info(`Cleared asset info cache for ${cacheKey}`);
+    } else if (policyId) {
+      // Clear all assets for this policy
+      let count = 0;
+      for (const key of this.assetInfoCache.keys()) {
+        if (key.startsWith(policyId)) {
+          this.assetInfoCache.delete(key);
+          count++;
+        }
+      }
+      this.logger.info(`Cleared ${count} cached assets for policy ${policyId}`);
+    } else {
+      // Clear entire cache
+      const size = this.assetInfoCache.size;
+      this.assetInfoCache.clear();
+      this.logger.info(`Cleared entire asset info cache (${size} entries)`);
+    }
+  }
+
+  /**
+   * Get cache statistics
+   */
+  public getAssetCacheStats() {
+    return {
+      size: this.assetInfoCache.size,
+      ttl: this.ASSET_CACHE_TTL,
+      entries: Array.from(this.assetInfoCache.entries()).map(([key, value]) => ({
+        asset: key,
+        age: Date.now() - value.timestamp,
+        expiresIn: Math.max(0, this.ASSET_CACHE_TTL - (Date.now() - value.timestamp)),
+      })),
+    };
+  }
 }

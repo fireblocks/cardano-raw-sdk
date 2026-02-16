@@ -137,6 +137,30 @@ export class ApiController {
     }
   };
 
+  /**
+   * Get asset information including metadata and decimals
+   * GET /api/assets/:policyId/:assetName
+   */
+  public getAssetInfo = async (req: Request, res: Response) => {
+    const { policyId, assetName } = req.params as { policyId: string; assetName: string };
+    try {
+      if (!policyId || !assetName) {
+        return res.status(400).json({
+          success: false,
+          error: "policyId and assetName are required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
+      const result = await sdk.getAssetInfo(policyId, assetName);
+
+      this.logger.info(`Asset info retrieved successfully for ${policyId}.${assetName}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getAssetInfo");
+    }
+  };
+
   public getUtxosByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;

@@ -430,6 +430,83 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/assets/{policyId}/{assetName}:
+   *   get:
+   *     summary: Get asset information
+   *     description: Retrieve detailed information about a Cardano native token including metadata, decimals, and supply data
+   *     tags: [Assets]
+   *     parameters:
+   *       - in: path
+   *         name: policyId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The policy ID of the asset (hex string)
+   *         example: f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a
+   *       - in: path
+   *         name: assetName
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The asset name in hex format
+   *         example: 4e4654
+   *     responses:
+   *       200:
+   *         description: Asset information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: true
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     policy_id:
+   *                       type: string
+   *                       description: Asset policy ID
+   *                     asset_name:
+   *                       type: string
+   *                       description: Asset name (hex)
+   *                     asset_name_ascii:
+   *                       type: string
+   *                       description: Asset name decoded to ASCII
+   *                     fingerprint:
+   *                       type: string
+   *                       description: Asset fingerprint
+   *                     total_supply:
+   *                       type: string
+   *                       description: Total supply of the asset
+   *                     metadata:
+   *                       type: object
+   *                       nullable: true
+   *                       properties:
+   *                         name:
+   *                           type: string
+   *                           description: Human-readable token name
+   *                         ticker:
+   *                           type: string
+   *                           description: Token ticker symbol
+   *                         decimals:
+   *                           type: number
+   *                           description: Number of decimal places
+   *                         description:
+   *                           type: string
+   *                           description: Token description
+   *                         logo:
+   *                           type: string
+   *                           description: Logo URL or base64
+   *       400:
+   *         description: Invalid request parameters
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/assets/:policyId/:assetName", apiController.getAssetInfo);
+
+  /**
+   * @swagger
    * /api/utxos/{vaultAccountId}:
    *   get:
    *     summary: Get UTXOs by vault account address

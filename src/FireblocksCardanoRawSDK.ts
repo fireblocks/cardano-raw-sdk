@@ -53,6 +53,7 @@ import {
   StakeAccountInfoResponse,
   HealthStatusResponse,
   CurrentEpochResponse,
+  AssetInfoResponse,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -120,18 +121,20 @@ export class FireblocksCardanoRawSDK {
     vaultAccountId: string;
     network: Networks;
     iagonApiKey: string;
+    /** Asset metadata cache TTL in milliseconds (default: 1 hour) */
+    assetCacheTTL?: number;
   }): Promise<FireblocksCardanoRawSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-cardano-raw-sdk`);
 
-      const { fireblocksConfig, vaultAccountId, network, iagonApiKey } = params;
+      const { fireblocksConfig, vaultAccountId, network, iagonApiKey, assetCacheTTL } = params;
 
       if (network === Networks.PREVIEW) {
         throw new Error(`Unsupported network: ${network}`);
       }
 
       const fireblocksService = new FireblocksService(fireblocksConfig);
-      const iagonApiService = new IagonApiService(iagonApiKey, network);
+      const iagonApiService = new IagonApiService(iagonApiKey, network, assetCacheTTL);
       const stakingService = new StakingService(fireblocksService, iagonApiService, network);
       const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
       const wallet = await fireblocksService.getVaultAccountAddress(vaultAccountId, assetId);
@@ -1583,6 +1586,77 @@ export class FireblocksCardanoRawSDK {
     this.addresses.clear();
     this.publicKeys.clear();
     this.logger.info("Cache cleared");
+  }
+
+  /**
+   * Get asset information including metadata, decimals, and supply
+   *
+   * Retrieves detailed information about a Cardano native token including:
+   * - Asset name (decoded from hex)
+   * - Metadata (name, ticker, description, decimals, logo, etc.)
+   * - Total supply and mint/burn counts
+   * - Fingerprint for unique identification
+   *
+   * @param policyId - The policy ID of the asset (hex string)
+   * @param assetName - The asset name in hex format
+   * @returns Detailed asset information including metadata
+   * @throws Error if asset info retrieval fails
+   *
+   * @example
+   * ```typescript
+   * const assetInfo = await sdk.getAssetInfo(
+   *   "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a",
+   *   "4e4654"
+   * );
+   * console.log("Token Name:", assetInfo.data.metadata?.name);
+   * console.log("Decimals:", assetInfo.data.metadata?.decimals);
+   * console.log("Total Supply:", assetInfo.data.total_supply);
+   * ```
+   */
+  public async getAssetInfo(
+    policyId: string,
+    assetName: string,
+    skipCache: boolean = false
+  ): Promise<AssetInfoResponse> {
+    this.logger.info(`Getting asset info for ${policyId}.${assetName}`);
+    return await this.iagonApiService.getAssetInfo(policyId, assetName, skipCache);
+  }
+
+  /**
+   * Clear asset info cache
+   * @param policyId - Optional: Clear cache for specific policy ID only
+   * @param assetName - Optional: Clear cache for specific asset only (requires policyId)
+   * @example
+   * ```typescript
+   * // Clear entire cache
+   * sdk.clearAssetInfoCache();
+   *
+   * // Clear all assets for a specific policy
+   * sdk.clearAssetInfoCache("f0ff48bbb...");
+   *
+   * // Clear specific asset
+   * sdk.clearAssetInfoCache("f0ff48bbb...", "4e4654");
+   * ```
+   */
+  public clearAssetInfoCache(policyId?: string, assetName?: string): void {
+    this.iagonApiService.clearAssetInfoCache(policyId, assetName);
+  }
+
+  /**
+   * Get asset cache statistics
+   * @returns Cache statistics including size, TTL, and entry details
+   * @example
+   * ```typescript
+   * const stats = sdk.getAssetCacheStats();
+   * console.log(`Cache size: ${stats.size}`);
+   * console.log(`Cache TTL: ${stats.ttl}ms`);
+   * stats.entries.forEach(entry => {
+   *   console.log(`${entry.asset}: age ${entry.age}ms, expires in ${entry.expiresIn}ms`);
+   * });
+   * ```
+   */
+  public getAssetCacheStats() {
+    return this.iagonApiService.getAssetCacheStats();
   }
 
   /**

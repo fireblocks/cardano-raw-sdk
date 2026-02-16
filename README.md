@@ -160,6 +160,28 @@ const detailedHistory = await sdk.getDetailedTxHistory({
 const txDetails = await sdk.getTransactionDetails("6c9e6d70a0ce7ca5d...");
 ```
 
+#### Asset Information
+
+```typescript
+// Get detailed asset information including metadata and decimals
+const assetInfo = await sdk.getAssetInfo(
+  "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a", // Policy ID
+  "4e4654" // Asset name (hex)
+);
+
+console.log("Token Name:", assetInfo.data.metadata?.name);
+console.log("Ticker:", assetInfo.data.metadata?.ticker);
+console.log("Decimals:", assetInfo.data.metadata?.decimals);
+console.log("Total Supply:", assetInfo.data.total_supply);
+console.log("Logo:", assetInfo.data.metadata?.logo);
+
+// Use decimals to format token amounts correctly
+const rawAmount = 1000000;
+const decimals = assetInfo.data.metadata?.decimals || 0;
+const formattedAmount = rawAmount / Math.pow(10, decimals);
+console.log(`Amount: ${formattedAmount} ${assetInfo.data.metadata?.ticker}`);
+```
+
 #### Vault Account Operations
 
 ```typescript
@@ -229,6 +251,9 @@ GET /api/balance/stake-key/:vaultAccountId/:stakeKey?groupByPolicy=false
 # Get transaction details by hash
 GET /api/tx/hash/:hash
 
+# Get asset information (metadata, decimals, supply)
+GET /api/assets/:policyId/:assetName
+
 # Get transaction history
 GET /api/tx/history/:vaultAccountId?index=0&limit=10&offset=0&fromSlot=100000
 
@@ -271,6 +296,9 @@ curl http://localhost:8000/api/balance/address/vault-123?assetId=ADA&index=0
 
 # Get transaction history
 curl http://localhost:8000/api/tx/history/vault-123?limit=5
+
+# Get asset information
+curl http://localhost:8000/api/assets/f0ff48bbb7bbe9d5.../4e4654
 
 # Execute transfer (to address)
 curl -X POST http://localhost:8000/api/transfers \
