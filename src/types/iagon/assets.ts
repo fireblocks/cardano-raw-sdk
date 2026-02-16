@@ -47,3 +47,46 @@ export interface AssetInfoResponse {
     metadata_source: string | null;
   };
 }
+
+/**
+ * Enriched asset entry with metadata
+ */
+export interface EnrichedAsset {
+  amount: number;
+  metadata?: {
+    name: string | null;
+    ticker: string | null;
+    decimals: number;
+    formattedAmount: string;
+    description: string | null;
+    fingerprint: string | null;
+  };
+}
+
+/**
+ * Enriched balance response with metadata
+ */
+export interface EnrichedBalanceResponse {
+  success: boolean;
+  data: {
+    lovelace: number;
+    assets: {
+      [assetId: string]: EnrichedAsset;
+    };
+  };
+}
+
+/**
+ * Enriched grouped balance response with metadata
+ */
+export interface EnrichedGroupedBalanceResponse {
+  success: boolean;
+  data: {
+    lovelace: number;
+    assets: {
+      [policyId: string]: {
+        [assetName: string]: EnrichedAsset;
+      };
+    };
+  };
+}

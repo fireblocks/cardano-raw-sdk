@@ -60,12 +60,14 @@ export class ApiController {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const groupByPolicy = req.query.groupByPolicy === "true";
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByAddress({
         index,
         groupByPolicy,
+        includeMetadata,
       });
 
       res.status(200).json(result);
@@ -95,12 +97,14 @@ export class ApiController {
       credential: string;
     };
     const groupByPolicy = req.query.groupByPolicy === "true";
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByCredential({
         credential,
         groupByPolicy,
+        includeMetadata,
       });
 
       res.status(200).json(result);
@@ -112,12 +116,14 @@ export class ApiController {
   public getBalanceByStakeKey = async (req: Request, res: Response) => {
     const { vaultAccountId, stakeKey } = req.params as { vaultAccountId: string; stakeKey: string };
     const groupByPolicy = req.query.groupByPolicy === "true";
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByStakeKey({
         stakeKey,
         groupByPolicy,
+        includeMetadata,
       });
 
       res.status(200).json(result);

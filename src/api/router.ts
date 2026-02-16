@@ -103,6 +103,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           type: boolean
    *           default: true
    *         description: Whether to group results by policy
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Whether to enrich tokens with on-chain metadata (name, ticker, decimals, description, fingerprint)
    *     responses:
    *       200:
    *         description: Balance retrieved successfully
@@ -314,6 +320,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           type: boolean
    *           default: true
    *         description: Whether to group results by policy
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Whether to enrich tokens with on-chain metadata (name, ticker, decimals, description, fingerprint)
    *     responses:
    *       200:
    *         description: Balance retrieved successfully
@@ -356,6 +368,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           type: boolean
    *           default: true
    *         description: Whether to group results by policy
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Whether to enrich tokens with on-chain metadata (name, ticker, decimals, description, fingerprint)
    *     responses:
    *       200:
    *         description: Balance retrieved successfully

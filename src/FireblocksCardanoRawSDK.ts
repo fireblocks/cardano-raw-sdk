@@ -171,20 +171,32 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Get balance by address for a vault account
+   * @param options.index - Address index (default: 0)
+   * @param options.groupByPolicy - Group assets by policy (default: false)
+   * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
   public getBalanceByAddress = async (
-    options: { index?: number; groupByPolicy?: boolean } = {}
-  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
-    const { index = 0, groupByPolicy = false } = options;
+    options: { index?: number; groupByPolicy?: boolean; includeMetadata?: boolean } = {}
+  ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { index = 0, groupByPolicy = false, includeMetadata = false } = options;
 
     // Use cached address fetching
     const address = await this.getAddressByIndex(this.assetId, index);
 
-    this.logger.info(`Getting balance for address ${address} (vault: ${this.vaultAccountId})`);
-    return await this.iagonApiService.getBalanceByAddress({
+    this.logger.info(
+      `Getting balance for address ${address} (vault: ${this.vaultAccountId}, includeMetadata: ${includeMetadata})`
+    );
+
+    const response = await this.iagonApiService.getBalanceByAddress({
       address,
       groupByPolicy,
     });
+
+    if (includeMetadata) {
+      return await this.enrichIagonResponse(response);
+    }
+
+    return response;
   };
 
   /**
@@ -241,35 +253,56 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Get balance by credential for a vault account
+   * @param options.credential - Payment credential
+   * @param options.groupByPolicy - Group assets by policy (default: false)
+   * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
   public getBalanceByCredential = async (options: {
     credential: string;
     groupByPolicy?: boolean;
-  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
-    const { credential, groupByPolicy = false } = options;
+    includeMetadata?: boolean;
+  }): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { credential, groupByPolicy = false, includeMetadata = false } = options;
 
-    this.logger.info(`Getting balance for credential ${credential}`);
-    return await this.iagonApiService.getBalanceByCredential({
+    this.logger.info(`Getting balance for credential ${credential} (includeMetadata: ${includeMetadata})`);
+
+    const response = await this.iagonApiService.getBalanceByCredential({
       credential,
       groupByPolicy,
     });
+
+    if (includeMetadata) {
+      return await this.enrichIagonResponse(response);
+    }
+
+    return response;
   };
 
   /**
    * Get balance by stake key for a vault account
+   * @param options.stakeKey - Stake key
+   * @param options.groupByPolicy - Group assets by policy (default: false)
+   * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
   public getBalanceByStakeKey = async (options: {
     stakeKey: string;
     groupByPolicy?: boolean;
-  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
-    const { stakeKey, groupByPolicy = false } = options;
+    includeMetadata?: boolean;
+  }): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { stakeKey, groupByPolicy = false, includeMetadata = false } = options;
 
-    this.logger.info(`Getting balance for stake key ${stakeKey}`);
+    this.logger.info(`Getting balance for stake key ${stakeKey} (includeMetadata: ${includeMetadata})`);
 
-    return await this.iagonApiService.getBalanceByStakeKey({
+    const response = await this.iagonApiService.getBalanceByStakeKey({
       stakeKey,
       groupByPolicy,
     });
+
+    if (includeMetadata) {
+      return await this.enrichIagonResponse(response);
+    }
+
+    return response;
   };
 
   /**
@@ -1166,6 +1199,81 @@ export class FireblocksCardanoRawSDK {
 
     this.logger.debug(`Enriched metadata for ${metadataMap.size}/${assetIds.length} assets`);
     return metadataMap;
+  }
+
+  /**
+   * Helper to transform Iagon balance responses to include metadata
+   * @param response - Raw Iagon API response
+   * @returns Enriched response with metadata
+   */
+  private async enrichIagonResponse(
+    response: BalanceResponse | GroupedBalanceResponse
+  ): Promise<any> {
+    if (!response.success || !response.data) {
+      return response;
+    }
+
+    const { data } = response;
+    const assetIds: string[] = [];
+    const amounts = new Map<string, string>();
+
+    // Check if it's a GroupedBalanceResponse or BalanceResponse
+    const isGrouped = Object.values(data.assets || {}).some((val) => typeof val === "object");
+
+    if (isGrouped) {
+      // GroupedBalanceResponse
+      for (const [policyId, tokens] of Object.entries(data.assets || {})) {
+        for (const [assetName, amount] of Object.entries(tokens as any)) {
+          const assetId = `${policyId}.${assetName}`;
+          assetIds.push(assetId);
+          amounts.set(assetId, String(amount));
+        }
+      }
+    } else {
+      // BalanceResponse
+      for (const [assetId, amount] of Object.entries(data.assets || {})) {
+        assetIds.push(assetId);
+        amounts.set(assetId, String(amount));
+      }
+    }
+
+    // Fetch metadata for all assets
+    const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+
+    // Build enriched response
+    const enrichedAssets: any = {};
+
+    if (isGrouped) {
+      // GroupedBalanceResponse structure
+      for (const [policyId, tokens] of Object.entries(data.assets || {})) {
+        enrichedAssets[policyId] = {};
+        for (const [assetName, amount] of Object.entries(tokens as any)) {
+          const assetId = `${policyId}.${assetName}`;
+          const metadata = metadataMap.get(assetId);
+          enrichedAssets[policyId][assetName] = {
+            amount,
+            ...(metadata && { metadata }),
+          };
+        }
+      }
+    } else {
+      // BalanceResponse structure
+      for (const [assetId, amount] of Object.entries(data.assets || {})) {
+        const metadata = metadataMap.get(assetId);
+        enrichedAssets[assetId] = {
+          amount,
+          ...(metadata && { metadata }),
+        };
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        lovelace: data.lovelace,
+        assets: enrichedAssets,
+      },
+    };
   }
 
   /**
