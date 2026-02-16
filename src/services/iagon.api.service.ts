@@ -36,10 +36,16 @@ export class IagonApiService {
   private readonly axiosInstance;
 
   constructor(apiKey: string, network: Networks = Networks.MAINNET) {
+    // Validate API key is provided and not empty
+    if (!apiKey || apiKey.trim() === "") {
+      throw new Error(
+        "IAGON_API_KEY is required. Please set the IAGON_API_KEY environment variable or pass a valid API key to the constructor. " +
+          "Without a valid API key, all balance, history, and transfer operations will fail with 401 Unauthorized errors."
+      );
+    }
+
     this.iagonApiKey = apiKey;
     this.network = network;
-
-    console.log("IagonApiService initialized with:", this.iagonApiKey, apiKey); //TODO: remove
 
     // Create axios instance with default headers
     this.axiosInstance = axios.create({
