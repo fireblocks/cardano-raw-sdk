@@ -4,15 +4,13 @@ import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Express } from "express-serve-static-core";
 import express, { Request, Response } from "express";
 
-import { config, Logger, LogLevel } from "./utils/index.js";
+import { config, Logger } from "./utils/index.js";
 import { getSwaggerSpec, swaggerUi } from "./utils/swagger.js";
 import { SdkManager } from "./pool/sdkManager.js";
 import { configureRouter } from "./api/router.js";
 import { FireblocksCardanoRawSDK } from "./FireblocksCardanoRawSDK.js";
 import { Networks } from "./types/index.js";
 
-const logLevel = "INFO";
-Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("app:server-setup");
 
 const startServer = () => {

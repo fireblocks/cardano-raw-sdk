@@ -10,13 +10,14 @@ import {
 
 import {
   Logger,
-  buildTransaction,
+  buildTransactionWithCalculatedFee,
+  calculateTransactionFee,
   calculateTtl,
   createTransactionInputs,
-  createTransactionOutputs,
   fetchAndSelectUtxos,
   submitTransaction,
   decodeAssetName,
+  formatWithDecimals,
 } from "./utils/index.js";
 
 import {
@@ -57,7 +58,7 @@ import {
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
-import { CardanoAmounts } from "./constants.js";
+import { CardanoAmounts, CardanoConstants } from "./constants.js";
 
 import {
   Address,
@@ -427,12 +428,15 @@ export class FireblocksCardanoRawSDK {
     );
 
     // Get the most recent last_updated from all histories
-    const mostRecentUpdate = allHistories.reduce((latest, current) => {
-      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
-        return current.last_updated || latest;
-      }
-      return latest;
-    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+    const mostRecentUpdate = allHistories.reduce(
+      (latest, current) => {
+        if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+          return current.last_updated || latest;
+        }
+        return latest;
+      },
+      allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" }
+    );
 
     if (options.groupByAddress) {
       // Group transactions by address
@@ -555,12 +559,15 @@ export class FireblocksCardanoRawSDK {
     );
 
     // Get the most recent last_updated from all histories
-    const mostRecentUpdate = allHistories.reduce((latest, current) => {
-      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
-        return current.last_updated || latest;
-      }
-      return latest;
-    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+    const mostRecentUpdate = allHistories.reduce(
+      (latest, current) => {
+        if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+          return current.last_updated || latest;
+        }
+        return latest;
+      },
+      allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" }
+    );
 
     if (options.groupByAddress) {
       // Group transactions by address
@@ -648,29 +655,63 @@ export class FireblocksCardanoRawSDK {
     });
 
     if (!utxoResult) {
-      throw new Error("UtxoSelectionFailed: No suitable UTXOs found for this transaction");
+      throw new SdkApiError(
+        "No suitable UTXOs found for this transaction",
+        400,
+        "UtxoSelectionFailed",
+        { address: params.address, tokenPolicyId: params.tokenPolicyId, tokenName: params.tokenName },
+        "FireblocksCardanoRawSDK"
+      );
     }
 
     const { selectedUtxos, accumulatedAda, accumulatedTokenAmount } = utxoResult;
     const adaTarget = params.minRecipientLovelace + params.transactionFee;
 
     if (accumulatedTokenAmount < params.requiredTokenAmount || accumulatedAda < adaTarget) {
-      const error = new Error("InsufficientBalance: Insufficient balance for token or ADA");
-      (error as any).code = "INSUFFICIENT_BALANCE";
-      (error as any).details = {
-        requiredTokenAmount: params.requiredTokenAmount,
-        accumulatedTokenAmount,
-        requiredAda: adaTarget,
-        accumulatedAda,
-      };
-      throw error;
+      const tokenShortfall = Math.max(0, params.requiredTokenAmount - accumulatedTokenAmount);
+      const adaShortfall = Math.max(0, adaTarget - accumulatedAda);
+
+      let message = "Insufficient balance. ";
+      if (tokenShortfall > 0) {
+        message += `Token: need ${params.requiredTokenAmount.toLocaleString()}, have ${accumulatedTokenAmount.toLocaleString()} (short ${tokenShortfall.toLocaleString()}). `;
+      }
+      if (adaShortfall > 0) {
+        const required = formatWithDecimals(adaTarget, CardanoConstants.ADA_DECIMALS);
+        const recipient = formatWithDecimals(params.minRecipientLovelace, CardanoConstants.ADA_DECIMALS);
+        const fee = formatWithDecimals(params.transactionFee, CardanoConstants.ADA_DECIMALS);
+        const have = formatWithDecimals(accumulatedAda, CardanoConstants.ADA_DECIMALS);
+        const short = formatWithDecimals(adaShortfall, CardanoConstants.ADA_DECIMALS);
+
+        message += `ADA: need ${required.value} ADA (${required.raw} lovelace) = ${recipient.value} ADA for recipient + ${fee.value} ADA fee, have ${have.value} ADA (${have.raw} lovelace), short ${short.value} ADA (${short.raw} lovelace).`;
+      }
+
+      throw new SdkApiError(
+        message.trim(),
+        400,
+        "InsufficientBalance",
+        {
+          requiredTokenAmount: params.requiredTokenAmount,
+          accumulatedTokenAmount,
+          tokenShortfall,
+          requiredAda: adaTarget,
+          accumulatedAda,
+          adaShortfall,
+          breakdown: {
+            minRecipientLovelace: params.minRecipientLovelace,
+            transactionFee: params.transactionFee,
+          },
+        },
+        "FireblocksCardanoRawSDK"
+      );
     }
 
     return { selectedUtxos, accumulatedAda, accumulatedTokenAmount };
   }
 
   /**
-   * Builds the Cardano transaction body
+   * Builds the Cardano transaction body with dynamically calculated fees
+   * The fee is calculated based on actual transaction size to prevent
+   * rejection for wallets with many tokens (dust attack protection)
    */
   private async buildTransactionBody(params: {
     selectedUtxos: any[];
@@ -680,30 +721,36 @@ export class FireblocksCardanoRawSDK {
     tokenName: string;
     requiredTokenAmount: number;
     minRecipientLovelace: number;
-    transactionFee: number;
+    transactionFee?: number; // Now optional - will be calculated if not provided
   }) {
     const txInputs = createTransactionInputs(params.selectedUtxos);
     const recipientAddrObj = Address.from_bech32(params.recipientAddress);
     const senderAddrObj = Address.from_bech32(params.senderAddress);
 
-    const txOutputs = createTransactionOutputs({
-      requiredLovelace: params.minRecipientLovelace,
-      fee: params.transactionFee,
-      recipientAddress: recipientAddrObj,
-      senderAddress: senderAddrObj,
-      tokenPolicyId: params.tokenPolicyId,
-      tokenName: params.tokenName,
-      transferAmount: params.requiredTokenAmount,
-      selectedUtxos: params.selectedUtxos,
-    });
+    // Get current slot from network for proper TTL calculation
+    // Cardano slots are counted from Shelley genesis, not epoch 0
+    const epochResponse = await this.iagonApiService.getCurrentEpoch();
+    const currentSlot = epochResponse.data.tip.slot;
+    this.logger.info(`Current slot: ${currentSlot}, calculating TTL`);
+    const ttl = calculateTtl(currentSlot);
 
-    const ttl = await calculateTtl(2600);
-    return buildTransaction({
+    // Use dynamic fee calculation
+    const { txBody } = buildTransactionWithCalculatedFee(
+      {
+        requiredLovelace: params.minRecipientLovelace,
+        recipientAddress: recipientAddrObj,
+        senderAddress: senderAddrObj,
+        tokenPolicyId: params.tokenPolicyId,
+        tokenName: params.tokenName,
+        transferAmount: params.requiredTokenAmount,
+        selectedUtxos: params.selectedUtxos,
+      },
       txInputs,
-      txOutputs,
-      fee: params.transactionFee,
       ttl,
-    });
+      1 // Estimate 1 witness (single signature)
+    );
+
+    return txBody;
   }
 
   /**
@@ -773,7 +820,29 @@ export class FireblocksCardanoRawSDK {
     const witnessSet = TransactionWitnessSet.new();
     witnessSet.set_vkeys(witnesses);
 
-    return Transaction.new(txBody, witnessSet);
+    const signedTx = Transaction.new(txBody, witnessSet);
+
+    // Verify the fee is sufficient using Cardano's min_fee calculation
+    const minRequiredFee = calculateTransactionFee(signedTx);
+    const allocatedFee = parseInt(txBody.fee().to_str());
+
+    if (minRequiredFee > allocatedFee) {
+      throw new SdkApiError(
+        `Transaction requires minimum ${minRequiredFee} lovelace but only ${allocatedFee} lovelace was allocated. This indicates a bug in fee calculation.`,
+        500,
+        "FeeEstimationError",
+        { minRequiredFee, allocatedFee, difference: minRequiredFee - allocatedFee },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    const feeDifference = allocatedFee - minRequiredFee;
+    this.logger.info(
+      `Transaction fee verified: allocated ${allocatedFee} lovelace, ` +
+        `minimum required ${minRequiredFee} lovelace (margin: ${feeDifference} lovelace)`
+    );
+
+    return signedTx;
   }
 
   /**
@@ -821,6 +890,33 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
+    // Block native ADA transfers - users should use Fireblocks console for this
+    const isNativeAdaTransfer =
+      (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
+      tokenPolicyId === "";
+
+    // Check if user is trying to transfer ADA (missing token parameters)
+    if ((!tokenPolicyId && !tokenName) || isNativeAdaTransfer) {
+      throw new SdkApiError(
+        "Native ADA transfers are not supported by this SDK. Please use the Fireblocks console for ADA transfers. " +
+          "For token transfers, please provide both 'tokenPolicyId' and 'tokenName' parameters.",
+        400,
+        "UnsupportedOperation",
+        { tokenPolicyId, tokenName, hint: "Use Fireblocks console for ADA transfers" },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    if (!tokenPolicyId || !tokenName) {
+      throw new SdkApiError(
+        "For token transfers, please provide both 'tokenPolicyId' and 'tokenName' parameters.",
+        400,
+        "UnsupportedOperation",
+        { tokenPolicyId, tokenName },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
     const minRecipientLovelace = CardanoAmounts.MIN_RECIPIENT_LOVELACE;
     const minChangeLovelace = CardanoAmounts.MIN_CHANGE_LOVELACE;
 
@@ -862,17 +958,20 @@ export class FireblocksCardanoRawSDK {
       const senderAddress = await this.getAddressByIndex(assetId, index);
 
       // Select and validate UTXOs
+      // Use a conservative fee estimate for UTXO selection to ensure we have enough ADA
+      // The actual fee will be calculated dynamically during transaction building
+      const ESTIMATED_MAX_FEE = 500_000; // Conservative estimate for wallets with many tokens
       const { selectedUtxos } = await this.selectAndValidateUtxos({
         address: senderAddress,
         tokenPolicyId,
         tokenName,
         requiredTokenAmount,
-        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
+        transactionFee: ESTIMATED_MAX_FEE,
         minRecipientLovelace,
         minChangeLovelace,
       });
 
-      // Build transaction body
+      // Build transaction body with dynamically calculated fee
       const txBody = await this.buildTransactionBody({
         selectedUtxos,
         recipientAddress: resolvedRecipientAddress,
@@ -881,7 +980,7 @@ export class FireblocksCardanoRawSDK {
         tokenName,
         requiredTokenAmount,
         minRecipientLovelace,
-        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
+        // transactionFee is now optional and will be calculated dynamically
       });
 
       // Sign transaction with Fireblocks
