@@ -33,7 +33,7 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 - Node.js 18+ (for SDK usage)
 - Docker & Docker Compose (for API service deployment)
 - Fireblocks API credentials
-- Iagon API key (optional, for enhanced features)
+- Iagon API key (required for balance queries, transaction history, and transfers)
 
 ### Install as a TypeScript Package
 
@@ -79,6 +79,7 @@ const sdk = await FireblocksCardanoRawSDK.createInstance({
   },
   vaultAccountId: "your-vault-account-id",
   network: Networks.MAINNET,
+  iagonApiKey: "your-iagon-api-key",
 });
 ```
 
@@ -86,7 +87,7 @@ const sdk = await FireblocksCardanoRawSDK.createInstance({
 
 ```typescript
 // Get balance by address
-const balance = await sdk.getBalanceByAddress(SupportedAssets.ADA, {
+const balance = await sdk.getBalanceByAddress({
   index: 0,
   groupByPolicy: false,
 });
@@ -141,14 +142,16 @@ console.log("Sender Address:", transferResult.senderAddress);
 
 ```typescript
 // Get basic transaction history
-const history = await sdk.getTransactionHistory(SupportedAssets.ADA, 0, {
+const history = await sdk.getTransactionHistory({
+  index: 0,
   limit: 10,
   offset: 0,
   fromSlot: 100000,
 });
 
 // Get detailed transaction history with inputs/outputs
-const detailedHistory = await sdk.getDetailedTxHistory(SupportedAssets.ADA, 0, {
+const detailedHistory = await sdk.getDetailedTxHistory({
+  index: 0,
   limit: 10,
   offset: 0,
 });
@@ -161,13 +164,10 @@ const txDetails = await sdk.getTransactionDetails("6c9e6d70a0ce7ca5d...");
 
 ```typescript
 // Get vault account addresses
-const addresses = await sdk.getVaultAccountAddresses(SupportedAssets.ADA);
+const addresses = await sdk.getVaultAccountAddresses();
 
-// Get public key
-const publicKey = await sdk.getPublicKey(SupportedAssets.ADA, 0, 0);
-
-// Broadcast a raw transaction
-const result = await sdk.broadcastTransaction(transactionRequest);
+// Get public key (change index, address index)
+const publicKey = await sdk.getPublicKey(0, 0);
 ```
 
 #### Graceful Shutdown
@@ -313,8 +313,8 @@ FIREBLOCKS_BASE_PATH=https://api.fireblocks.io
 # Cardano Network Configuration
 CARDANO_NETWORK=mainnet  # Options: mainnet, preprod, preview
 
-
-# Optional: Iagon API Configuration
+# Iagon API Configuration (Required)
+# Required for all balance queries, transaction history, and token transfers
 IAGON_API_KEY=your-iagon-api-key
 
 ```
@@ -375,6 +375,7 @@ async function transferTokens() {
     },
     vaultAccountId: "vault-123",
     network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
   });
 
   try {
@@ -427,11 +428,11 @@ const manager = new SdkManager(
 
 // Get SDK for a vault account (automatically pooled)
 const sdk1 = await manager.getSdk("vault-123");
-const balance1 = await sdk1.getBalanceByAddress();
+const balance1 = await sdk1.getBalanceByAddress({ index: 0 });
 
 // Reuses the same SDK instance
 const sdk2 = await manager.getSdk("vault-123");
-const balance2 = await sdk2.getBalanceByAddress();
+const balance2 = await sdk2.getBalanceByAddress({ index: 0 });
 
 // Release SDK back to pool when done
 manager.releaseSdk("vault-123");
@@ -496,6 +497,7 @@ async function demonstrateCaching() {
     },
     vaultAccountId: "vault-123",
     network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
   });
 
   // Check cache statistics
@@ -503,8 +505,8 @@ async function demonstrateCaching() {
   console.log(`Cache stats: ${stats.addressCount} addresses, ${stats.publicKeyCount} public keys`);
 
   // Multiple operations benefit from caching
-  const balance1 = await sdk.getBalanceByAddress(SupportedAssets.ADA, { index: 0 });
-  const balance2 = await sdk.getBalanceByAddress(SupportedAssets.ADA, { index: 0 });
+  const balance1 = await sdk.getBalanceByAddress({ index: 0 });
+  const balance2 = await sdk.getBalanceByAddress({ index: 0 });
   // Second balance check uses cached address - no Fireblocks API call!
 
   // Clear cache if needed
@@ -530,14 +532,8 @@ npm run build
 # Run in development mode with hot reload
 npm run dev
 
-# Run tests
-npm test
-
 # Generate documentation
 npm run docs
-
-# Lint code
-npm run lint
 ```
 
 ### Project Structure
