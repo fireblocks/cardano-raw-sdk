@@ -1,14 +1,4 @@
 export const iagonBaseUrl = "https://api.fireblocks.partners.iagon.com";
-// export const tokenTransactionFee = 200000;
-// export const MIN_RECIPIENT_LOVELACE = 1_200_000;
-// export const MIN_CHANGE_LOVELACE = 1_200_000;
-
-// export const STAKING_DEPOSIT_AMOUNT = 2_000_000; // 2 ADA
-// export const STAKING_DEPOSIT_FEE = 300_000; // 0.3 ADA
-
-// export const CARDANO_BASE_ADDRESS_MIN_LENGTH = 57; // 1 byte header + 28 bytes payment + 28 bytes stake
-// export const CARDANO_PAYMENT_CREDENTIAL_OFFSET = 29; // 1 byte header + 28 bytes payment hash
-// export const MIN_DREP_DELEGATION_ADA = 2; // Minimum ADA for DRep operations
 
 export enum CardanoConstants {
   BIP_44_CONSTANT = 44,
@@ -47,3 +37,71 @@ export enum CardanoAmounts {
   MIN_UTXO_PER_POLICY_LOVELACE = 150_000,
   TX_TTL_SECS = 7_200,
 }
+
+/**
+ * Fireblocks webhook validation constants
+ */
+export const FireblocksWebhookConstants = {
+  /**
+   * JWKS endpoints for webhook signature verification
+   * Use the endpoint that matches your Fireblocks workspace environment
+   */
+  JWKS_ENDPOINTS: {
+    US: "https://keys.fireblocks.io/.well-known/jwks.json",
+    EU: "https://eu-keys.fireblocks.io/.well-known/jwks.json",
+    EU2: "https://eu2-keys.fireblocks.io/.well-known/jwks.json",
+    SANDBOX: "https://sandbox-keys.fireblocks.io/.well-known/jwks.json",
+  },
+
+  /**
+   * Legacy public keys for webhook signature verification (RSA-SHA512)
+   * These are being phased out in favor of JWKS-based validation
+   */
+  LEGACY_PUBLIC_KEYS: {
+    US: `-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA0+6wd9OJQpK60ZI7qnZG
+jjQ0wNFUHfRv85Tdyek8+ahlg1Ph8uhwl4N6DZw5LwLXhNjzAbQ8LGPxt36RUZl5
+YlxTru0jZNKx5lslR+H4i936A4pKBjgiMmSkVwXD9HcfKHTp70GQ812+J0Fvti/v
+4nrrUpc011Wo4F6omt1QcYsi4GTI5OsEbeKQ24BtUd6Z1Nm/EP7PfPxeb4CP8KOH
+clM8K7OwBUfWrip8Ptljjz9BNOZUF94iyjJ/BIzGJjyCntho64ehpUYP8UJykLVd
+CGcu7sVYWnknf1ZGLuqqZQt4qt7cUUhFGielssZP9N9x7wzaAIFcT3yQ+ELDu1SZ
+dE4lZsf2uMyfj58V8GDOLLE233+LRsRbJ083x+e2mW5BdAGtGgQBusFfnmv5Bxqd
+HgS55hsna5725/44tvxll261TgQvjGrTxwe7e5Ia3d2Syc+e89mXQaI/+cZnylNP
+SwCCvx8mOM847T0XkVRX3ZrwXtHIA25uKsPJzUtksDnAowB91j7RJkjXxJcz3Vh1
+4k182UFOTPRW9jzdWNSyWQGl/vpe9oQ4c2Ly15+/toBo4YXJeDdDnZ5c/O+KKadc
+IMPBpnPrH/0O97uMPuED+nI6ISGOTMLZo35xJ96gPBwyG5s2QxIkKPXIrhgcgUnk
+tSM7QYNhlftT4/yVvYnk0YcCAwEAAQ==
+-----END PUBLIC KEY-----`,
+    EU: `-----BEGIN PUBLIC KEY-----
+MIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA6hLRQL0jPf5OEuaDYGjO
+xSyaYIlv08S0+4giiwgKSfV3Onc5hn03mvE0znzaUq2ReSxi9KYDdMYFfzf1uwF7
+7kYy2MY0oTYGdQb+PS4Ym4R4tgZ2otuoAXt8YRKq2maWyguFiaowMcYwwAVQv8JB
+afIm6Jq1nI6v1mEDVX065ePlBlAt+BGAqr6ahPxnaIz3L4eztpuNrt5nTbSxs7eF
+aqQx1p56W1nl3Hl0V3tLkaXbuVtbFNR/mGMInrkPnpsG+mt35b9vmqAOvLPI0Cx1
+59uVeEs62Hj1AOCRyT6SuwIaFynRj2KnD42ioQtkodHQ0xDtgdiYGsxuwQ9vTIe7
+5oLsL8gBDeX5gdcTfSZhfGjZ7RggLNJ7vCAbYKMuUOdgWVMYnJfrhNLCq3zDSZPO
++H0x5m/Yeq/Hn5o7xCmLNT3qARfwDd5IHfQyXqVYB6TMU75xqH5fdSRw0iMdoPyL
+ALnr9/JT0av3qssNMRdWCXr+j9Ys3NkfcbU/a49657mg8e2QGSkl9w39csEKojnr
+omUz25szIL8CcXLmc5cAmnimFCe4L7UT4mvVP3+fOo+cbc/82zqA8tsSwd2Y93/6
+ueGnNZD9V5rewrKjmdPfrwoI2gntzc8QJUu+nxAWhoqHV91AQeglu6WIF/DiEJC5
+WPoNk2SdlAuA6RYmgB2YyikCAwEAAQ==
+-----END PUBLIC KEY-----`,
+    SANDBOX: `-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApZE6wL2+7P1ohvVYSpCd
+gSgtmyGwiLbUC1UoGJhn1zwfY7ZWbNH7Pg8Osk8OzZTZHSG/arcgE8HnGCmGKtbE
+QBkf2XlBRBQ01FcCMlZuJQJ3nElCPaMl9N6fq0VKNEIlVSVUpDCgvag5kFhDKS/L
+p3YYJLFR46/hDlVLn+vM84diO3xGyMc16YJGNz7Z4jb8dmSZQE5E2XaQMDXW6uxC
+c2ChjWJ3X5H70MzRG35JsN0j58SQTwbf4Pxm0aJfhPuaIBn3mJuZL5etsuFihoFG
+FDnT+qWRcgD/pRNulBFAFhJeUnFrE4fFTJ1iaHhjBrStBCrxJk6QI0pGznoapTgA
+2QIDAQAB
+-----END PUBLIC KEY-----`,
+  },
+
+  /**
+   * Header names for webhook signature verification
+   */
+  HEADERS: {
+    JWKS_SIGNATURE: "fireblocks-webhook-signature",
+    LEGACY_SIGNATURE: "fireblocks-signature",
+  },
+} as const;

@@ -59,7 +59,7 @@ import {
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
-import { CardanoAmounts, CardanoConstants } from "./constants.js";
+import { CardanoAmounts, CardanoConstants, FireblocksWebhookConstants } from "./constants.js";
 
 import {
   Address,
@@ -72,6 +72,8 @@ import {
   Vkeywitnesses,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { blake2b } from "blakejs";
+import crypto from "crypto";
+import { createRemoteJWKSet, compactVerify } from "jose";
 
 export interface SDKConfig {
   vaultAccountId: string;
@@ -91,6 +93,7 @@ export class FireblocksCardanoRawSDK {
   private addresses: Map<number, string> = new Map();
   private publicKeys: Map<string, string> = new Map();
   private readonly logger: Logger;
+  private jwksCache: Map<string, ReturnType<typeof createRemoteJWKSet>> = new Map();
 
   /**
    * Creates a new FireblocksCardanoRawSDK instance
@@ -1074,13 +1077,199 @@ export class FireblocksCardanoRawSDK {
   };
 
   /**
+   * Gets the JWKS endpoint URL based on Fireblocks environment
+   * Defaults to US production if not specified
+   */
+  private getJwksEndpoint(environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"): string {
+    return FireblocksWebhookConstants.JWKS_ENDPOINTS[environment];
+  }
+
+  /**
+   * Verifies webhook signature using JWKS (JSON Web Key Set) method
+   * This is the new recommended method for webhook verification
+   *
+   * @param rawBody - The raw request body as Buffer
+   * @param jwsSignature - The value from Fireblocks-Webhook-Signature header
+   * @param environment - Fireblocks environment (US, EU, EU2, or SANDBOX)
+   * @returns true if signature is valid, false otherwise
+   */
+  private async verifyWebhookJWKS(
+    rawBody: Buffer,
+    jwsSignature: string,
+    environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"
+  ): Promise<boolean> {
+    try {
+      const jwksEndpoint = this.getJwksEndpoint(environment);
+
+      // Get or create JWKS instance (cached per endpoint)
+      let jwks = this.jwksCache.get(jwksEndpoint);
+      if (!jwks) {
+        jwks = createRemoteJWKSet(new URL(jwksEndpoint));
+        this.jwksCache.set(jwksEndpoint, jwks);
+        this.logger.debug(`Created JWKS client for ${jwksEndpoint}`);
+      }
+
+      // Detached JWS format: "header..signature" (no payload in the middle)
+      const [header, , sig] = jwsSignature.split(".");
+
+      if (!header || !sig) {
+        this.logger.warn("Invalid JWS signature format");
+        return false;
+      }
+
+      // Reconstruct full JWS with payload
+      const payload = Buffer.from(rawBody).toString("base64url");
+      const fullJws = `${header}.${payload}.${sig}`;
+
+      // jose extracts kid from header and fetches correct key from JWKS
+      await compactVerify(fullJws, jwks);
+      this.logger.info("JWKS webhook signature verification successful");
+      return true;
+    } catch (error: any) {
+      this.logger.error("JWKS verification failed:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Verifies webhook signature using legacy RSA-SHA512 method
+   * This method is being phased out in favor of JWKS
+   *
+   * @param rawBody - The raw request body as Buffer
+   * @param signature - The value from Fireblocks-Signature header (base64 encoded)
+   * @param environment - Fireblocks environment to determine which public key to use
+   * @returns true if signature is valid, false otherwise
+   */
+  private verifyWebhookLegacy(
+    rawBody: Buffer,
+    signature: string,
+    environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"
+  ): boolean {
+    try {
+      // Use US key for SANDBOX and US, EU key for EU and EU2
+      const publicKey =
+        environment === "EU" || environment === "EU2"
+          ? FireblocksWebhookConstants.LEGACY_PUBLIC_KEYS.EU
+          : environment === "SANDBOX"
+            ? FireblocksWebhookConstants.LEGACY_PUBLIC_KEYS.SANDBOX
+            : FireblocksWebhookConstants.LEGACY_PUBLIC_KEYS.US;
+
+      const verifier = crypto.createVerify("RSA-SHA512");
+      verifier.update(rawBody);
+      const isValid = verifier.verify(publicKey, signature, "base64");
+
+      if (isValid) {
+        this.logger.info("Legacy webhook signature verification successful");
+      } else {
+        this.logger.warn("Legacy webhook signature verification failed");
+      }
+
+      return isValid;
+    } catch (error: any) {
+      this.logger.error("Legacy signature verification failed:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Verifies Fireblocks webhook authenticity using both JWKS and legacy methods
+   *
+   * @param rawBody - The raw request body as Buffer (before JSON parsing)
+   * @param headers - Request headers object (case-insensitive)
+   * @param environment - Fireblocks environment (US, EU, EU2, or SANDBOX). Defaults to US.
+   * @returns true if webhook is authentic, false otherwise
+   * @throws Error if verification fails critically
+   */
+  public async verifyWebhook(
+    rawBody: Buffer,
+    headers: Record<string, string | undefined>,
+    environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"
+  ): Promise<boolean> {
+    // Normalize header keys to lowercase for case-insensitive lookup
+    const normalizedHeaders: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      normalizedHeaders[key.toLowerCase()] = value;
+    }
+
+    const jwksSignature =
+      normalizedHeaders[FireblocksWebhookConstants.HEADERS.JWKS_SIGNATURE.toLowerCase()];
+    const legacySignature =
+      normalizedHeaders[FireblocksWebhookConstants.HEADERS.LEGACY_SIGNATURE.toLowerCase()];
+
+    // Try JWKS verification first (preferred method)
+    if (jwksSignature) {
+      const jwksValid = await this.verifyWebhookJWKS(rawBody, jwksSignature, environment);
+      if (jwksValid) {
+        return true;
+      }
+      this.logger.warn("JWKS verification failed, trying legacy method");
+    }
+
+    // Fall back to legacy verification
+    if (legacySignature) {
+      const legacyValid = this.verifyWebhookLegacy(rawBody, legacySignature, environment);
+      if (legacyValid) {
+        return true;
+      }
+    }
+
+    // No valid signature found
+    if (!jwksSignature && !legacySignature) {
+      this.logger.error("No webhook signature headers found");
+    } else {
+      this.logger.error("Webhook signature verification failed with all methods");
+    }
+
+    return false;
+  }
+
+  /**
    * Enriches a webhook payload with detailed Cardano transaction data
    *
    * @param payload - The webhook payload to enrich
+   * @param rawBody - Optional: The raw request body as Buffer for signature verification
+   * @param headers - Optional: Request headers for signature verification
+   * @param environment - Optional: Fireblocks environment (US, EU, EU2, SANDBOX). Required if providing rawBody and headers.
    * @returns The enriched webhook payload with cardanoTokensData if applicable
+   * @throws Error if webhook verification fails when rawBody and headers are provided
    */
+  public enrichWebhookPayload = async (
+    payload: WebhookPayloadData,
+    rawBody?: Buffer,
+    headers?: Record<string, string | undefined>,
+    environment?: "US" | "EU" | "EU2" | "SANDBOX"
+  ): Promise<any> => {
+    // Verify webhook signature if rawBody and headers are provided
+    if (rawBody && headers) {
+      this.logger.info("Verifying webhook signature before enrichment");
+      const isValid = await this.verifyWebhook(rawBody, headers, environment);
 
-  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
+      if (!isValid) {
+        // Check which signature headers were present for better error context
+        const normalizedHeaders: Record<string, string | undefined> = {};
+        for (const [key, value] of Object.entries(headers)) {
+          normalizedHeaders[key.toLowerCase()] = value;
+        }
+
+        throw new SdkApiError(
+          "Webhook signature verification failed. The webhook may be compromised or tampered with.",
+          401,
+          "WebhookVerificationFailed",
+          {
+            hasJwksSignature: !!normalizedHeaders[FireblocksWebhookConstants.HEADERS.JWKS_SIGNATURE.toLowerCase()],
+            hasLegacySignature: !!normalizedHeaders[FireblocksWebhookConstants.HEADERS.LEGACY_SIGNATURE.toLowerCase()],
+            environment,
+          },
+          "FireblocksCardanoRawSDK"
+        );
+      }
+
+      this.logger.info("Webhook signature verified successfully");
+    } else if (rawBody || headers) {
+      this.logger.warn(
+        "Partial verification parameters provided. Both rawBody and headers are required for webhook verification. Skipping verification."
+      );
+    }
     if (
       payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
       payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
