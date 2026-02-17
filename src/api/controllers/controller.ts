@@ -293,6 +293,18 @@ export class ApiController {
     }
   };
 
+  public estimateFee = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.estimateTransactionFee(req.body);
+      this.logger.info(`Fee estimation completed successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "estimateFee");
+    }
+  };
+
   public enrichWebhookPayload = async (req: Request, res: Response) => {
     try {
       // Extract raw body (Buffer) for signature verification

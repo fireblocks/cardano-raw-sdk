@@ -56,6 +56,8 @@ import {
   CurrentEpochResponse,
   AssetInfoResponse,
   TokenMetadata,
+  FeeEstimationRequest,
+  FeeEstimationResponse,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -917,17 +919,24 @@ export class FireblocksCardanoRawSDK {
    * @throws SdkApiError with 400 status code for validation errors
    * @throws Error if any step of the transfer process fails
    */
-  public transfer = async (
-    options: transferOpts
-  ): Promise<{
-    txHash: string;
-    senderAddress: string;
+  /**
+   * Private helper that prepares and validates transaction parameters
+   * Shared by both estimateTransactionFee() and transfer()
+   */
+  private async prepareTransaction(params: {
+    index?: number;
+    recipientAddress?: string;
+    recipientVaultAccountId?: string;
+    recipientIndex?: number;
+    tokenPolicyId: string;
     tokenName: string;
-    fee: {
-      lovelace: string;
-      ada: string;
-    };
-  }> => {
+    requiredTokenAmount: number;
+  }): Promise<{
+    txBody: any;
+    senderAddress: string;
+    resolvedRecipientAddress: string;
+    minRecipientLovelace: number;
+  }> {
     const {
       index = 0,
       recipientAddress,
@@ -936,7 +945,7 @@ export class FireblocksCardanoRawSDK {
       tokenPolicyId,
       tokenName,
       requiredTokenAmount,
-    } = options;
+    } = params;
 
     // Validate that exactly one recipient option is provided
     if (!recipientAddress && !recipientVaultAccountId) {
@@ -958,19 +967,17 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    // Block native ADA transfers - users should use Fireblocks console for this
+    // Block native ADA transfers
     const isNativeAdaTransfer =
       (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
       tokenPolicyId === "";
 
-    // Check if user is trying to transfer ADA (missing token parameters)
     if ((!tokenPolicyId && !tokenName) || isNativeAdaTransfer) {
       throw new SdkApiError(
-        "Native ADA transfers are not supported by this SDK. Please use the Fireblocks console for ADA transfers. " +
-          "For token transfers, please provide both 'tokenPolicyId' and 'tokenName' parameters.",
+        "Native ADA transfers are not supported by this SDK. Please use the Fireblocks console for ADA transfers.",
         400,
         "UnsupportedOperation",
-        { tokenPolicyId, tokenName, hint: "Use Fireblocks console for ADA transfers" },
+        { tokenPolicyId, tokenName },
         "FireblocksCardanoRawSDK"
       );
     }
@@ -985,68 +992,176 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    try {
-      // Resolve recipient address
-      let resolvedRecipientAddress: string;
-      if (recipientVaultAccountId) {
-        // Vault-to-vault transfer: get the recipient address from the vault account
-        const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
-          recipientVaultAccountId,
-          this.assetId,
-          recipientIndex
+    // Resolve recipient address
+    let resolvedRecipientAddress: string;
+    if (recipientVaultAccountId) {
+      const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
+        recipientVaultAccountId,
+        this.assetId,
+        recipientIndex
+      );
+      if (!recipientAddressData.address) {
+        throw new SdkApiError(
+          `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
+          404,
+          "AddressNotFound",
+          { recipientVaultAccountId, recipientIndex },
+          "FireblocksCardanoRawSDK"
         );
-        if (!recipientAddressData.address) {
-          throw new SdkApiError(
-            `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
-            404,
-            "AddressNotFound",
-            { recipientVaultAccountId, recipientIndex },
-            "FireblocksCardanoRawSDK"
-          );
-        }
-        resolvedRecipientAddress = recipientAddressData.address;
+      }
+      resolvedRecipientAddress = recipientAddressData.address;
+    } else {
+      resolvedRecipientAddress = recipientAddress!;
+    }
+
+    // Fetch sender address
+    const senderAddress = await this.getAddressByIndex(this.assetId, index);
+
+    // Select and validate UTXOs with conservative fee estimate
+    const { selectedUtxos, minRecipientLovelace } = await this.selectAndValidateUtxos({
+      address: senderAddress,
+      tokenPolicyId,
+      tokenName,
+      requiredTokenAmount,
+      transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+    });
+
+    // Build transaction body to calculate actual fee
+    const txBody = await this.buildTransactionBody({
+      selectedUtxos,
+      recipientAddress: resolvedRecipientAddress,
+      senderAddress,
+      tokenPolicyId,
+      tokenName,
+      requiredTokenAmount,
+      minRecipientLovelace,
+    });
+
+    return {
+      txBody,
+      senderAddress,
+      resolvedRecipientAddress,
+      minRecipientLovelace,
+    };
+  }
+
+  /**
+   * Estimates transaction fee for a CNT transfer without signing or submitting
+   *
+   * @param request - Fee estimation request parameters
+   * @returns Fee estimation response with detailed breakdown
+   * @throws SdkApiError if validation fails or insufficient balance
+   */
+  public estimateTransactionFee = async (
+    request: FeeEstimationRequest
+  ): Promise<FeeEstimationResponse> => {
+    const { requiredTokenAmount, grossAmount = false } = request;
+
+    try {
+      this.logger.info(
+        `Estimating transaction fee for ${requiredTokenAmount} ${request.tokenName} (grossAmount: ${grossAmount})`
+      );
+
+      // Prepare transaction (reuses validation and building logic)
+      const { txBody, minRecipientLovelace } = await this.prepareTransaction(request);
+
+      // Extract fee from transaction body
+      const feeLovelace = BigInt(txBody.fee().to_str());
+      const feeFormatted = formatWithDecimals(Number(feeLovelace), CardanoConstants.ADA_DECIMALS);
+
+      // Calculate minimum ADA required in output
+      const minAdaFormatted = formatWithDecimals(
+        minRecipientLovelace,
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      // Calculate total cost based on grossAmount flag
+      let totalCostLovelace: bigint;
+      let recipientReceivesAmount: number;
+
+      if (grossAmount) {
+        totalCostLovelace = BigInt(minRecipientLovelace);
+        recipientReceivesAmount = requiredTokenAmount;
+      } else {
+        totalCostLovelace = BigInt(minRecipientLovelace) + feeLovelace;
+        recipientReceivesAmount = requiredTokenAmount;
+      }
+
+      const totalCostFormatted = formatWithDecimals(
+        Number(totalCostLovelace),
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      this.logger.info(
+        `Fee estimation complete: ${feeFormatted.value} ADA, min ADA: ${minAdaFormatted.value} ADA, total cost: ${totalCostFormatted.value} ADA`
+      );
+
+      return {
+        fee: {
+          ada: feeFormatted.value,
+          lovelace: feeLovelace.toString(),
+        },
+        minAdaRequired: {
+          ada: minAdaFormatted.value,
+          lovelace: minRecipientLovelace.toString(),
+        },
+        totalCost: {
+          ada: totalCostFormatted.value,
+          lovelace: totalCostLovelace.toString(),
+        },
+        recipientReceives: {
+          amount: recipientReceivesAmount.toString(),
+          ada: minAdaFormatted.value,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Fee estimation failed: ${errorMessage}`);
+
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      throw new Error(`FeeEstimationFailed: ${errorMessage}`);
+    }
+  };
+
+  public transfer = async (
+    options: transferOpts
+  ): Promise<{
+    txHash: string;
+    senderAddress: string;
+    tokenName: string;
+    fee: {
+      lovelace: string;
+      ada: string;
+    };
+  }> => {
+    const { recipientVaultAccountId, tokenName, requiredTokenAmount } = options;
+
+    try {
+      // Log transfer initiation
+      if (recipientVaultAccountId) {
         this.logger.info(
-          `Initiating vault-to-vault transfer: ${requiredTokenAmount} ${tokenName} from vault ${this.vaultAccountId} to vault ${recipientVaultAccountId} (${resolvedRecipientAddress})`
+          `Initiating vault-to-vault transfer: ${requiredTokenAmount} ${tokenName} from vault ${this.vaultAccountId} to vault ${recipientVaultAccountId}`
         );
       } else {
-        // Direct address transfer
-        resolvedRecipientAddress = recipientAddress!;
         this.logger.info(
-          `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${resolvedRecipientAddress}`
+          `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${options.recipientAddress}`
         );
       }
 
-      // Fetch sender address
-      const senderAddress = await this.getAddressByIndex(this.assetId, index);
-
-      // Select and validate UTXOs
-      // Use a conservative fee estimate for UTXO selection to ensure we have enough ADA
-      // The actual fee will be calculated dynamically during transaction building
-      const ESTIMATED_MAX_FEE = 500_000; // Conservative estimate for wallets with many tokens
-      const { selectedUtxos, minRecipientLovelace } = await this.selectAndValidateUtxos({
-        address: senderAddress,
-        tokenPolicyId,
-        tokenName,
-        requiredTokenAmount,
-        transactionFee: ESTIMATED_MAX_FEE,
-        // minRecipientLovelace and minChangeLovelace will be calculated dynamically based on policies
-      });
-
-      // Build transaction body with dynamically calculated fee
-      const txBody = await this.buildTransactionBody({
-        selectedUtxos,
-        recipientAddress: resolvedRecipientAddress,
-        senderAddress,
-        tokenPolicyId,
-        tokenName,
-        requiredTokenAmount,
-        minRecipientLovelace, // Calculated dynamically based on policies
-        // transactionFee is now optional and will be calculated dynamically
-      });
+      // Prepare and validate transaction (reuses shared logic)
+      const { txBody, senderAddress, resolvedRecipientAddress } =
+        await this.prepareTransaction(options);
 
       // Extract fee information from transaction body
       const feeLovelace = txBody.fee().to_str();
       const feeFormatted = formatWithDecimals(parseInt(feeLovelace), CardanoConstants.ADA_DECIMALS);
+
+      this.logger.info(
+        `Transaction prepared, recipient: ${resolvedRecipientAddress}, fee: ${feeFormatted.value} ADA`
+      );
 
       // Sign transaction with Fireblocks
       const signedTransaction = await this.signTransaction(txBody);

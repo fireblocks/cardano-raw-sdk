@@ -221,3 +221,59 @@ export type VaultBalanceResponse =
   | VaultBalanceTokenResponse
   | VaultBalanceAddressResponse
   | VaultBalancePolicyResponse;
+
+/**
+ * Request parameters for fee estimation
+ */
+export interface FeeEstimationRequest {
+  /** Recipient Cardano address */
+  recipientAddress?: string;
+  /** Recipient vault account ID (for vault-to-vault transfers) */
+  recipientVaultAccountId?: string;
+  /** Recipient address index (when using recipientVaultAccountId) */
+  recipientIndex?: number;
+  /** Source address index (defaults to 0) */
+  index?: number;
+  /** Token policy ID (hex format) */
+  tokenPolicyId: string;
+  /** Token name (hex format) */
+  tokenName: string;
+  /** Required token amount in base units */
+  requiredTokenAmount: number;
+  /** If true, fee is deducted from the amount being sent */
+  grossAmount?: boolean;
+}
+
+/**
+ * Fee estimation response with detailed breakdown
+ */
+export interface FeeEstimationResponse {
+  /** Transaction fee details */
+  fee: {
+    /** Fee in ADA (human-readable) */
+    ada: string;
+    /** Fee in lovelace (base units) */
+    lovelace: string;
+  };
+  /** Minimum ADA required in output UTXO for CNT transfers */
+  minAdaRequired: {
+    /** Minimum ADA in human-readable format */
+    ada: string;
+    /** Minimum ADA in lovelace */
+    lovelace: string;
+  };
+  /** Total cost including fee */
+  totalCost: {
+    /** Total in ADA */
+    ada: string;
+    /** Total in lovelace */
+    lovelace: string;
+  };
+  /** What the recipient will actually receive */
+  recipientReceives: {
+    /** Token amount recipient receives (in base units) */
+    amount: string;
+    /** ADA amount if applicable */
+    ada: string;
+  };
+}

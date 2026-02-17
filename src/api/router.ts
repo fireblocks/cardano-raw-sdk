@@ -5,6 +5,7 @@ import {
   validateRequest,
   validateParams,
   transferRequestSchema,
+  feeEstimationRequestSchema,
   vaultAccountIdParamsSchema,
   credentialParamsSchema,
   hashParamsSchema,
@@ -1289,6 +1290,149 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.post("/transfers", validateRequest(transferRequestSchema), apiController.transfer);
+
+  /**
+   * @swagger
+   * /api/fee-estimate:
+   *   post:
+   *     summary: Estimate transaction fee
+   *     description: |
+   *       Estimates the transaction fee for a token transfer WITHOUT creating or signing the transaction.
+   *       This is useful for displaying estimated fees to users in a confirmation modal before executing the actual transfer.
+   *
+   *       Two transfer modes are supported:
+   *       1. **Vault-to-address transfer**: Specify `recipientAddress` to estimate fee for sending tokens to a specific Cardano address
+   *       2. **Vault-to-vault transfer**: Specify `recipientVaultAccountId` (and optionally `recipientIndex`) to estimate fee for transfers between vault accounts
+   *
+   *       **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
+   *
+   *       **Gross Amount**: When `grossAmount: true`, the fee is deducted from the amount being sent (recipient receives less).
+   *       When `grossAmount: false` (default), the fee is added to the total cost (recipient receives full amount).
+   *     tags: [Transactions]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - tokenPolicyId
+   *               - tokenName
+   *               - requiredTokenAmount
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: The source vault account ID
+   *               index:
+   *                 type: number
+   *                 description: Source address index to use (optional, defaults to 0)
+   *               recipientAddress:
+   *                 type: string
+   *                 description: The recipient Cardano address (use this OR recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: The recipient vault account ID for vault-to-vault transfers (use this OR recipientAddress)
+   *               recipientIndex:
+   *                 type: number
+   *                 description: Recipient address index when using recipientVaultAccountId (optional, defaults to 0)
+   *               tokenPolicyId:
+   *                 type: string
+   *                 description: The policy ID of the token to transfer (hex format)
+   *               tokenName:
+   *                 type: string
+   *                 description: The token name (hex format)
+   *               requiredTokenAmount:
+   *                 type: number
+   *                 description: The amount of tokens to transfer
+   *               grossAmount:
+   *                 type: boolean
+   *                 description: If true, fee is deducted from the amount being sent (optional, defaults to false)
+   *           examples:
+   *             addressTransfer:
+   *               summary: Estimate fee for transfer to specific address
+   *               value:
+   *                 vaultAccountId: "0"
+   *                 index: 0
+   *                 recipientAddress: "addr1qxy..."
+   *                 tokenPolicyId: "policy123..."
+   *                 tokenName: "4e49..."
+   *                 requiredTokenAmount: 100
+   *                 grossAmount: false
+   *             vaultTransfer:
+   *               summary: Estimate fee for vault-to-vault transfer
+   *               value:
+   *                 vaultAccountId: "0"
+   *                 index: 0
+   *                 recipientVaultAccountId: "1"
+   *                 recipientIndex: 0
+   *                 tokenPolicyId: "policy123..."
+   *                 tokenName: "4e49..."
+   *                 requiredTokenAmount: 100
+   *     responses:
+   *       200:
+   *         description: Fee estimation completed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 fee:
+   *                   type: object
+   *                   description: Transaction fee details
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       description: Fee in ADA (human-readable)
+   *                       example: "0.170000"
+   *                     lovelace:
+   *                       type: string
+   *                       description: Fee in lovelace (base units)
+   *                       example: "170000"
+   *                 minAdaRequired:
+   *                   type: object
+   *                   description: Minimum ADA required in output UTXO for CNT transfers
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       description: Minimum ADA in human-readable format
+   *                       example: "1.000000"
+   *                     lovelace:
+   *                       type: string
+   *                       description: Minimum ADA in lovelace
+   *                       example: "1000000"
+   *                 totalCost:
+   *                   type: object
+   *                   description: Total cost including fee (when grossAmount=false)
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       description: Total in ADA
+   *                       example: "1.170000"
+   *                     lovelace:
+   *                       type: string
+   *                       description: Total in lovelace
+   *                       example: "1170000"
+   *                 recipientReceives:
+   *                   type: object
+   *                   description: What the recipient will actually receive
+   *                   properties:
+   *                     amount:
+   *                       type: string
+   *                       description: Token amount recipient receives (in base units)
+   *                       example: "100"
+   *                     ada:
+   *                       type: string
+   *                       description: ADA amount recipient receives
+   *                       example: "1.000000"
+   *       400:
+   *         description: Validation error (e.g., both or neither recipient options specified)
+   *       404:
+   *         description: Address not found for the specified vault account
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/fee-estimate", validateRequest(feeEstimationRequestSchema), apiController.estimateFee);
 
   /**
    * WEBHOOK

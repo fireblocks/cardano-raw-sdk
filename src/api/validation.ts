@@ -123,3 +123,43 @@ export const transferRequestSchema = z
   );
 
 export type TransferRequest = z.infer<typeof transferRequestSchema>;
+
+/**
+ * Validation schema for fee estimation endpoint request body
+ * Similar to transferRequestSchema but with grossAmount option
+ */
+export const feeEstimationRequestSchema = z
+  .object({
+    // Recipient must be one of: address or vaultAccountId
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+
+    // Token information (required)
+    tokenPolicyId: z.string().min(1, "tokenPolicyId is required"),
+    tokenName: z.string().min(1, "tokenName is required"),
+    requiredTokenAmount: z.number().positive("requiredTokenAmount must be positive"),
+
+    // Sender address index (optional)
+    index: z.number().int().nonnegative().optional(),
+
+    // Gross amount flag (optional)
+    grossAmount: z.boolean().optional(),
+
+    // Vault account ID (required by controller)
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  })
+  .refine(
+    (data) => {
+      // Exactly one of recipientAddress or recipientVaultAccountId must be specified
+      const hasAddress = data.recipientAddress !== undefined;
+      const hasVaultId = data.recipientVaultAccountId !== undefined;
+      return (hasAddress && !hasVaultId) || (!hasAddress && hasVaultId);
+    },
+    {
+      message:
+        "Exactly one recipient must be specified: recipientAddress OR recipientVaultAccountId (not both)",
+    }
+  );
+
+export type FeeEstimationRequest = z.infer<typeof feeEstimationRequestSchema>;
