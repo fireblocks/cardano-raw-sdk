@@ -24,6 +24,12 @@ export enum CardanoAmounts {
    * These transactions involve governance certificates
    */
   GOVERNANCE_TX_FEE = 1_000_000,
+  /**
+   * Conservative fee estimate for UTXO selection in CNT transfers
+   * Used to ensure sufficient ADA is available before calculating actual fee
+   * Set to 0.5 ADA (500,000 lovelace) as a safe upper bound
+   */
+  ESTIMATED_MAX_FEE = 500_000,
   MIN_UTXO_VALUE_ADA_ONLY = 1_000_000,
   /**
    * Base minimum lovelace for any UTXO (Cardano protocol parameter)
