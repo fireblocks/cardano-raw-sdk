@@ -349,6 +349,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *     description: |
    *       Retrieves the balance for a vault account using the stake key.
    *       The stake key is automatically derived from the vault account's base address.
+   *       Note: The stake key is shared across all addresses in the vault account.
    *     tags: [Balance]
    *     parameters:
    *       - in: path
@@ -357,12 +358,6 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         schema:
    *           type: string
    *         description: The vault account ID
-   *       - in: query
-   *         name: index
-   *         schema:
-   *           type: integer
-   *           default: 0
-   *         description: The address index within the vault account (defaults to 0)
    *       - in: query
    *         name: groupByPolicy
    *         schema:

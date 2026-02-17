@@ -115,14 +115,12 @@ export class ApiController {
 
   public getBalanceByStakeKey = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const groupByPolicy = req.query.groupByPolicy === "true";
     const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByStakeKey({
-        index,
         groupByPolicy,
         includeMetadata,
       });

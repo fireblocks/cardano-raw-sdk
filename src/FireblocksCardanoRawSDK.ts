@@ -283,29 +283,28 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Get balance by stake key for a vault account
-   * Automatically derives the stake key from the vault account address
-   * @param options.index - Address index (default: 0)
+   * Automatically derives the stake key from the vault account address.
+   * Note: The stake key is shared across all addresses in the vault account.
    * @param options.groupByPolicy - Group assets by policy (default: false)
    * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
   public getBalanceByStakeKey = async (
     options: {
-      index?: number;
       groupByPolicy?: boolean;
       includeMetadata?: boolean;
     } = {}
   ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
-    const { index = 0, groupByPolicy = false, includeMetadata = false } = options;
+    const { groupByPolicy = false, includeMetadata = false } = options;
 
-    // Get the base address for this vault account
-    const baseAddress = await this.getAddressByIndex(this.assetId, index);
+    // Get the base address for this vault account (using index 0, but stake key is the same for all indices)
+    const baseAddress = await this.getAddressByIndex(this.assetId, 0);
 
     // Derive the stake key from the base address
     const isMainnet = this.network === Networks.MAINNET;
     const stakeKey = getStakeAddressFromBaseAddress(baseAddress, isMainnet);
 
     this.logger.info(
-      `Getting balance for stake key ${stakeKey} (vault: ${this.vaultAccountId}, index: ${index}, includeMetadata: ${includeMetadata})`
+      `Getting balance for stake key ${stakeKey} (vault: ${this.vaultAccountId}, includeMetadata: ${includeMetadata})`
     );
 
     const response = await this.iagonApiService.getBalanceByStakeKey({
