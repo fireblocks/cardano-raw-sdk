@@ -66,6 +66,7 @@ import {
   Ed25519Signature,
   PublicKey,
   Transaction,
+  TransactionBody,
   TransactionWitnessSet,
   Vkey,
   Vkeywitness,
@@ -785,7 +786,7 @@ export class FireblocksCardanoRawSDK {
     requiredTokenAmount: number;
     minRecipientLovelace: number; // Calculated dynamically based on policies
     transactionFee?: number; // Optional - will be calculated dynamically if not provided
-  }) {
+  }): Promise<TransactionBody> {
     const txInputs = createTransactionInputs(params.selectedUtxos);
     const recipientAddrObj = Address.from_bech32(params.recipientAddress);
     const senderAddrObj = Address.from_bech32(params.senderAddress);
@@ -912,7 +913,7 @@ export class FireblocksCardanoRawSDK {
    * Execute a transfer of Cardano tokens
    *
    * @param options - Transfer configuration options
-   * @returns Transaction result with hash, sender address, and token name
+   * @returns Transaction result with hash, sender address, token name, and fee information
    * @throws SdkApiError with 400 status code for validation errors
    * @throws Error if any step of the transfer process fails
    */
@@ -922,6 +923,10 @@ export class FireblocksCardanoRawSDK {
     txHash: string;
     senderAddress: string;
     tokenName: string;
+    fee: {
+      lovelace: string;
+      ada: string;
+    };
   }> => {
     const {
       index = 0,
@@ -1039,18 +1044,26 @@ export class FireblocksCardanoRawSDK {
         // transactionFee is now optional and will be calculated dynamically
       });
 
+      // Extract fee information from transaction body
+      const feeLovelace = txBody.fee().to_str();
+      const feeFormatted = formatWithDecimals(parseInt(feeLovelace), CardanoConstants.ADA_DECIMALS);
+
       // Sign transaction with Fireblocks
       const signedTransaction = await this.signTransaction(txBody);
 
       // Submit transaction to blockchain
       const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
 
-      this.logger.info(`Transfer successful: ${txHash}`);
+      this.logger.info(`Transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`);
 
       return {
         txHash,
         senderAddress,
         tokenName,
+        fee: {
+          lovelace: feeLovelace,
+          ada: feeFormatted.value,
+        },
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1226,50 +1239,13 @@ export class FireblocksCardanoRawSDK {
   /**
    * Enriches a webhook payload with detailed Cardano transaction data
    *
+   * Note: This method only handles enrichment. Webhook signature verification
+   * should be performed separately using the verifyWebhook() method before calling this.
+   *
    * @param payload - The webhook payload to enrich
-   * @param rawBody - Optional: The raw request body as Buffer for signature verification
-   * @param headers - Optional: Request headers for signature verification
-   * @param environment - Optional: Fireblocks environment (US, EU, EU2, SANDBOX). Required if providing rawBody and headers.
    * @returns The enriched webhook payload with cardanoTokensData if applicable
-   * @throws Error if webhook verification fails when rawBody and headers are provided
    */
-  public enrichWebhookPayload = async (
-    payload: WebhookPayloadData,
-    rawBody?: Buffer,
-    headers?: Record<string, string | undefined>,
-    environment?: "US" | "EU" | "EU2" | "SANDBOX"
-  ): Promise<any> => {
-    // Verify webhook signature if rawBody and headers are provided
-    if (rawBody && headers) {
-      this.logger.info("Verifying webhook signature before enrichment");
-      const isValid = await this.verifyWebhook(rawBody, headers, environment);
-
-      if (!isValid) {
-        // Check which signature headers were present for better error context
-        const normalizedHeaders: Record<string, string | undefined> = {};
-        for (const [key, value] of Object.entries(headers)) {
-          normalizedHeaders[key.toLowerCase()] = value;
-        }
-
-        throw new SdkApiError(
-          "Webhook signature verification failed. The webhook may be compromised or tampered with.",
-          401,
-          "WebhookVerificationFailed",
-          {
-            hasJwksSignature: !!normalizedHeaders[FireblocksWebhookConstants.HEADERS.JWKS_SIGNATURE.toLowerCase()],
-            hasLegacySignature: !!normalizedHeaders[FireblocksWebhookConstants.HEADERS.LEGACY_SIGNATURE.toLowerCase()],
-            environment,
-          },
-          "FireblocksCardanoRawSDK"
-        );
-      }
-
-      this.logger.info("Webhook signature verified successfully");
-    } else if (rawBody || headers) {
-      this.logger.warn(
-        "Partial verification parameters provided. Both rawBody and headers are required for webhook verification. Skipping verification."
-      );
-    }
+  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
     if (
       payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
       payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
