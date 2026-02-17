@@ -1,7 +1,6 @@
 import { fileURLToPath } from "url";
 import path, { dirname } from "path";
 import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
-import { Express } from "express-serve-static-core";
 import express, { Request, Response } from "express";
 
 import { config, Logger } from "./utils/index.js";
@@ -25,7 +24,19 @@ const startServer = () => {
 
   const app = express();
 
-  configureMiddlewares(app);
+  // Configure middlewares with raw body preservation for webhook endpoint
+  app.use(
+    express.json({
+      verify: (req: any, _res, buf, _encoding) => {
+        // Preserve raw body for webhook signature verification
+        if (req.url === "/api/webhook") {
+          req.rawBody = buf;
+        }
+      },
+    })
+  );
+  app.use(express.urlencoded({ extended: true }));
+  app.use(errorHandler);
 
   // Initialize base config for Fireblocks
   const baseConfig: ConfigurationOptions = {
@@ -86,12 +97,6 @@ const startServer = () => {
   app.listen(config.PORT, () => {
     logger.info(`${config.APP_NAME} listening on port ${config.PORT}`);
   });
-};
-
-const configureMiddlewares = (app: Express) => {
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
-  app.use(errorHandler);
 };
 
 const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {

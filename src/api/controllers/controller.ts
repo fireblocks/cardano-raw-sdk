@@ -276,11 +276,42 @@ export class ApiController {
 
   public enrichWebhookPayload = async (req: Request, res: Response) => {
     try {
+      // Extract raw body (Buffer) for signature verification
+      // rawBody is attached by express.json verify callback
+      const rawBody = (req as any).rawBody as Buffer;
+
+      // Body is already parsed by express.json
       const payload = req.body;
+
+      // Extract headers for signature verification
+      const headers: Record<string, string | undefined> = {
+        "fireblocks-webhook-signature": req.headers["fireblocks-webhook-signature"] as
+          | string
+          | undefined,
+        "fireblocks-signature": req.headers["fireblocks-signature"] as string | undefined,
+      };
+
+      // Get optional environment from query params
+      const environment = (req.query.environment as "US" | "EU" | "EU2" | "SANDBOX") || "US";
+
+      // Get SDK instance
       const vaultAccountId = payload.data.destination.id;
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
+
+      // Step 1: Verify webhook signature
+      const isValid = await sdk.verifyWebhook(rawBody, headers, environment);
+      if (!isValid) {
+        this.logger.error("Webhook signature verification failed");
+        return res.status(401).json({
+          success: false,
+          error: "Webhook signature verification failed",
+        });
+      }
+
+      // Step 2: Enrich webhook payload
       const result = await sdk.enrichWebhookPayload(payload);
-      this.logger.info(`Webhook enrichment executed successfully`);
+
+      this.logger.info("Webhook verified and enriched successfully");
       res.status(200).json(result);
     } catch (error: any) {
       this.handleError(error, res, "enrichWebhookPayload");

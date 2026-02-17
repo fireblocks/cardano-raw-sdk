@@ -1260,12 +1260,27 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 txHash:
    *                   type: string
    *                   description: The transaction hash
+   *                   example: "a1b2c3d4e5f6..."
    *                 senderAddress:
    *                   type: string
    *                   description: The sender's address
+   *                   example: "addr1qxy..."
    *                 tokenName:
    *                   type: string
    *                   description: The token name that was transferred
+   *                   example: "4e49..."
+   *                 fee:
+   *                   type: object
+   *                   description: Transaction fee information
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                       description: Fee in lovelace (smallest ADA unit)
+   *                       example: "170000"
+   *                     ada:
+   *                       type: string
+   *                       description: Fee in ADA (human-readable, 6 decimal places)
+   *                       example: "0.170000"
    *       400:
    *         description: Validation error (e.g., both or neither recipient options specified)
    *       404:
@@ -1283,15 +1298,38 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * @swagger
    * /api/webhook:
    *   post:
-   *     summary: Enrich webhook payload
-   *     description: Enriches the incoming webhook payload with additional data, including CNT (Cardano Native Token) details.
+   *     summary: Enrich webhook payload with signature verification
+   *     description: |
+   *       Enriches the incoming Fireblocks webhook payload with additional data, including CNT (Cardano Native Token) details.
+   *
+   *       **Security:** This endpoint verifies webhook signatures using either:
+   *       - JWKS (JSON Web Key Set) - Modern method with automatic key rotation
+   *       - Legacy RSA-SHA512 - Static public key verification (being phased out)
+   *
+   *       **Headers Required for Verification:**
+   *       - `fireblocks-webhook-signature`: JWT signature (JWKS method)
+   *       - `fireblocks-signature`: Legacy signature (fallback method)
+   *
+   *       **Query Parameters:**
+   *       - `environment` (optional): Fireblocks environment (US, EU, EU2, SANDBOX). Defaults to US.
+   *
+   *       If signature verification fails, the request is rejected with a 401 error.
    *     tags: [Webhooks]
+   *     parameters:
+   *       - in: query
+   *         name: environment
+   *         schema:
+   *           type: string
+   *           enum: [US, EU, EU2, SANDBOX]
+   *           default: US
+   *         description: Fireblocks environment for JWKS endpoint selection
    *     requestBody:
    *       required: true
    *       content:
    *         application/json:
    *           schema:
    *             type: object
+   *             description: Fireblocks webhook payload (JSON)
    *     responses:
    *       200:
    *         description: Webhook payload enriched successfully
@@ -1299,6 +1337,19 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           application/json:
    *             schema:
    *               type: object
+   *       401:
+   *         description: Webhook signature verification failed
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: false
+   *                 error:
+   *                   type: string
+   *                   example: "Webhook signature verification failed"
    *       500:
    *         description: Internal server error
    */
