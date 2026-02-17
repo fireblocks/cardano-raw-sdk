@@ -1,8 +1,27 @@
 import { Request, Response } from "express";
-import { Logger } from "../../utils/index.js";
+import { BasePath } from "@fireblocks/ts-sdk";
+import { Logger, config } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, SdkApiError } from "../../types/index.js";
 import { CardanoAmounts } from "../../constants.js";
+
+/**
+ * Map Fireblocks BasePath to webhook environment
+ */
+const getWebhookEnvironment = (basePath: BasePath): "US" | "EU" | "EU2" | "SANDBOX" => {
+  // Handle string or enum values
+  const path = basePath as string;
+
+  if (path === BasePath.EU2) {
+    return "EU2";
+  } else if (path === BasePath.EU) {
+    return "EU";
+  } else if (path === BasePath.Sandbox) {
+    return "SANDBOX";
+  } else {
+    return "US"; // Default for US or any other value
+  }
+};
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.
@@ -291,8 +310,10 @@ export class ApiController {
         "fireblocks-signature": req.headers["fireblocks-signature"] as string | undefined,
       };
 
-      // Get optional environment from query params
-      const environment = (req.query.environment as "US" | "EU" | "EU2" | "SANDBOX") || "US";
+      // Get webhook environment from Fireblocks basePath config
+      const environment = getWebhookEnvironment(
+        (config.FIREBLOCKS.basePath as BasePath) || BasePath.US
+      );
 
       // Get SDK instance
       const vaultAccountId = payload.data.destination.id;

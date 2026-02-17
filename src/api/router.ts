@@ -1310,19 +1310,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       - `fireblocks-webhook-signature`: JWT signature (JWKS method)
    *       - `fireblocks-signature`: Legacy signature (fallback method)
    *
-   *       **Query Parameters:**
-   *       - `environment` (optional): Fireblocks environment (US, EU, EU2, SANDBOX). Defaults to US.
+   *       **Environment:** The webhook environment (US, EU, EU2, SANDBOX) is automatically determined from the
+   *       `FIREBLOCKS_BASE_PATH` configuration. Ensure your server configuration matches your Fireblocks workspace.
    *
    *       If signature verification fails, the request is rejected with a 401 error.
    *     tags: [Webhooks]
-   *     parameters:
-   *       - in: query
-   *         name: environment
-   *         schema:
-   *           type: string
-   *           enum: [US, EU, EU2, SANDBOX]
-   *           default: US
-   *         description: Fireblocks environment for JWKS endpoint selection
    *     requestBody:
    *       required: true
    *       content:

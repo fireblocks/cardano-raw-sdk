@@ -118,6 +118,8 @@ const transferResult = await sdk.transfer({
 
 console.log("Transaction Hash:", transferResult.txHash);
 console.log("Sender Address:", transferResult.senderAddress);
+console.log("Fee:", transferResult.fee.ada, "ADA"); // e.g., "0.170000 ADA"
+console.log("Fee (lovelace):", transferResult.fee.lovelace); // e.g., "170000"
 ```
 
 **2. Vault-to-Vault Transfer**
@@ -134,6 +136,7 @@ const transferResult = await sdk.transfer({
 
 console.log("Transaction Hash:", transferResult.txHash);
 console.log("Sender Address:", transferResult.senderAddress);
+console.log("Fee:", transferResult.fee.ada, "ADA"); // e.g., "0.170000 ADA"
 ```
 
 **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
@@ -245,6 +248,60 @@ GET /api/balance/credential/:vaultAccountId/:credential?groupByPolicy=false
 GET /api/balance/stake-key/:vaultAccountId/:stakeKey?groupByPolicy=false
 ```
 
+##### Webhook Operations
+
+**Setup in Fireblocks Console:**
+
+1. Go to **Fireblocks Console → Settings → Webhooks**
+2. Add webhook URL: `https://your-domain.com/api/webhook`
+3. Select events: `TRANSACTION_CREATED`, `TRANSACTION_STATUS_UPDATED`, etc.
+4. Fireblocks will automatically sign webhooks with both JWKS and legacy signatures
+
+**Important:** Ensure your server's `FIREBLOCKS_BASE_PATH` environment variable matches your Fireblocks workspace:
+
+- US workspace: `https://api.fireblocks.io` (default)
+- EU workspace: `https://api.eu1.fireblocks.io`
+- EU2 workspace: `https://api.eu2.fireblocks.io`
+- Sandbox: `https://sandbox-api.fireblocks.io`
+
+**Endpoint:**
+
+```bash
+# Enrich Fireblocks webhook with automatic signature verification
+POST /api/webhook
+Content-Type: application/json
+Headers:
+  - fireblocks-webhook-signature: <JWT signature> (added by Fireblocks)
+  - fireblocks-signature: <Legacy signature> (added by Fireblocks)
+
+Body:
+{
+  "eventType": "transaction.created",
+  "data": { ... }
+}
+
+# Response (enriched with CNT data):
+{
+  "eventType": "transaction.created",
+  "data": {
+    ...
+    "cardanoTokensData": {
+      "tx_hash": "...",
+      "inputs": [...],
+      "outputs": [...]
+    }
+  }
+}
+```
+
+**Security:** The endpoint automatically verifies webhook signatures using:
+
+- **JWKS** (modern, automatic key rotation) - tries first
+- **Legacy RSA-SHA512** (static keys) - fallback
+- Verification environment is automatically determined from `FIREBLOCKS_BASE_PATH` config
+
+Invalid signatures are rejected with 401 error.
+
 ##### Transaction Operations
 
 ```bash
@@ -271,6 +328,17 @@ Content-Type: application/json
   "tokenName": "4e49...",
   "requiredTokenAmount": 1000000,
   "index": 0
+}
+
+# Response:
+{
+  "txHash": "a1b2c3d4e5f6...",
+  "senderAddress": "addr1qxy...",
+  "tokenName": "4e49...",
+  "fee": {
+    "lovelace": "170000",
+    "ada": "0.170000"
+  }
 }
 
 # Execute transfer (vault-to-vault)
@@ -310,6 +378,7 @@ curl -X POST http://localhost:8000/api/transfers \
     "tokenName": "4e49...",
     "requiredTokenAmount": 1000000
   }'
+# Response: {"txHash":"a1b2c3d4...","senderAddress":"addr1qxy...","tokenName":"4e49...","fee":{"lovelace":"170000","ada":"0.170000"}}
 
 # Execute transfer (vault-to-vault)
 curl -X POST http://localhost:8000/api/transfers \
@@ -416,6 +485,8 @@ async function transferTokens() {
 
     console.log("Transfer successful!");
     console.log("Transaction Hash:", result.txHash);
+    console.log("Sender Address:", result.senderAddress);
+    console.log("Transaction Fee:", result.fee.ada, "ADA");
     console.log("View on Cardanoscan:", `https://cardanoscan.io/transaction/${result.txHash}`);
   } catch (error) {
     console.error("Transfer failed:", error);
@@ -501,6 +572,8 @@ async function getBalanceAndTransfer() {
       requiredTokenAmount: 1000000,
     });
     console.log("Transfer Result:", transferResponse.data);
+    console.log("Transaction Hash:", transferResponse.data.txHash);
+    console.log("Fee:", transferResponse.data.fee.ada, "ADA");
   } catch (error) {
     console.error("Error:", error.response?.data || error.message);
   }
