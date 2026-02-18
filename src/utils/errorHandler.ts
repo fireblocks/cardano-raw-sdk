@@ -39,6 +39,7 @@ export class ErrorHandler {
       const message =
         data?.message ||
         data?.info ||
+        data?.error ||
         error.response?.statusText ||
         error.message ||
         `Error ${context}`;

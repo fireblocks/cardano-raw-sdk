@@ -337,8 +337,9 @@ export class StakingService {
           throw firstError;
         }
         this.logger.warn(
-          `Submission rejected: incomplete withdrawals (API reported ${rewardAmount} lovelace). Re-querying actual balance...`
+          `Submission rejected: incomplete withdrawals (API reported ${rewardAmount} lovelace). Waiting for indexer to sync, then re-querying...`
         );
+        await new Promise((r) => setTimeout(r, 2000));
         const refreshed = await this.rewardsService.getWithdrawals(
           stakeAddress,
           certificate,
@@ -643,8 +644,9 @@ export class StakingService {
         throw firstError;
       }
       this.logger.warn(
-        `Deregistration rejected: incomplete withdrawals (API reported ${rewardAmount} lovelace). Re-querying...`
+        `Deregistration rejected: incomplete withdrawals (API reported ${rewardAmount} lovelace). Waiting for indexer to sync, then re-querying...`
       );
+      await new Promise((r) => setTimeout(r, 2000));
       const refreshed = await this.rewardsService.getWithdrawals(
         stakeAddress,
         certificate,
