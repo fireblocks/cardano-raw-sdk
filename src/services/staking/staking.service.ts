@@ -308,18 +308,53 @@ export class StakingService {
         };
       }
 
-      const netAmount = addressWithUtxo.utxo.nativeAmount - fee + rewardAmount;
-      const withdrawalsDict = serializeWithdrawals([withdrawal]);
+      // Build a helper so we can retry with a corrected amount without repeating code
+      const buildAndSubmitWithdrawal = async (amount: number) => {
+        const netAmount = addressWithUtxo.utxo.nativeAmount - fee + amount;
+        const w = { ...withdrawal, reward: amount };
+        const withdrawalsDict = serializeWithdrawals([w]);
+        return this.buildSignAndSubmit({
+          vaultAccountId,
+          addressInfo: addressWithUtxo,
+          netAmount,
+          fee,
+          withdrawals: withdrawalsDict,
+          requiredSigners: [certificate],
+          operation: "withdraw staking rewards",
+        });
+      };
 
-      const submitResponse = await this.buildSignAndSubmit({
-        vaultAccountId,
-        addressInfo: addressWithUtxo,
-        netAmount,
-        fee,
-        withdrawals: withdrawalsDict,
-        requiredSigners: [certificate],
-        operation: "withdraw staking rewards",
-      });
+      let submitResponse: TransferResponse;
+      let finalRewardAmount = rewardAmount;
+
+      try {
+        submitResponse = await buildAndSubmitWithdrawal(rewardAmount);
+      } catch (firstError: any) {
+        // The Cardano ledger requires withdrawals to consume the full reward balance.
+        // If the API returned a stale value the node rejects the tx. Re-query once and
+        // retry so the corrected amount matches the on-chain balance.
+        if (!this.isIncompleteWithdrawalsError(firstError)) {
+          throw firstError;
+        }
+        this.logger.warn(
+          `Submission rejected: incomplete withdrawals (API reported ${rewardAmount} lovelace). Re-querying actual balance...`
+        );
+        const refreshed = await this.rewardsService.getWithdrawals(
+          stakeAddress,
+          certificate,
+          maxWithdrawal,
+          this.networkConfig.isMainnet()
+        );
+        if (refreshed.rewardAmount === rewardAmount) {
+          // API is consistently returning the same stale value — nothing we can do.
+          throw firstError;
+        }
+        this.logger.info(
+          `Retrying withdrawal with corrected amount: ${refreshed.rewardAmount} lovelace (was ${rewardAmount})`
+        );
+        finalRewardAmount = refreshed.rewardAmount;
+        submitResponse = await buildAndSubmitWithdrawal(finalRewardAmount);
+      }
 
       this.logger.info(`Reward withdrawal transaction submitted: ${submitResponse.data.txHash}`);
 
@@ -327,7 +362,7 @@ export class StakingService {
         txHash: submitResponse.data.txHash,
         status: "submitted",
         operation: StakingOperation.WITHDRAW_REWARDS,
-        rewardAmount,
+        rewardAmount: finalRewardAmount,
       };
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, "withdrawing staking rewards");
@@ -582,21 +617,48 @@ export class StakingService {
       this.networkConfig.isMainnet()
     );
 
-    const withdrawalsDict = rewardAmount > 0 ? serializeWithdrawals([withdrawal]) : undefined;
-    const netAmount =
-      addressWithUtxo.utxo.nativeAmount - fee + CardanoAmounts.DEPOSIT_AMOUNT + rewardAmount;
     const deregistrationCertificate = buildDeregistrationCertificate(certificate);
 
-    return await this.executeTransaction({
-      vaultAccountId,
-      addressWithUtxo,
-      netAmount,
-      fee,
-      certificates: [deregistrationCertificate],
-      withdrawals: withdrawalsDict,
-      operation: "deregister staking credential",
-      skipValidation: true,
-    });
+    const buildAndSubmitDeregistration = async (amount: number) => {
+      const w = amount > 0 ? { ...withdrawal, reward: amount } : null;
+      const withdrawalsDict = w ? serializeWithdrawals([w]) : undefined;
+      const netAmount =
+        addressWithUtxo.utxo.nativeAmount - fee + CardanoAmounts.DEPOSIT_AMOUNT + amount;
+      return this.executeTransaction({
+        vaultAccountId,
+        addressWithUtxo,
+        netAmount,
+        fee,
+        certificates: [deregistrationCertificate],
+        withdrawals: withdrawalsDict,
+        operation: "deregister staking credential",
+        skipValidation: true,
+      });
+    };
+
+    try {
+      return await buildAndSubmitDeregistration(rewardAmount);
+    } catch (firstError: any) {
+      if (!this.isIncompleteWithdrawalsError(firstError) || rewardAmount === 0) {
+        throw firstError;
+      }
+      this.logger.warn(
+        `Deregistration rejected: incomplete withdrawals (API reported ${rewardAmount} lovelace). Re-querying...`
+      );
+      const refreshed = await this.rewardsService.getWithdrawals(
+        stakeAddress,
+        certificate,
+        Infinity,
+        this.networkConfig.isMainnet()
+      );
+      if (refreshed.rewardAmount === rewardAmount) {
+        throw firstError;
+      }
+      this.logger.info(
+        `Retrying deregistration with corrected reward amount: ${refreshed.rewardAmount} lovelace`
+      );
+      return await buildAndSubmitDeregistration(refreshed.rewardAmount);
+    }
   }
 
   private async buildSignAndSubmit(params: {
@@ -663,5 +725,19 @@ export class StakingService {
         "staking-service"
       );
     }
+  }
+
+  /**
+   * Returns true when the error is a Cardano ledger rejection indicating that the
+   * withdrawal amount in the transaction does not match the on-chain reward balance.
+   * This happens when the API returns a stale reward value.
+   */
+  private isIncompleteWithdrawalsError(error: any): boolean {
+    const msg: string = (error?.message ?? "").toLowerCase();
+    return (
+      msg.includes("incomplete") ||
+      msg.includes("rewards in full") ||
+      msg.includes("incompletewithdrawals")
+    );
   }
 }
