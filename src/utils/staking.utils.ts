@@ -336,6 +336,10 @@ export function buildPayload(options: BuildPayloadOptions): {
     deserialized.set(4, certsArr);
   }
 
+  if (withdrawals && withdrawals.size > 0) {
+    deserialized.set(5, withdrawals); // key 5 = withdrawals per Cardano ledger spec
+  }
+
   const serialized = Buffer.from(cborEncode(deserialized));
 
   return { serialized, deserialized };
