@@ -1131,13 +1131,15 @@ export class FireblocksCardanoRawSDK {
   ): Promise<{
     txHash: string;
     senderAddress: string;
+    tokenPolicyId: string;
     tokenName: string;
+    amount: number;
     fee: {
       lovelace: string;
       ada: string;
     };
   }> => {
-    const { recipientVaultAccountId, tokenName, requiredTokenAmount } = options;
+    const { recipientVaultAccountId, tokenPolicyId, tokenName, requiredTokenAmount } = options;
 
     try {
       // Log transfer initiation
@@ -1174,7 +1176,9 @@ export class FireblocksCardanoRawSDK {
       return {
         txHash,
         senderAddress,
+        tokenPolicyId,
         tokenName,
+        amount: requiredTokenAmount,
         fee: {
           lovelace: feeLovelace,
           ada: feeFormatted.value,

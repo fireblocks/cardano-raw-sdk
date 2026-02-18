@@ -1266,10 +1266,18 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                   type: string
    *                   description: The sender's address
    *                   example: "addr1qxy..."
+   *                 tokenPolicyId:
+   *                   type: string
+   *                   description: The policy ID of the token that was transferred
+   *                   example: "0691b2f..."
    *                 tokenName:
    *                   type: string
-   *                   description: The token name that was transferred
-   *                   example: "4e49..."
+   *                   description: The token name that was transferred (hex format)
+   *                   example: "4e494..."
+   *                 amount:
+   *                   type: number
+   *                   description: The amount of tokens that were transferred
+   *                   example: 100000
    *                 fee:
    *                   type: object
    *                   description: Transaction fee information
@@ -1432,7 +1440,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/fee-estimate", validateRequest(feeEstimationRequestSchema), apiController.estimateFee);
+  router.post(
+    "/fee-estimate",
+    validateRequest(feeEstimationRequestSchema),
+    apiController.estimateFee
+  );
 
   /**
    * WEBHOOK
