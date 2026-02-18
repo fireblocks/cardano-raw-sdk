@@ -41,6 +41,12 @@ export enum CardanoAmounts {
    * Each distinct policy in a UTXO adds ~0.15 ADA to the minimum requirement
    */
   MIN_UTXO_PER_POLICY_LOVELACE = 150_000,
+  /**
+   * Cardano protocol parameter: coins per UTXO byte
+   * Used for calculating minimum ADA required for outputs with native assets
+   * Mainnet value: 4310 lovelace per byte
+   */
+  COINS_PER_UTXO_BYTE = 4310,
   TX_TTL_SECS = 7_200,
 }
 

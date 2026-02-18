@@ -14,6 +14,8 @@ import {
   Transaction,
   LinearFee,
   min_fee,
+  min_ada_for_output,
+  DataCost,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { toHex } from "./general.js";
 import { IagonApiService } from "../services/index.js";
@@ -359,7 +361,7 @@ export const createTransactionOutputs = (
   }
 
   // Calculate change
-  const changeLovelace = totalLovelace - requiredLovelace - fee;
+  let changeLovelace = totalLovelace - requiredLovelace - fee;
 
   logger.info("=== CREATING OUTPUTS ===");
   logger.info("Change ADA:", changeLovelace);
@@ -376,7 +378,37 @@ export const createTransactionOutputs = (
     recipientMultiAsset.insert(policy, assets);
     recipientValue.set_multiasset(recipientMultiAsset);
   }
-  const recipientOutput = TransactionOutput.new(recipientAddress, recipientValue);
+  let recipientOutput = TransactionOutput.new(recipientAddress, recipientValue);
+
+  // Calculate actual minimum ADA required for recipient output
+  const dataCost = DataCost.new_coins_per_byte(
+    BigNum.from_str(CardanoAmounts.COINS_PER_UTXO_BYTE.toString())
+  );
+  const actualMinRecipient = parseInt(min_ada_for_output(recipientOutput, dataCost).to_str());
+
+  // If actual minimum is higher than what we allocated, recreate the output with correct amount
+  if (actualMinRecipient > requiredLovelace) {
+    logger.info(
+      `Adjusting recipient min ADA: ${requiredLovelace} → ${actualMinRecipient} (+${actualMinRecipient - requiredLovelace} lovelace)`
+    );
+    const adjustedRecipientValue = Value.new(BigNum.from_str(actualMinRecipient.toString()));
+    if (transferAmount > 0) {
+      const recipientMultiAsset = MultiAsset.new();
+      const [policyId, tokenNameHex] = tokenUnit.split(".");
+      const policy = ScriptHash.from_hex(policyId);
+      const assetName = AssetName.new(Buffer.from(tokenNameHex, "hex"));
+      const assets = Assets.new();
+      assets.insert(assetName, BigNum.from_str(transferAmount.toString()));
+      recipientMultiAsset.insert(policy, assets);
+      adjustedRecipientValue.set_multiasset(recipientMultiAsset);
+    }
+    recipientOutput = TransactionOutput.new(recipientAddress, adjustedRecipientValue);
+
+    // Adjust change to account for the additional ADA given to recipient
+    const changeAdjustment = actualMinRecipient - requiredLovelace;
+    changeLovelace = changeLovelace - changeAdjustment;
+    logger.info(`Adjusted change ADA: ${changeLovelace + changeAdjustment} → ${changeLovelace}`);
+  }
 
   // Create change output (ALL remaining assets)
   const changeValue = Value.new(BigNum.from_str(changeLovelace.toString()));
@@ -408,6 +440,11 @@ export const createTransactionOutputs = (
 
   // Build MultiAsset for change output
   Object.entries(assetsByPolicy).forEach(([policyId, tokens]) => {
+    // Skip policies with no tokens (empty object)
+    if (Object.keys(tokens).length === 0) {
+      return;
+    }
+
     const policy = ScriptHash.from_hex(policyId);
     const assets = Assets.new();
 
@@ -419,7 +456,10 @@ export const createTransactionOutputs = (
     changeMultiAsset.insert(policy, assets);
   });
 
-  changeValue.set_multiasset(changeMultiAsset);
+  // Only set multiasset if there are actually tokens in the change
+  if (Object.keys(assetsByPolicy).length > 0) {
+    changeValue.set_multiasset(changeMultiAsset);
+  }
   const changeOutput = TransactionOutput.new(senderAddress, changeValue);
 
   // Final validation
@@ -553,6 +593,11 @@ export const submitTransaction = async (
 ): Promise<string> => {
   try {
     const txCbor = Buffer.from(signedTx.to_bytes()).toString("hex");
+
+    logger.info(`=== TRANSACTION CBOR DEBUG ===`);
+    logger.info(`CBOR length: ${txCbor.length} chars (${txCbor.length / 2} bytes)`);
+    logger.info(`CBOR hex (first 200 chars): ${txCbor.substring(0, 200)}`);
+    logger.info(`CBOR hex (full): ${txCbor}`);
 
     // Submit transaction using Iagon API
     const response = await iagonApiService.submitTransfer(txCbor, false);
