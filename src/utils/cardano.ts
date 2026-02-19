@@ -488,6 +488,14 @@ export const createTransactionOutputs = (
 };
 
 /**
+ * Number of witnesses (signatures) required per transaction type.
+ * Token transfers only need the payment key; staking operations also require the stake key.
+ * Pass the appropriate constant to buildTransactionWithCalculatedFee to get an accurate fee.
+ */
+export const WITNESS_COUNT_PAYMENT_KEY_ONLY = 1; // Token transfers: payment key signature only
+export const WITNESS_COUNT_PAYMENT_AND_STAKE_KEY = 2; // Staking: payment key + stake key signatures
+
+/**
  * Builds transaction outputs with dynamically calculated fees
  * This function iteratively calculates the correct fee by:
  * 1. Building outputs with an estimated fee
@@ -498,14 +506,14 @@ export const createTransactionOutputs = (
  * @param params - Same parameters as createTransactionOutputs except 'fee' (calculated internally)
  * @param txInputs - Transaction inputs needed for fee calculation
  * @param ttl - Time to live for the transaction
- * @param estimatedWitnessCount - Number of signatures (default: 1)
+ * @param estimatedWitnessCount - Number of signatures — use WITNESS_COUNT_* constants
  * @returns Object containing the final outputs, calculated fee, and transaction body
  */
 export const buildTransactionWithCalculatedFee = (
   params: Omit<createTransactionOutputsParams, "fee">,
   txInputs: TransactionInput[],
   ttl: number,
-  estimatedWitnessCount: number = 1
+  estimatedWitnessCount: number
 ): { outputs: TransactionOutput[]; fee: number; txBody: TransactionBody } => {
   const WITNESS_SIZE_BYTES = 139; // Size of one Ed25519 signature witness
   const MAX_ITERATIONS = 5;

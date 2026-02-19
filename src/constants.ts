@@ -16,7 +16,8 @@ export enum CardanoAmounts {
   DEPOSIT_AMOUNT = 2_000_000,
   /**
    * Fee for staking operations (register, deregister, delegate, withdraw)
-   * These are ADA-only transactions with fixed-size certificates
+   * These are ADA-only transactions with fixed-size certificates.
+   * Sized to cover 2-witness transactions (payment key + stake key)
    */
   STAKING_TX_FEE = 300_000,
   /**

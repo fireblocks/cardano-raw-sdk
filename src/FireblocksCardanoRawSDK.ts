@@ -9,6 +9,7 @@ import {
 import {
   Logger,
   buildTransactionWithCalculatedFee,
+  WITNESS_COUNT_PAYMENT_KEY_ONLY,
   calculateTransactionFee,
   calculateTtl,
   createTransactionInputs,
@@ -827,7 +828,7 @@ export class FireblocksCardanoRawSDK {
       },
       txInputs,
       ttl,
-      1 // Estimate 1 witness (single signature)
+      WITNESS_COUNT_PAYMENT_KEY_ONLY
     );
 
     return txBody;
