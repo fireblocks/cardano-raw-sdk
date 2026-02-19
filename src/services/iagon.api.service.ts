@@ -51,7 +51,8 @@ export class IagonApiService {
   constructor(
     apiKey: string,
     network: Networks = Networks.MAINNET,
-    assetCacheTTL: number = 1000 * 60 * 60 * 24 // Default: 24 hours
+    assetCacheTTL: number = 1000 * 60 * 60 * 24, // Default: 24 hours
+    disableSslVerification: boolean = false
   ) {
     // Validate API key is provided and not empty
     if (!apiKey || apiKey.trim() === "") {
@@ -71,7 +72,9 @@ export class IagonApiService {
         Authorization: `Bearer ${this.iagonApiKey}`,
         "Content-Type": "application/json",
       },
-      httpsAgent: new https.Agent({ rejectUnauthorized: false }), //TODO: remove
+      ...(disableSslVerification && {
+        httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      }),
     });
   }
 
