@@ -347,7 +347,6 @@ export class IagonApiService {
   public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/epochs/latest`;
-      console.log("IagonApiService: Fetching current epoch", this.iagonApiKey); //TODO: remove
       const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
@@ -355,7 +354,6 @@ export class IagonApiService {
       }
       throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
-      console.error("Error fetching current epoch:", error); //TODO: remove
       throw this.errorHandler.handleApiError(error, `fetching current epoch`);
     }
   };
