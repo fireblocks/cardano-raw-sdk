@@ -702,7 +702,7 @@ export class ApiController {
 
       res.status(500).json({
         success: false,
-        error: error instanceof Error ? error.message : "Internal server error",
+        error: "Something went wrong",
       });
     }
   }
