@@ -1,10 +1,10 @@
-import { TransactionType } from "./enums.js";
 import {
+  TransactionType,
   GetVaultAccountAddressOpts,
   GetVaultAccountAddressesOpts,
   SubmitTransactionOpts,
   GetTransactionHistoryOpts,
-} from "./operations.js";
+} from "./index.js";
 
 /**
  * Options for executing a transaction through the API service

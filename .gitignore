@@ -31,3 +31,5 @@ yarn.lock
 
 .vscode
 .vscode/*
+
+.claude

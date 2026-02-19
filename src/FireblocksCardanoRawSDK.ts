@@ -1,11 +1,11 @@
 import {
-  BasePath,
   ConfigurationOptions,
   VaultWalletAddress,
   SignedMessageSignature,
   TransactionRequest,
   TransactionOperation,
   TransferPeerPathType,
+  SignedMessageAlgorithmEnum,
 } from "@fireblocks/ts-sdk";
 
 import {
@@ -25,9 +25,12 @@ import {
   DetailedTxHistoryResponse,
   transferOpts,
   TransactionHistoryResponse,
+  GroupedTransactionHistoryResponse,
+  GroupedDetailedTxHistoryResponse,
+  TransactionHistoryItem,
+  DetailedTransaction,
   TransactionDetailsResponse,
   WebhookPayloadData,
-  EnrichedWebhookPayloadData,
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
@@ -39,12 +42,23 @@ import {
   VaultBalanceByAddress,
   VaultBalancePolicyResponse,
   VaultBalanceByPolicy,
-  IagonApiError,
+  SdkApiError,
+  RegisterStakingOptions,
+  StakingTransactionResult,
+  DelegationOptions,
+  DeregisterStakingOptions,
+  WithdrawRewardsOptions,
+  DRepDelegationOptions,
+  RewardsData,
   WebhookEventTypes,
+  StakeAccountInfoResponse,
+  HealthStatusResponse,
+  CurrentEpochResponse,
 } from "./types/index.js";
-import { FireblocksService } from "./services/fireblocks.service.js";
-import { IagonApiService } from "./services/iagon.api.service.js";
-import { MIN_CHANGE_LOVELACE, MIN_RECIPIENT_LOVELACE, tokenTransactionFee } from "./constants.js";
+
+import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
+import { CardanoAmounts } from "./constants.js";
+
 import {
   Address,
   Ed25519Signature,
@@ -61,6 +75,7 @@ export interface SDKConfig {
   vaultAccountId: string;
   fireblocksService: FireblocksService;
   iagonApiService: IagonApiService;
+  stakingService: StakingService;
   network: Networks;
   logger: Logger;
 }
@@ -68,6 +83,7 @@ export interface SDKConfig {
 export class FireblocksCardanoRawSDK {
   private readonly fireblocksService: FireblocksService;
   private readonly iagonApiService: IagonApiService;
+  private readonly stakingService: StakingService;
   private network: Networks;
   private vaultAccountId: string;
   private addresses: Map<number, string> = new Map();
@@ -84,6 +100,7 @@ export class FireblocksCardanoRawSDK {
 
     this.fireblocksService = config.fireblocksService;
     this.iagonApiService = config.iagonApiService;
+    this.stakingService = config.stakingService;
     this.network = config.network;
 
     this.vaultAccountId = config.vaultAccountId;
@@ -95,18 +112,20 @@ export class FireblocksCardanoRawSDK {
     fireblocksConfig: ConfigurationOptions;
     vaultAccountId: string;
     network: Networks;
+    iagonApiKey: string;
   }): Promise<FireblocksCardanoRawSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-cardano-raw-sdk`);
 
-      const { fireblocksConfig, vaultAccountId, network } = params;
+      const { fireblocksConfig, vaultAccountId, network, iagonApiKey } = params;
 
       if (network === Networks.PREVIEW) {
         throw new Error(`Unsupported network: ${network}`);
       }
 
       const fireblocksService = new FireblocksService(fireblocksConfig);
-      const iagonApiService = new IagonApiService(network);
+      const iagonApiService = new IagonApiService(iagonApiKey, network);
+      const stakingService = new StakingService(fireblocksService, iagonApiService, network);
       const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
       const wallet = await fireblocksService.getVaultAccountAddress(vaultAccountId, assetId);
 
@@ -121,6 +140,7 @@ export class FireblocksCardanoRawSDK {
       const sdkInstance = new FireblocksCardanoRawSDK({
         fireblocksService,
         iagonApiService,
+        stakingService,
         network,
         vaultAccountId,
         logger,
@@ -132,6 +152,10 @@ export class FireblocksCardanoRawSDK {
         `Error creating FireblocksCardanoRawSDK: ${error instanceof Error ? error.message : error}`
       );
     }
+  };
+
+  public checkIagonHealth = async (): Promise<HealthStatusResponse> => {
+    return await this.iagonApiService.checkHealth();
   };
 
   /**
@@ -286,7 +310,9 @@ export class FireblocksCardanoRawSDK {
   /**
    * Get transaction details by hash
    */
-  public getTransactionDetails = async (hash: string): Promise<TransactionDetailsResponse | null> => {
+  public getTransactionDetails = async (
+    hash: string
+  ): Promise<TransactionDetailsResponse | null> => {
     return await this.iagonApiService.getTransactionDetails(hash);
   };
 
@@ -346,6 +372,262 @@ export class FireblocksCardanoRawSDK {
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
+  };
+
+  /**
+   * Get transaction history for all addresses in the vault account
+   * @param options.groupByAddress - If true, returns data grouped by address. If false, returns flat array with address field
+   */
+  public getAllTransactionHistory = async (
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+      groupByAddress?: boolean;
+    } = {}
+  ): Promise<TransactionHistoryResponse | GroupedTransactionHistoryResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+
+    this.logger.info(
+      `Getting transaction history for all addresses in vault ${this.vaultAccountId}`
+    );
+
+    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      assetId
+    );
+
+    if (!addressesResponse || addressesResponse.length === 0) {
+      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
+
+      if (options.groupByAddress) {
+        return {
+          success: true,
+          data: {},
+          pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+          last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+        };
+      }
+
+      return {
+        success: true,
+        data: [],
+        pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+        last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+      };
+    }
+
+    // Filter out addresses without address field and fetch history for each
+    const validAddresses = addressesResponse.filter((addr) => addr.address);
+    const allHistories = await Promise.all(
+      validAddresses.map((addr) =>
+        this.iagonApiService.getTransactionHistory({ address: addr.address!, ...options })
+      )
+    );
+
+    // Get the most recent last_updated from all histories
+    const mostRecentUpdate = allHistories.reduce((latest, current) => {
+      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+        return current.last_updated || latest;
+      }
+      return latest;
+    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+
+    if (options.groupByAddress) {
+      // Group transactions by address
+      const groupedData: Record<string, TransactionHistoryItem[]> = {};
+      let totalTransactions = 0;
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+        // Sort each address's transactions by slot number (descending - most recent first)
+        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+        groupedData[addr.address!] = transactions;
+        totalTransactions += transactions.length;
+      });
+
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: groupedData,
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    } else {
+      // Flat array with address field on each transaction
+      const flatData: TransactionHistoryItem[] = [];
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+
+        // Add address field to each transaction
+        transactions.forEach((tx) => {
+          flatData.push({ ...tx, address: addr.address });
+        });
+      });
+
+      // Sort by slot number (descending - most recent first)
+      flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+
+      // Deduplicate by tx_hash (same transaction may appear in multiple address histories)
+      const uniqueTransactions = flatData.filter(
+        (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
+      );
+
+      const totalTransactions = uniqueTransactions.length;
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    }
+  };
+
+  /**
+   * Get detailed transaction history for all addresses in the vault account
+   * @param options.groupByAddress - If true, returns data grouped by address. If false, returns flat array with address field
+   */
+  public getAllDetailedTxHistory = async (
+    options: {
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+      groupByAddress?: boolean;
+    } = {}
+  ): Promise<DetailedTxHistoryResponse | GroupedDetailedTxHistoryResponse> => {
+    const assetId =
+      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+
+    this.logger.info(
+      `Getting detailed transaction history for all addresses in vault ${this.vaultAccountId}`
+    );
+
+    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      assetId
+    );
+
+    if (!addressesResponse || addressesResponse.length === 0) {
+      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
+
+      if (options.groupByAddress) {
+        return {
+          success: true,
+          data: {},
+          pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+          last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+        };
+      }
+
+      return {
+        success: true,
+        data: [],
+        pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
+        last_updated: { slot_no: 0, block_hash: "", block_time: "" },
+      };
+    }
+
+    // Filter out addresses without address field and fetch detailed history for each
+    const validAddresses = addressesResponse.filter((addr) => addr.address);
+    const allHistories = await Promise.all(
+      validAddresses.map((addr) =>
+        this.iagonApiService.getDetailedTxHistory({ address: addr.address!, ...options })
+      )
+    );
+
+    // Get the most recent last_updated from all histories
+    const mostRecentUpdate = allHistories.reduce((latest, current) => {
+      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+        return current.last_updated || latest;
+      }
+      return latest;
+    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+
+    if (options.groupByAddress) {
+      // Group transactions by address
+      const groupedData: Record<string, DetailedTransaction[]> = {};
+      let totalTransactions = 0;
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+        // Sort each address's transactions by slot number (descending - most recent first)
+        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+        groupedData[addr.address!] = transactions;
+        totalTransactions += transactions.length;
+      });
+
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: groupedData,
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    } else {
+      // Flat array with address field on each transaction
+      const flatData: DetailedTransaction[] = [];
+
+      validAddresses.forEach((addr, index) => {
+        const history = allHistories[index];
+        const transactions = history.data || [];
+
+        // Add address field to each transaction
+        transactions.forEach((tx) => {
+          flatData.push({ ...tx, address: addr.address });
+        });
+      });
+
+      // Sort by slot number (descending - most recent first)
+      flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+
+      // Deduplicate by tx_hash (same transaction may appear in multiple address histories)
+      const uniqueTransactions = flatData.filter(
+        (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
+      );
+
+      const totalTransactions = uniqueTransactions.length;
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    }
   };
 
   /**
@@ -470,7 +752,9 @@ export class FireblocksCardanoRawSDK {
     const txHashHex = this.calculateTransactionHash(txBody);
     const transactionPayload = this.createFireblocksTransactionPayload(assetId, txHashHex);
 
-    const signatureResponse = await this.fireblocksService.broadcastTransaction(transactionPayload);
+    const txData = await this.fireblocksService.broadcastTransaction(transactionPayload);
+
+    const signatureResponse = txData?.data[0];
 
     if (!signatureResponse?.publicKey || !signatureResponse?.signature?.fullSig) {
       throw new Error("SigningFailed: Invalid signature response from Fireblocks");
@@ -497,7 +781,7 @@ export class FireblocksCardanoRawSDK {
    *
    * @param options - Transfer configuration options
    * @returns Transaction result with hash, sender address, and token name
-   * @throws IagonApiError with 400 status code for validation errors
+   * @throws SdkApiError with 400 status code for validation errors
    * @throws Error if any step of the transfer process fails
    */
   public transfer = async (
@@ -519,7 +803,7 @@ export class FireblocksCardanoRawSDK {
 
     // Validate that exactly one recipient option is provided
     if (!recipientAddress && !recipientVaultAccountId) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         "Either recipientAddress or recipientVaultAccountId must be provided",
         400,
         "ValidationError",
@@ -528,7 +812,7 @@ export class FireblocksCardanoRawSDK {
       );
     }
     if (recipientAddress && recipientVaultAccountId) {
-      throw new IagonApiError(
+      throw new SdkApiError(
         "Cannot specify both recipientAddress and recipientVaultAccountId",
         400,
         "ValidationError",
@@ -537,8 +821,8 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    const minRecipientLovelace = MIN_RECIPIENT_LOVELACE;
-    const minChangeLovelace = MIN_CHANGE_LOVELACE;
+    const minRecipientLovelace = CardanoAmounts.MIN_RECIPIENT_LOVELACE;
+    const minChangeLovelace = CardanoAmounts.MIN_CHANGE_LOVELACE;
 
     const assetId =
       this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
@@ -554,7 +838,7 @@ export class FireblocksCardanoRawSDK {
           recipientIndex
         );
         if (!recipientAddressData.address) {
-          throw new IagonApiError(
+          throw new SdkApiError(
             `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
             404,
             "AddressNotFound",
@@ -583,7 +867,7 @@ export class FireblocksCardanoRawSDK {
         tokenPolicyId,
         tokenName,
         requiredTokenAmount,
-        transactionFee: tokenTransactionFee,
+        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
         minRecipientLovelace,
         minChangeLovelace,
       });
@@ -597,7 +881,7 @@ export class FireblocksCardanoRawSDK {
         tokenName,
         requiredTokenAmount,
         minRecipientLovelace,
-        transactionFee: tokenTransactionFee,
+        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
       });
 
       // Sign transaction with Fireblocks
@@ -646,9 +930,7 @@ export class FireblocksCardanoRawSDK {
    * @returns The enriched webhook payload with cardanoTokensData if applicable
    */
 
-  public enrichWebhookPayload = async (
-    payload: WebhookPayloadData
-  ): Promise<any> => {
+  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
     if (
       payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
       payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
@@ -739,10 +1021,13 @@ export class FireblocksCardanoRawSDK {
   public broadcastTransaction = async (
     transactionRequest: TransactionRequest
   ): Promise<{
-    signature: SignedMessageSignature;
-    content?: string;
-    publicKey?: string;
-    algorithm?: string;
+    id: string;
+    data: Array<{
+      signature: SignedMessageSignature;
+      content?: string;
+      publicKey?: string;
+      algorithm?: SignedMessageAlgorithmEnum;
+    }>;
   } | null> => {
     return await this.fireblocksService.broadcastTransaction(transactionRequest);
   };
@@ -966,6 +1251,259 @@ export class FireblocksCardanoRawSDK {
   public getIagonApiService(): IagonApiService {
     return this.iagonApiService;
   }
+
+  /**
+   * Get direct access to the Staking service
+   * @internal - For advanced usage only
+   */
+  public getStakingService(): StakingService {
+    return this.stakingService;
+  }
+
+  // ======================
+  // Staking Operations
+  // ======================
+
+  /**
+   * Register staking credential for a vault account
+   *
+   * This is the first step to enable staking. It registers the staking key on-chain
+   * and requires a deposit of 2 ADA (DEPOSIT_AMOUNT) which will be returned upon deregistration.
+   *
+   * @param options - Registration options
+   * @returns Transaction result with hash and status
+   * @throws Error if registration fails
+   *
+   * @example
+   * ```typescript
+   * const result = await sdk.registerStakingCredential({
+   *   vaultAccountId: "0",
+   *   depositAmount: 2000000, // 2 ADA
+   *   fee: 300000 // 0.3 ADA
+   * });
+   * console.log(`Registration TX: ${result.txHash}`);
+   * ```
+   */
+  public registerStakingCredential = async (
+    options: RegisterStakingOptions
+  ): Promise<
+    (StakingTransactionResult & { stakeAddress: string; addressIndex: number }) | null
+  > => {
+    this.logger.info(`Registering staking credential for vault account ${options.vaultAccountId}`);
+    return await this.stakingService.registerStakingCredential(options);
+  };
+
+  /**
+   * Delegate ADA to a stake pool
+   *
+   * Delegates the staking credential to a specific stake pool. The staking credential
+   * must be registered first using registerStakingCredential().
+   *
+   * @param options - Delegation options including pool ID
+   * @returns Transaction result with hash and status
+   * @throws Error if delegation fails
+   *
+   * @example
+   * ```typescript
+   * const result = await sdk.delegateToPool({
+   *   vaultAccountId: "0",
+   *   poolId: "pool1pu5jlj4q9w9jlxeu370a3c9myx47md5j5m2str0naunn2q3lkdy", // Pool ID in bech32 or hex
+   *   fee: 300000 // 0.3 ADA
+   * });
+   * console.log(`Delegation TX: ${result.txHash}`);
+   * ```
+   */
+  public delegateToPool = async (options: DelegationOptions): Promise<StakingTransactionResult> => {
+    this.logger.info(
+      `Delegating to pool ${options.poolId} for vault account ${options.vaultAccountId}`
+    );
+
+    const { vaultAccountId, poolId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+
+    return await this.stakingService.delegateToPool({ vaultAccountId, poolId, fee });
+  };
+
+  /**
+   * Deregister staking credential
+   *
+   * Deregisters the staking credential and withdraws all available rewards.
+   * Returns the 2 ADA deposit that was paid during registration.
+   *
+   * @param options - Deregistration options
+   * @returns Transaction result with hash and status
+   * @throws Error if deregistration fails
+   *
+   * @example
+   * ```typescript
+   * const result = await sdk.deregisterStakingCredential({
+   *   vaultAccountId: "0",
+   *   fee: 300000 // 0.3 ADA
+   * });
+   * console.log(`Deregistration TX: ${result.txHash}`);
+   * ```
+   */
+  public deregisterStakingCredential = async (
+    options: DeregisterStakingOptions
+  ): Promise<StakingTransactionResult> => {
+    this.logger.info(
+      `Deregistering staking credential for vault account ${options.vaultAccountId}`
+    );
+    const { vaultAccountId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+
+    return await this.stakingService.deregisterStakingCredential({ vaultAccountId, fee });
+  };
+
+  /**
+   * Withdraw staking rewards
+   *
+   * Withdraws accumulated staking rewards without deregistering the staking credential.
+   * You can continue to stake after withdrawing rewards.
+   *
+   * @param options - Withdrawal options with optional limit
+   * @returns Transaction result with hash and status
+   * @throws Error if withdrawal fails
+   *
+   * @example
+   * ```typescript
+   * // Withdraw all available rewards
+   * const result = await sdk.withdrawRewards({
+   *   vaultAccountId: "0",
+   *   fee: 300000 // 0.3 ADA
+   * });
+   *
+   * // Withdraw up to 5 ADA
+   * const result = await sdk.withdrawRewards({
+   *   vaultAccountId: "0",
+   *   limit: 5000000, // 5 ADA in Lovelace
+   *   fee: 300000
+   * });
+   * console.log(`Withdrawal TX: ${result.txHash}`);
+   * ```
+   */
+  public withdrawRewards = async (
+    options: WithdrawRewardsOptions
+  ): Promise<
+    StakingTransactionResult & {
+      rewardAmount?: number;
+    }
+  > => {
+    this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
+    const { vaultAccountId, limit, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+
+    return await this.stakingService.withdrawRewards({ vaultAccountId, limit, fee });
+  };
+
+  public getStakeAccountInfo = async (
+    vaultAccountId: string
+  ): Promise<StakeAccountInfoResponse> => {
+    this.logger.info(`Getting staking account info for vault account ${vaultAccountId}`);
+
+    const stakeAddress = await this.stakingService.getStakeAddress(vaultAccountId);
+    return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+  };
+
+  public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
+    return await this.iagonApiService.getCurrentEpoch();
+  };
+
+  /**
+   * Query staking rewards for a vault account
+   *
+   * Retrieves detailed information about staking rewards including:
+   * - Individual rewards per epoch
+   * - Historical withdrawals
+   * - Total and available rewards
+   *
+   * @param vaultAccountId - Vault account ID
+   * @returns Detailed rewards data
+   * @throws Error if query fails
+   *
+   * @example
+   * ```typescript
+   * const rewards = await sdk.queryStakingRewards("0");
+   * console.log(`Available rewards: ${rewards.availableRewards} Lovelace`);
+   * console.log(`Total rewards earned: ${rewards.totalRewards} Lovelace`);
+   * console.log(`Total withdrawn: ${rewards.totalWithdrawals} Lovelace`);
+   *
+   * // List rewards by epoch
+   * rewards.rewards.forEach(r => {
+   *   console.log(`Epoch ${r.epoch}: ${r.amount} from pool ${r.poolId}`);
+   * });
+   * ```
+   */
+  public queryStakingRewards = async (vaultAccountId: string): Promise<RewardsData> => {
+    this.logger.info(`Querying staking rewards for vault account ${vaultAccountId}`);
+    return await this.stakingService.queryStakingRewards(vaultAccountId);
+  };
+
+  /**
+   * Delegate voting power to a DRep (Delegated Representative) - Conway Era Governance
+   *
+   * In Cardano's Conway era, ADA holders can delegate their voting power to DReps
+   * who participate in on-chain governance. This is separate from stake pool delegation.
+   *
+   * Options:
+   * - "always-abstain": Automatically abstain from all governance votes
+   * - "always-no-confidence": Automatically vote no confidence on all proposals
+   * - "custom-drep": Delegate to a specific DRep (requires drepId)
+   *
+   * @param options - DRep delegation options
+   * @returns Transaction result with hash and status
+   * @throws Error if delegation fails
+   *
+   * @example
+   * ```typescript
+   * // Delegate to always abstain
+   * const result = await sdk.delegateToDRep({
+   *   vaultAccountId: "0",
+   *   drepAction: "always-abstain",
+   *   fee: 1000000 // 1 ADA
+   * });
+   *
+   * // Delegate to a specific DRep
+   * const result = await sdk.delegateToDRep({
+   *   vaultAccountId: "0",
+   *   drepAction: "custom-drep",
+   *   drepId: "drep1abc123...", // DRep ID in hex format
+   *   fee: 1000000
+   * });
+   * console.log(`DRep delegation TX: ${result.txHash}`);
+   * ```
+   */
+  public delegateToDRep = async (
+    options: DRepDelegationOptions
+  ): Promise<StakingTransactionResult> => {
+    this.logger.info(
+      `Delegating to DRep (${options.drepAction}) for vault account ${options.vaultAccountId}`
+    );
+
+    const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.DREP_TX_FEE } = options;
+
+    return await this.stakingService.delegateToDRep({ vaultAccountId, drepAction, drepId, fee });
+  };
+
+  /**
+   * Get the stake address for a vault account
+   *
+   * Extracts the BASE address from the vault account and derives the stake address.
+   * The stake address is used to identify staking credentials and query staking-related
+   * information like rewards, delegation history, and registration status.
+   *
+   * @param vaultAccountId - The vault account ID
+   * @returns The stake address in bech32 format (stake1... or stake_test1...)
+   * @throws Error if no BASE address is found for the vault account
+   *
+   * @example
+   * ```typescript
+   * const stakeAddress = await sdk.getStakeAddress("0");
+   * console.log(`Stake address: ${stakeAddress}`);
+   * // Output: stake1u9r76ypf5fskppa0cmttas05cgcswrttn6jrq4yd7jpdnvc7gt0yc
+   * ```
+   */
+  public getStakeAddress = async (vaultAccountId: string): Promise<string> => {
+    this.logger.info(`Getting stake address for vault account ${vaultAccountId}`);
+    return await this.stakingService.getStakeAddress(vaultAccountId);
+  };
 
   /**
    * Clear all cached data (addresses and public keys)

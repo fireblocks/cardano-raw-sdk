@@ -1,6 +1,6 @@
 import axios from "axios";
 import { Logger } from "./logger.js";
-import { IagonApiError } from "../types/index.js";
+import { SdkApiError } from "../types/index.js";
 
 export class ErrorHandler {
   constructor(
@@ -14,7 +14,7 @@ export class ErrorHandler {
    * @param context - Description of what operation failed
    * @returns ApiError with structured error information
    */
-  handleApiError(error: unknown, context: string): IagonApiError {
+  handleApiError(error: unknown, context: string): SdkApiError {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       const data = error.response?.data;
@@ -28,16 +28,16 @@ export class ErrorHandler {
       const message =
         data?.message || data?.info || error.response?.statusText || `Error ${context}`;
 
-      return new IagonApiError(message, status, data?.type, data?.info, this.serviceName);
+      return new SdkApiError(message, status, data?.type, data?.info, this.serviceName);
     }
 
     // Handle ApiError - pass through unchanged
-    if (error instanceof IagonApiError) {
+    if (error instanceof SdkApiError) {
       return error;
     }
 
     this.logger.error(`Unexpected error ${context}:`, error);
-    return new IagonApiError(
+    return new SdkApiError(
       error instanceof Error ? error.message : `Error ${context}`,
       undefined,
       undefined,

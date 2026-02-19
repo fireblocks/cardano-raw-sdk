@@ -4,26 +4,24 @@ import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
 import { Express } from "express-serve-static-core";
 import express, { Request, Response } from "express";
 
-import { config, Logger, LogLevel, swaggerSpec, swaggerUi } from "./utils/index.js";
+import { config, Logger, LogLevel } from "./utils/index.js";
+import { getSwaggerSpec, swaggerUi } from "./utils/swagger.js";
 import { SdkManager } from "./pool/sdkManager.js";
 import { configureRouter } from "./api/router.js";
 import { FireblocksCardanoRawSDK } from "./FireblocksCardanoRawSDK.js";
 import { Networks } from "./types/index.js";
-
-// Validate required environment variables, additional variables can be added as needed
-(() => {
-  ["FIREBLOCKS_API_USER_KEY", "FIREBLOCKS_API_USER_SECRET_KEY_PATH"].forEach((key) => {
-    if (process.env[key] === undefined || process.env[key] === "") {
-      throw new Error(`Missing required environment variable: ${key}`);
-    }
-  });
-})();
 
 const logLevel = "INFO";
 Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("app:server-setup");
 
 const startServer = () => {
+  // Validate required environment variables for server mode
+  ["FIREBLOCKS_API_USER_KEY", "FIREBLOCKS_API_USER_SECRET_KEY_PATH"].forEach((key) => {
+    if (process.env[key] === undefined || process.env[key] === "") {
+      throw new Error(`Missing required environment variable: ${key}`);
+    }
+  });
   const app = express();
 
   configureMiddlewares(app);
@@ -38,6 +36,9 @@ const startServer = () => {
   // Get network from environment variable
   const network = (process.env.CARDANO_NETWORK as Networks) || Networks.MAINNET;
 
+  // Get Iagon API key from environment variable
+  const iagonApiKey = process.env.IAGON_API_KEY || "";
+
   // Initialize SDK Manager with pool configuration
   const sdkManager = new SdkManager(
     baseConfig,
@@ -49,12 +50,14 @@ const startServer = () => {
       connectionTimeoutMs: parseInt(process.env.POOL_CONNECTION_TIMEOUT_MS || "30000"),
       retryAttempts: parseInt(process.env.POOL_RETRY_ATTEMPTS || "3"),
     },
+
     // SDK factory function to create FireblocksCardanoRawSDK instances
     async (vaultAccountId: string, fireblocksConfig: ConfigurationOptions, network: Networks) =>
       FireblocksCardanoRawSDK.createInstance({
         fireblocksConfig,
         vaultAccountId,
         network,
+        iagonApiKey,
       })
   );
 
@@ -67,7 +70,8 @@ const startServer = () => {
     res.status(200).send("Alive");
   });
 
-  // Swagger documentation endpoints
+  // Swagger documentation endpoints (lazy loaded)
+  const swaggerSpec = getSwaggerSpec();
   app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
   app.get("/api-docs-json", (_req, res) => {
     res.setHeader("Content-Type", "application/json");

@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { Logger } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
-import { GroupByOptions, IagonApiError } from "../../types/index.js";
+import { GroupByOptions, SdkApiError } from "../../types/index.js";
+import { CardanoAmounts } from "../../constants.js";
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.
@@ -34,6 +35,26 @@ export class ApiController {
   constructor(sdkManager: SdkManager) {
     this.sdkManager = sdkManager;
   }
+
+  public getIagonHealth = async (req: Request, res: Response) => {
+    try {
+      const iagonApiKey = process.env.IAGON_API_KEY;
+      if (!iagonApiKey) {
+        return res.status(500).json({
+          success: false,
+          error: "IAGON_API_KEY is not configured",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
+      const result = await sdk.checkIagonHealth();
+
+      this.logger.info(`Iagon health check successful`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getIagonHealth");
+    }
+  };
 
   public getBalanceByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params;
@@ -166,6 +187,48 @@ export class ApiController {
     }
   };
 
+  public getAllTransactionHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const options = {
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      groupByAddress: req.query.groupByAddress === "true",
+    };
+
+    try {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getAllTransactionHistory(options);
+      this.logger.info(
+        `All transactions history retrieved successfully for vault ${vaultAccountId}`
+      );
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getAllTransactionHistory");
+    }
+  };
+
+  public getAllDetailedTxHistory = async (req: Request, res: Response) => {
+    const { vaultAccountId } = req.params;
+    const options = {
+      limit: req.query.limit ? Number(req.query.limit) : undefined,
+      offset: req.query.offset ? Number(req.query.offset) : undefined,
+      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      groupByAddress: req.query.groupByAddress === "true",
+    };
+
+    try {
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getAllDetailedTxHistory(options);
+      this.logger.info(
+        `All detailed transactions history retrieved successfully for vault ${vaultAccountId}`
+      );
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getAllDetailedTxHistory");
+    }
+  };
+
   public transfer = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
@@ -191,11 +254,303 @@ export class ApiController {
     }
   };
 
+  // ======================
+  // Staking Operations
+  // ======================
+
+  /**
+   * Register staking credential for a vault account
+   * POST /api/staking/register
+   */
+  public registerStaking = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, index } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const depositAmount = CardanoAmounts.DEPOSIT_AMOUNT;
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.registerStakingCredential({
+        vaultAccountId,
+        index,
+        depositAmount,
+        fee,
+      });
+
+      this.logger.info(`Staking registration successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "registerStaking");
+    }
+  };
+
+  /**
+   * Deregister staking credential
+   * POST /api/staking/deregister
+   */
+  public deregisterStaking = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.deregisterStakingCredential({
+        vaultAccountId,
+        fee,
+      });
+
+      this.logger.info(`Staking deregistration successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "deregisterStaking");
+    }
+  };
+
+  /**
+   * Delegate to a stake pool
+   * POST /api/staking/delegate
+   */
+  public delegateToPool = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, poolId } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      if (!poolId) {
+        return res.status(400).json({
+          success: false,
+          error: "poolId is required",
+        });
+      }
+
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.delegateToPool({
+        vaultAccountId,
+        poolId,
+        fee,
+      });
+
+      this.logger.info(`Pool delegation successful for vault ${vaultAccountId} to pool ${poolId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "delegateToPool");
+    }
+  };
+
+  /**
+   * Withdraw staking rewards
+   * POST /api/staking/withdraw-rewards
+   */
+  public withdrawRewards = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, limit } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.withdrawRewards({
+        vaultAccountId,
+        limit,
+        fee,
+      });
+
+      this.logger.info(`Reward withdrawal successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "withdrawRewards");
+    }
+  };
+
+  public getStakeAccountInfo = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.params;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.getStakeAccountInfo(vaultAccountId);
+
+      this.logger.info(`Staking account info retrieved successfully for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "getStakeAccountInfo");
+    }
+  };
+
+  public getCurrentEpoch = async (req: Request, res: Response) => {
+    try {
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
+      const result = await sdk.getCurrentEpoch();
+
+      this.logger.info(`Current epoch retrieved successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getCurrentEpoch");
+    }
+  };
+
+  /**
+   * Query staking rewards for a vault account
+   * GET /api/staking/rewards/:vaultAccountId
+   */
+  public queryStakingRewards = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.params;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.queryStakingRewards(vaultAccountId);
+
+      this.logger.info(`Staking rewards queried successfully for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "queryStakingRewards");
+    }
+  };
+
+  /**
+   * Delegate to a DRep (Conway governance)
+   * POST /api/governance/delegate-drep
+   */
+  public delegateToDRep = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, drepAction, drepId } = req.body;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      if (!drepAction) {
+        return res.status(400).json({
+          success: false,
+          error: "drepAction is required (always-abstain, always-no-confidence, or custom-drep)",
+        });
+      }
+
+      if (drepAction === "custom-drep" && !drepId) {
+        return res.status(400).json({
+          success: false,
+          error: "drepId is required when drepAction is custom-drep",
+        });
+      }
+
+      const fee = CardanoAmounts.DREP_TX_FEE;
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.delegateToDRep({
+        vaultAccountId,
+        drepAction,
+        drepId,
+        fee,
+      });
+
+      this.logger.info(`DRep delegation successful for vault ${vaultAccountId}`);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "delegateToDRep");
+    }
+  };
+
+  /**
+   * Get stake address for a vault account
+   * GET /api/staking/stake-address/:vaultAccountId
+   */
+  public getStakeAddress = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.params;
+
+      if (!vaultAccountId) {
+        return res.status(400).json({
+          success: false,
+          error: "vaultAccountId is required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const stakeAddress = await sdk.getStakeAddress(vaultAccountId);
+
+      this.logger.info(
+        `Stake address retrieved successfully for vault ${vaultAccountId}: ${stakeAddress}`
+      );
+      res.status(200).json({
+        success: true,
+        data: {
+          stakeAddress,
+        },
+      });
+    } catch (error: any) {
+      this.handleError(error, res, "getStakeAddress");
+    }
+  };
+
   /**
    * Handles errors that occur during API operations.
    *
    * This private method provides centralized error handling, distinguishing between
-   * IagonApiError instances (which have structured error information) and generic
+   * SdkApiError instances (which have structured error information) and generic
    * errors. It logs the error details and sends an appropriate HTTP response.
    *
    * @param error - The error that occurred
@@ -204,7 +559,7 @@ export class ApiController {
    * @returns void
    *
    * @remarks
-   * For IagonApiError instances, returns a structured JSON response with statusCode,
+   * For SdkApiError instances, returns a structured JSON response with statusCode,
    * errorType, service, message, and additional error info.
    * For generic errors, returns a 500 status with a simple error message.
    */
@@ -226,7 +581,7 @@ export class ApiController {
    * For generic errors, returns a 500 status with a simple error message.
    */
   private handleError(error: unknown, res: Response, endpoint: string): void {
-    if (error instanceof IagonApiError) {
+    if (error instanceof SdkApiError) {
       const statusCode = error.statusCode || 500;
 
       this.logger.error(`${endpoint} - ApiError:`, {

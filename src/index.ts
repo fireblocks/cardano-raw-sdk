@@ -5,4 +5,4 @@ export * from "./services/index.js";
 export * from "./types/index.js";
 export * from "./utils/index.js";
 export * from "./constants.js";
-export * from "./server.js";
+// NOTE: server.js is NOT exported here - it's only used by app.ts for standalone server mode

@@ -7,25 +7,40 @@ import { dirname, join } from "path";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const packageJson = JSON.parse(readFileSync(join(__dirname, "../../package.json"), "utf8"));
 
-const options = {
-  definition: {
-    openapi: "3.0.0",
-    info: {
-      title: `${config.APP_NAME} SDK API`,
-      version: packageJson.version,
-      description: `API documentation for ${config.APP_NAME} SDK`,
-    },
-    servers: [
-      {
-        url: `http://localhost:${config.PORT}/`,
-        description: "Local server",
+// Cache the swagger spec after first creation
+let cachedSwaggerSpec: ReturnType<typeof swaggerJsdoc> | null = null;
+
+/**
+ * Get or create the swagger specification
+ * Lazy loads on first access
+ */
+export const getSwaggerSpec = (): ReturnType<typeof swaggerJsdoc> => {
+  if (!cachedSwaggerSpec) {
+    const packageJson = JSON.parse(readFileSync(join(__dirname, "../../package.json"), "utf8"));
+
+    const options = {
+      definition: {
+        openapi: "3.0.0",
+        info: {
+          title: `${config.APP_NAME} SDK API`,
+          version: packageJson.version,
+          description: `API documentation for ${config.APP_NAME} SDK`,
+        },
+        servers: [
+          {
+            url: `http://localhost:${config.PORT}/`,
+            description: "Local server",
+          },
+        ],
       },
-    ],
-  },
-  apis: ["./dist/api/router.js", "./dist/api/controllers/*.js", "./dist/routes/*.js"],
+      apis: ["./dist/api/router.js", "./dist/api/controllers/*.js", "./dist/routes/*.js"],
+    };
+
+    cachedSwaggerSpec = swaggerJsdoc(options);
+  }
+
+  return cachedSwaggerSpec;
 };
 
-export const swaggerSpec = swaggerJsdoc(options);
 export { swaggerUi };

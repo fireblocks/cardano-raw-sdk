@@ -661,7 +661,7 @@ try {
 } catch (error) {
   if (error.code === 'INSUFFICIENT_BALANCE') {
     console.error('Insufficient balance:', error.details);
-  } else if (error instanceof IagonApiError) {
+  } else if (error instanceof SdkApiError) {
     console.error('API Error:', error.statusCode, error.message);
   } else {
     console.error('Unexpected error:', error);
