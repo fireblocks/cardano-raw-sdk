@@ -32,7 +32,6 @@ export class TransactionBuilder {
       ttl: context.ttl,
       certificates: context.certificates,
       withdrawals: context.withdrawals,
-      requiredSigners: context.requiredSigners,
       network: context.network,
     });
   }

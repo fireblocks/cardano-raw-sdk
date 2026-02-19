@@ -277,17 +277,8 @@ export function buildPayload(options: BuildPayloadOptions): {
   serialized: Buffer;
   deserialized: Map<number, any>;
 } {
-  const {
-    toAddress,
-    netAmount,
-    txInputs,
-    feeAmount,
-    ttl,
-    certificates,
-    withdrawals,
-    requiredSigners,
-    network,
-  } = options;
+  const { toAddress, netAmount, txInputs, feeAmount, ttl, certificates, withdrawals, network } =
+    options;
 
   // Build inputs array
   const inputsArr = txInputs.map((input) => {
@@ -439,14 +430,6 @@ export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepI
     default:
       throw new Error(`Unknown DRep action: ${action}`);
   }
-}
-
-/**
- * Hash public key to get key hash (28 bytes)
- * Used for requiredSigners field
- */
-export function hashPublicKey(pubKey: Buffer): Buffer {
-  return blakeHash(pubKey, 28);
 }
 
 /**

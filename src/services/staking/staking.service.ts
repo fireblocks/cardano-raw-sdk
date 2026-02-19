@@ -319,7 +319,6 @@ export class StakingService {
           netAmount,
           fee,
           withdrawals: withdrawalsDict,
-          requiredSigners: [certificate],
           operation: "withdraw staking rewards",
         });
       };
@@ -516,7 +515,6 @@ export class StakingService {
     fee: number;
     certificates?: Array<any>;
     withdrawals?: Map<Uint8Array, number>;
-    requiredSigners?: Buffer[];
     operation: string;
     skipValidation?: boolean;
     skipTtl?: boolean; // Skip TTL for Conway-era governance transactions
@@ -528,7 +526,6 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
-      requiredSigners,
       operation,
       skipValidation = false,
       skipTtl = false,
@@ -545,7 +542,6 @@ export class StakingService {
       ttl,
       certificates,
       withdrawals,
-      requiredSigners,
       network: this.networkConfig.network,
     });
 
@@ -670,7 +666,6 @@ export class StakingService {
     fee: number;
     certificates?: Array<any>;
     withdrawals?: Map<Uint8Array, number>;
-    requiredSigners?: Buffer[];
     operation: string;
     skipValidation?: boolean;
     skipTtl?: boolean;
@@ -682,7 +677,6 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
-      requiredSigners,
       operation,
       skipValidation = false,
       skipTtl = false,
@@ -695,7 +689,6 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
-      requiredSigners,
       operation,
       skipValidation,
       skipTtl,
