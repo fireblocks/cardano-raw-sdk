@@ -9,6 +9,7 @@ import {
 import {
   Logger,
   buildTransactionWithCalculatedFee,
+  WITNESS_COUNT_PAYMENT_KEY_ONLY,
   calculateTransactionFee,
   calculateTtl,
   createTransactionInputs,
@@ -131,18 +132,32 @@ export class FireblocksCardanoRawSDK {
     iagonApiKey: string;
     /** Asset metadata cache TTL in milliseconds (default: 1 hour) */
     assetCacheTTL?: number;
+    /** Disable SSL certificate verification (use only in development) */
+    disableSslVerification?: boolean;
   }): Promise<FireblocksCardanoRawSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-cardano-raw-sdk`);
 
-      const { fireblocksConfig, vaultAccountId, network, iagonApiKey, assetCacheTTL } = params;
+      const {
+        fireblocksConfig,
+        vaultAccountId,
+        network,
+        iagonApiKey,
+        assetCacheTTL,
+        disableSslVerification = false,
+      } = params;
 
       if (network === Networks.PREVIEW) {
         throw new Error(`Unsupported network: ${network}`);
       }
 
       const fireblocksService = new FireblocksService(fireblocksConfig);
-      const iagonApiService = new IagonApiService(iagonApiKey, network, assetCacheTTL);
+      const iagonApiService = new IagonApiService(
+        iagonApiKey,
+        network,
+        assetCacheTTL,
+        disableSslVerification
+      );
       const stakingService = new StakingService(fireblocksService, iagonApiService, network);
       const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
       const wallet = await fireblocksService.getVaultAccountAddress(vaultAccountId, assetId);
@@ -813,7 +828,7 @@ export class FireblocksCardanoRawSDK {
       },
       txInputs,
       ttl,
-      1 // Estimate 1 witness (single signature)
+      WITNESS_COUNT_PAYMENT_KEY_ONLY
     );
 
     return txBody;

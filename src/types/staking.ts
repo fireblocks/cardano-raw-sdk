@@ -118,6 +118,5 @@ export interface BuildPayloadOptions {
   ttl?: number; // Optional for Conway-era governance transactions
   certificates?: Certificate[];
   withdrawals?: Map<Uint8Array, number>;
-  requiredSigners?: Buffer[];
   network: Networks;
 }

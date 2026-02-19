@@ -3,7 +3,12 @@
  * Interfaces and constants for dependency injection and value objects
  */
 
-import { Networks, SupportedAssets, CardanoWitness, TransferResponse } from "../../../types/index.js";
+import {
+  Networks,
+  SupportedAssets,
+  CardanoWitness,
+  TransferResponse,
+} from "../../../types/index.js";
 import { UtxoForStaking } from "../../../utils/staking.utils.js";
 
 // ============================================================================
@@ -77,6 +82,5 @@ export interface TransactionBuildContext {
   readonly ttl?: number; // Optional for Conway-era governance transactions
   readonly certificates?: Array<any>;
   readonly withdrawals?: Map<Uint8Array, number>;
-  readonly requiredSigners?: Buffer[];
   readonly network: Networks;
 }
