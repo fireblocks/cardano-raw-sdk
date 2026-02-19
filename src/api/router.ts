@@ -1,6 +1,15 @@
 import { Router } from "express";
 import { SdkManager } from "../pool/sdkManager.js";
 import { ApiController } from "./controllers/controller.js";
+import {
+  validateRequest,
+  validateParams,
+  transferRequestSchema,
+  feeEstimationRequestSchema,
+  vaultAccountIdParamsSchema,
+  credentialParamsSchema,
+  hashParamsSchema,
+} from "./validation.js";
 
 export const configureRouter = (sdkManager: SdkManager): Router => {
   const router: Router = Router();
@@ -94,6 +103,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           type: boolean
    *           default: true
    *         description: Whether to group results by policy
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Whether to enrich tokens with on-chain metadata (name, ticker, decimals, description, fingerprint)
    *     responses:
    *       200:
    *         description: Balance retrieved successfully
@@ -104,14 +119,18 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/balance/address/:vaultAccountId", apiController.getBalanceByAddress);
+  router.get(
+    "/balance/address/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getBalanceByAddress
+  );
 
   /**
    * @swagger
    * /api/balance/vault/{vaultAccountId}:
    *   get:
    *     summary: Get total balance for vault account
-   *     description: Retrieves the aggregated balance for all addresses in a vault account. Supports multiple grouping options to view balances by token, address, or policy.
+   *     description: Retrieves the aggregated balance for all addresses in a vault account. Supports multiple grouping options to view balances by token, address, or policy. Optionally enrich tokens with metadata (names, decimals, etc.).
    *     tags: [Balance]
    *     parameters:
    *       - in: path
@@ -131,6 +150,21 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           - `token`: Groups all balances by token/asset (default). Returns total ADA and all tokens across all addresses.
    *           - `address`: Groups balances by address. Shows per-address breakdown with totals.
    *           - `policy`: Groups tokens by their policy ID. Useful for NFT collections and token families.
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: true
+   *         description: |
+   *           Whether to enrich tokens with on-chain metadata including:
+   *           - Official token name
+   *           - Ticker symbol
+   *           - Decimals for proper formatting
+   *           - Human-readable formatted amount
+   *           - Description
+   *           - Asset fingerprint
+   *
+   *           Set to `true` to include metadata. Note: This uses cached data (1-hour TTL) for performance.
    *     responses:
    *       200:
    *         description: Vault balance retrieved successfully
@@ -238,9 +272,9 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                             additionalProperties:
    *                               type: string
    *                             description: Map of token names to amounts
-   *                     totalAda:
+   *                     totalLovelace:
    *                       type: string
-   *                       description: Total ADA in lovelace
+   *                       description: Total balance in lovelace (1 ADA = 1,000,000 lovelace)
    *                   example:
    *                     balances:
    *                       - policyId: "policy1"
@@ -250,11 +284,15 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                       - policyId: "policy2"
    *                         tokens:
    *                           nft1: "1"
-   *                     totalAda: "1500000000"
+   *                     totalLovelace: "1500000000"
    *       500:
    *         description: Internal server error
    */
-  router.get("/balance/vault/:vaultAccountId", apiController.getVaultBalance);
+  router.get(
+    "/balance/vault/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getVaultBalance
+  );
 
   /**
    * @swagger
@@ -282,6 +320,12 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           type: boolean
    *           default: true
    *         description: Whether to group results by policy
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Whether to enrich tokens with on-chain metadata (name, ticker, decimals, description, fingerprint)
    *     responses:
    *       200:
    *         description: Balance retrieved successfully
@@ -294,15 +338,19 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    */
   router.get(
     "/balance/credential/:vaultAccountId/:credential",
+    validateParams(credentialParamsSchema),
     apiController.getBalanceByCredential
   );
 
   /**
    * @swagger
-   * /api/balance/stake-key/{vaultAccountId}/{stakeKey}:
+   * /api/balance/stake/{vaultAccountId}:
    *   get:
    *     summary: Get balance by stake key
-   *     description: Retrieves the balance for a vault account using a stake key
+   *     description: |
+   *       Retrieves the balance for a vault account using the stake key.
+   *       The stake key is automatically derived from the vault account's base address.
+   *       Note: The stake key is shared across all addresses in the vault account.
    *     tags: [Balance]
    *     parameters:
    *       - in: path
@@ -311,18 +359,18 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         schema:
    *           type: string
    *         description: The vault account ID
-   *       - in: path
-   *         name: stakeKey
-   *         required: true
-   *         schema:
-   *           type: string
-   *         description: The stake key
    *       - in: query
    *         name: groupByPolicy
    *         schema:
    *           type: boolean
    *           default: true
    *         description: Whether to group results by policy
+   *       - in: query
+   *         name: includeMetadata
+   *         schema:
+   *           type: boolean
+   *           default: false
+   *         description: Whether to enrich tokens with on-chain metadata (name, ticker, decimals, description, fingerprint)
    *     responses:
    *       200:
    *         description: Balance retrieved successfully
@@ -333,7 +381,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/balance/stake-key/:vaultAccountId/:stakeKey", apiController.getBalanceByStakeKey);
+  router.get(
+    "/balance/stake/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getBalanceByStakeKey
+  );
 
   /**
    * TRANSACTIONS
@@ -400,7 +452,88 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/hash/:hash", apiController.getTransactionDetails);
+  router.get(
+    "/tx/hash/:hash",
+    validateParams(hashParamsSchema),
+    apiController.getTransactionDetails
+  );
+
+  /**
+   * @swagger
+   * /api/assets/{policyId}/{assetName}:
+   *   get:
+   *     summary: Get asset information
+   *     description: Retrieve detailed information about a Cardano native token including metadata, decimals, and supply data
+   *     tags: [Assets]
+   *     parameters:
+   *       - in: path
+   *         name: policyId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The policy ID of the asset (hex string)
+   *         example: f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a
+   *       - in: path
+   *         name: assetName
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The asset name in hex format
+   *         example: 4e4654
+   *     responses:
+   *       200:
+   *         description: Asset information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: true
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     policy_id:
+   *                       type: string
+   *                       description: Asset policy ID
+   *                     asset_name:
+   *                       type: string
+   *                       description: Asset name (hex)
+   *                     asset_name_ascii:
+   *                       type: string
+   *                       description: Asset name decoded to ASCII
+   *                     fingerprint:
+   *                       type: string
+   *                       description: Asset fingerprint
+   *                     total_supply:
+   *                       type: string
+   *                       description: Total supply of the asset
+   *                     metadata:
+   *                       type: object
+   *                       nullable: true
+   *                       properties:
+   *                         name:
+   *                           type: string
+   *                           description: Human-readable token name
+   *                         ticker:
+   *                           type: string
+   *                           description: Token ticker symbol
+   *                         decimals:
+   *                           type: number
+   *                           description: Number of decimal places
+   *                         description:
+   *                           type: string
+   *                           description: Token description
+   *                         logo:
+   *                           type: string
+   *                           description: Logo URL or base64
+   *       400:
+   *         description: Invalid request parameters
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/assets/:policyId/:assetName", apiController.getAssetInfo);
 
   /**
    * @swagger
@@ -475,7 +608,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/utxos/:vaultAccountId", apiController.getUtxosByAddress);
+  router.get(
+    "/utxos/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getUtxosByAddress
+  );
 
   /**
    * @swagger
@@ -597,7 +734,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/history/:vaultAccountId/all", apiController.getAllTransactionHistory);
+  router.get(
+    "/tx/history/:vaultAccountId/all",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getAllTransactionHistory
+  );
 
   /**
    * @swagger
@@ -698,7 +839,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/history/:vaultAccountId", apiController.getTransactionHistory);
+  router.get(
+    "/tx/history/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getTransactionHistory
+  );
 
   /**
    * @swagger
@@ -878,7 +1023,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/address/:vaultAccountId/all", apiController.getAllDetailedTxHistory);
+  router.get(
+    "/tx/address/:vaultAccountId/all",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getAllDetailedTxHistory
+  );
 
   /**
    * @swagger
@@ -1025,7 +1174,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/tx/address/:vaultAccountId", apiController.getDetailedTxHistory);
+  router.get(
+    "/tx/address/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getDetailedTxHistory
+  );
 
   /**
    * @swagger
@@ -1108,12 +1261,35 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 txHash:
    *                   type: string
    *                   description: The transaction hash
+   *                   example: "a1b2c3d4e5f6..."
    *                 senderAddress:
    *                   type: string
    *                   description: The sender's address
+   *                   example: "addr1qxy..."
+   *                 tokenPolicyId:
+   *                   type: string
+   *                   description: The policy ID of the token that was transferred
+   *                   example: "0691b2f..."
    *                 tokenName:
    *                   type: string
-   *                   description: The token name that was transferred
+   *                   description: The token name that was transferred (hex format)
+   *                   example: "4e494..."
+   *                 amount:
+   *                   type: number
+   *                   description: The amount of tokens that were transferred
+   *                   example: 100000
+   *                 fee:
+   *                   type: object
+   *                   description: Transaction fee information
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                       description: Fee in lovelace (smallest ADA unit)
+   *                       example: "170000"
+   *                     ada:
+   *                       type: string
+   *                       description: Fee in ADA (human-readable, 6 decimal places)
+   *                       example: "0.170000"
    *       400:
    *         description: Validation error (e.g., both or neither recipient options specified)
    *       404:
@@ -1121,7 +1297,154 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/transfers", apiController.transfer);
+  router.post("/transfers", validateRequest(transferRequestSchema), apiController.transfer);
+
+  /**
+   * @swagger
+   * /api/fee-estimate:
+   *   post:
+   *     summary: Estimate transaction fee
+   *     description: |
+   *       Estimates the transaction fee for a token transfer WITHOUT creating or signing the transaction.
+   *       This is useful for displaying estimated fees to users in a confirmation modal before executing the actual transfer.
+   *
+   *       Two transfer modes are supported:
+   *       1. **Vault-to-address transfer**: Specify `recipientAddress` to estimate fee for sending tokens to a specific Cardano address
+   *       2. **Vault-to-vault transfer**: Specify `recipientVaultAccountId` (and optionally `recipientIndex`) to estimate fee for transfers between vault accounts
+   *
+   *       **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
+   *
+   *       **Gross Amount**: When `grossAmount: true`, the fee is deducted from the amount being sent (recipient receives less).
+   *       When `grossAmount: false` (default), the fee is added to the total cost (recipient receives full amount).
+   *     tags: [Transactions]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - tokenPolicyId
+   *               - tokenName
+   *               - requiredTokenAmount
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: The source vault account ID
+   *               index:
+   *                 type: number
+   *                 description: Source address index to use (optional, defaults to 0)
+   *               recipientAddress:
+   *                 type: string
+   *                 description: The recipient Cardano address (use this OR recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: The recipient vault account ID for vault-to-vault transfers (use this OR recipientAddress)
+   *               recipientIndex:
+   *                 type: number
+   *                 description: Recipient address index when using recipientVaultAccountId (optional, defaults to 0)
+   *               tokenPolicyId:
+   *                 type: string
+   *                 description: The policy ID of the token to transfer (hex format)
+   *               tokenName:
+   *                 type: string
+   *                 description: The token name (hex format)
+   *               requiredTokenAmount:
+   *                 type: number
+   *                 description: The amount of tokens to transfer
+   *               grossAmount:
+   *                 type: boolean
+   *                 description: If true, fee is deducted from the amount being sent (optional, defaults to false)
+   *           examples:
+   *             addressTransfer:
+   *               summary: Estimate fee for transfer to specific address
+   *               value:
+   *                 vaultAccountId: "0"
+   *                 index: 0
+   *                 recipientAddress: "addr1qxy..."
+   *                 tokenPolicyId: "policy123..."
+   *                 tokenName: "4e49..."
+   *                 requiredTokenAmount: 100
+   *                 grossAmount: false
+   *             vaultTransfer:
+   *               summary: Estimate fee for vault-to-vault transfer
+   *               value:
+   *                 vaultAccountId: "0"
+   *                 index: 0
+   *                 recipientVaultAccountId: "1"
+   *                 recipientIndex: 0
+   *                 tokenPolicyId: "policy123..."
+   *                 tokenName: "4e49..."
+   *                 requiredTokenAmount: 100
+   *     responses:
+   *       200:
+   *         description: Fee estimation completed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 fee:
+   *                   type: object
+   *                   description: Transaction fee details
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       description: Fee in ADA (human-readable)
+   *                       example: "0.170000"
+   *                     lovelace:
+   *                       type: string
+   *                       description: Fee in lovelace (base units)
+   *                       example: "170000"
+   *                 minAdaRequired:
+   *                   type: object
+   *                   description: Minimum ADA required in output UTXO for CNT transfers
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       description: Minimum ADA in human-readable format
+   *                       example: "1.000000"
+   *                     lovelace:
+   *                       type: string
+   *                       description: Minimum ADA in lovelace
+   *                       example: "1000000"
+   *                 totalCost:
+   *                   type: object
+   *                   description: Total cost including fee (when grossAmount=false)
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       description: Total in ADA
+   *                       example: "1.170000"
+   *                     lovelace:
+   *                       type: string
+   *                       description: Total in lovelace
+   *                       example: "1170000"
+   *                 recipientReceives:
+   *                   type: object
+   *                   description: What the recipient will actually receive
+   *                   properties:
+   *                     amount:
+   *                       type: string
+   *                       description: Token amount recipient receives (in base units)
+   *                       example: "100"
+   *                     ada:
+   *                       type: string
+   *                       description: ADA amount recipient receives
+   *                       example: "1.000000"
+   *       400:
+   *         description: Validation error (e.g., both or neither recipient options specified)
+   *       404:
+   *         description: Address not found for the specified vault account
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/fee-estimate",
+    validateRequest(feeEstimationRequestSchema),
+    apiController.estimateFee
+  );
 
   /**
    * WEBHOOK
@@ -1131,8 +1454,22 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    * @swagger
    * /api/webhook:
    *   post:
-   *     summary: Enrich webhook payload
-   *     description: Enriches the incoming webhook payload with additional data, including CNT (Cardano Native Token) details.
+   *     summary: Enrich webhook payload with signature verification
+   *     description: |
+   *       Enriches the incoming Fireblocks webhook payload with additional data, including CNT (Cardano Native Token) details.
+   *
+   *       **Security:** This endpoint verifies webhook signatures using either:
+   *       - JWKS (JSON Web Key Set) - Modern method with automatic key rotation
+   *       - Legacy RSA-SHA512 - Static public key verification (being phased out)
+   *
+   *       **Headers Required for Verification:**
+   *       - `fireblocks-webhook-signature`: JWT signature (JWKS method)
+   *       - `fireblocks-signature`: Legacy signature (fallback method)
+   *
+   *       **Environment:** The webhook environment (US, EU, EU2, SANDBOX) is automatically determined from the
+   *       `FIREBLOCKS_BASE_PATH` configuration. Ensure your server configuration matches your Fireblocks workspace.
+   *
+   *       If signature verification fails, the request is rejected with a 401 error.
    *     tags: [Webhooks]
    *     requestBody:
    *       required: true
@@ -1140,6 +1477,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         application/json:
    *           schema:
    *             type: object
+   *             description: Fireblocks webhook payload (JSON)
    *     responses:
    *       200:
    *         description: Webhook payload enriched successfully
@@ -1147,6 +1485,19 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *           application/json:
    *             schema:
    *               type: object
+   *       401:
+   *         description: Webhook signature verification failed
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                   example: false
+   *                 error:
+   *                   type: string
+   *                   example: "Webhook signature verification failed"
    *       500:
    *         description: Internal server error
    */
@@ -1229,7 +1580,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/staking/accounts/:vaultAccountId", apiController.getStakeAccountInfo);
+  router.get(
+    "/staking/accounts/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getStakeAccountInfo
+  );
 
   /**
    * @swagger
@@ -1280,7 +1635,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/staking/rewards/:vaultAccountId", apiController.queryStakingRewards);
+  router.get(
+    "/staking/rewards/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.queryStakingRewards
+  );
 
   /**
    * @swagger
@@ -1321,7 +1680,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.get("/staking/stake-address/:vaultAccountId", apiController.getStakeAddress);
+  router.get(
+    "/staking/stake-address/:vaultAccountId",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getStakeAddress
+  );
 
   /**
    * @swagger

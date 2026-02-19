@@ -33,7 +33,7 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 - Node.js 18+ (for SDK usage)
 - Docker & Docker Compose (for API service deployment)
 - Fireblocks API credentials
-- Iagon API key (optional, for enhanced features)
+- Iagon API key (required for balance queries, transaction history, and transfers)
 
 ### Install as a TypeScript Package
 
@@ -79,6 +79,7 @@ const sdk = await FireblocksCardanoRawSDK.createInstance({
   },
   vaultAccountId: "your-vault-account-id",
   network: Networks.MAINNET,
+  iagonApiKey: "your-iagon-api-key",
 });
 ```
 
@@ -86,7 +87,7 @@ const sdk = await FireblocksCardanoRawSDK.createInstance({
 
 ```typescript
 // Get balance by address
-const balance = await sdk.getBalanceByAddress(SupportedAssets.ADA, {
+const balance = await sdk.getBalanceByAddress({
   index: 0,
   groupByPolicy: false,
 });
@@ -117,6 +118,8 @@ const transferResult = await sdk.transfer({
 
 console.log("Transaction Hash:", transferResult.txHash);
 console.log("Sender Address:", transferResult.senderAddress);
+console.log("Fee:", transferResult.fee.ada, "ADA"); // e.g., "0.170000 ADA"
+console.log("Fee (lovelace):", transferResult.fee.lovelace); // e.g., "170000"
 ```
 
 **2. Vault-to-Vault Transfer**
@@ -133,6 +136,7 @@ const transferResult = await sdk.transfer({
 
 console.log("Transaction Hash:", transferResult.txHash);
 console.log("Sender Address:", transferResult.senderAddress);
+console.log("Fee:", transferResult.fee.ada, "ADA"); // e.g., "0.170000 ADA"
 ```
 
 **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
@@ -141,14 +145,16 @@ console.log("Sender Address:", transferResult.senderAddress);
 
 ```typescript
 // Get basic transaction history
-const history = await sdk.getTransactionHistory(SupportedAssets.ADA, 0, {
+const history = await sdk.getTransactionHistory({
+  index: 0,
   limit: 10,
   offset: 0,
   fromSlot: 100000,
 });
 
 // Get detailed transaction history with inputs/outputs
-const detailedHistory = await sdk.getDetailedTxHistory(SupportedAssets.ADA, 0, {
+const detailedHistory = await sdk.getDetailedTxHistory({
+  index: 0,
   limit: 10,
   offset: 0,
 });
@@ -157,17 +163,36 @@ const detailedHistory = await sdk.getDetailedTxHistory(SupportedAssets.ADA, 0, {
 const txDetails = await sdk.getTransactionDetails("6c9e6d70a0ce7ca5d...");
 ```
 
+#### Asset Information
+
+```typescript
+// Get detailed asset information including metadata and decimals
+const assetInfo = await sdk.getAssetInfo(
+  "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a", // Policy ID
+  "4e4654" // Asset name (hex)
+);
+
+console.log("Token Name:", assetInfo.data.metadata?.name);
+console.log("Ticker:", assetInfo.data.metadata?.ticker);
+console.log("Decimals:", assetInfo.data.metadata?.decimals);
+console.log("Total Supply:", assetInfo.data.total_supply);
+console.log("Logo:", assetInfo.data.metadata?.logo);
+
+// Use decimals to format token amounts correctly
+const rawAmount = 1000000;
+const decimals = assetInfo.data.metadata?.decimals || 0;
+const formattedAmount = rawAmount / Math.pow(10, decimals);
+console.log(`Amount: ${formattedAmount} ${assetInfo.data.metadata?.ticker}`);
+```
+
 #### Vault Account Operations
 
 ```typescript
 // Get vault account addresses
-const addresses = await sdk.getVaultAccountAddresses(SupportedAssets.ADA);
+const addresses = await sdk.getVaultAccountAddresses();
 
-// Get public key
-const publicKey = await sdk.getPublicKey(SupportedAssets.ADA, 0, 0);
-
-// Broadcast a raw transaction
-const result = await sdk.broadcastTransaction(transactionRequest);
+// Get public key (change index, address index)
+const publicKey = await sdk.getPublicKey(0, 0);
 ```
 
 #### Graceful Shutdown
@@ -223,11 +248,68 @@ GET /api/balance/credential/:vaultAccountId/:credential?groupByPolicy=false
 GET /api/balance/stake-key/:vaultAccountId/:stakeKey?groupByPolicy=false
 ```
 
+##### Webhook Operations
+
+**Setup in Fireblocks Console:**
+
+1. Go to **Fireblocks Console → Settings → Webhooks**
+2. Add webhook URL: `https://your-domain.com/api/webhook`
+3. Select events: `TRANSACTION_CREATED`, `TRANSACTION_STATUS_UPDATED`, etc.
+4. Fireblocks will automatically sign webhooks with both JWKS and legacy signatures
+
+**Important:** Ensure your server's `FIREBLOCKS_BASE_PATH` environment variable matches your Fireblocks workspace:
+
+- US workspace: `https://api.fireblocks.io` (default)
+- EU workspace: `https://api.eu1.fireblocks.io`
+- EU2 workspace: `https://api.eu2.fireblocks.io`
+- Sandbox: `https://sandbox-api.fireblocks.io`
+
+**Endpoint:**
+
+```bash
+# Enrich Fireblocks webhook with automatic signature verification
+POST /api/webhook
+Content-Type: application/json
+Headers:
+  - fireblocks-webhook-signature: <JWT signature> (added by Fireblocks)
+  - fireblocks-signature: <Legacy signature> (added by Fireblocks)
+
+Body:
+{
+  "eventType": "transaction.created",
+  "data": { ... }
+}
+
+# Response (enriched with CNT data):
+{
+  "eventType": "transaction.created",
+  "data": {
+    ...
+    "cardanoTokensData": {
+      "tx_hash": "...",
+      "inputs": [...],
+      "outputs": [...]
+    }
+  }
+}
+```
+
+**Security:** The endpoint automatically verifies webhook signatures using:
+
+- **JWKS** (modern, automatic key rotation) - tries first
+- **Legacy RSA-SHA512** (static keys) - fallback
+- Verification environment is automatically determined from `FIREBLOCKS_BASE_PATH` config
+
+Invalid signatures are rejected with 401 error.
+
 ##### Transaction Operations
 
 ```bash
 # Get transaction details by hash
 GET /api/tx/hash/:hash
+
+# Get asset information (metadata, decimals, supply)
+GET /api/assets/:policyId/:assetName
 
 # Get transaction history
 GET /api/tx/history/:vaultAccountId?index=0&limit=10&offset=0&fromSlot=100000
@@ -246,6 +328,17 @@ Content-Type: application/json
   "tokenName": "4e49...",
   "requiredTokenAmount": 1000000,
   "index": 0
+}
+
+# Response:
+{
+  "txHash": "a1b2c3d4e5f6...",
+  "senderAddress": "addr1qxy...",
+  "tokenName": "4e49...",
+  "fee": {
+    "lovelace": "170000",
+    "ada": "0.170000"
+  }
 }
 
 # Execute transfer (vault-to-vault)
@@ -272,6 +365,9 @@ curl http://localhost:8000/api/balance/address/vault-123?assetId=ADA&index=0
 # Get transaction history
 curl http://localhost:8000/api/tx/history/vault-123?limit=5
 
+# Get asset information
+curl http://localhost:8000/api/assets/f0ff48bbb7bbe9d5.../4e4654
+
 # Execute transfer (to address)
 curl -X POST http://localhost:8000/api/transfers \
   -H "Content-Type: application/json" \
@@ -282,6 +378,7 @@ curl -X POST http://localhost:8000/api/transfers \
     "tokenName": "4e49...",
     "requiredTokenAmount": 1000000
   }'
+# Response: {"txHash":"a1b2c3d4...","senderAddress":"addr1qxy...","tokenName":"4e49...","fee":{"lovelace":"170000","ada":"0.170000"}}
 
 # Execute transfer (vault-to-vault)
 curl -X POST http://localhost:8000/api/transfers \
@@ -313,8 +410,8 @@ FIREBLOCKS_BASE_PATH=https://api.fireblocks.io
 # Cardano Network Configuration
 CARDANO_NETWORK=mainnet  # Options: mainnet, preprod, preview
 
-
-# Optional: Iagon API Configuration
+# Iagon API Configuration (Required)
+# Required for all balance queries, transaction history, and token transfers
 IAGON_API_KEY=your-iagon-api-key
 
 ```
@@ -375,6 +472,7 @@ async function transferTokens() {
     },
     vaultAccountId: "vault-123",
     network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
   });
 
   try {
@@ -387,6 +485,8 @@ async function transferTokens() {
 
     console.log("Transfer successful!");
     console.log("Transaction Hash:", result.txHash);
+    console.log("Sender Address:", result.senderAddress);
+    console.log("Transaction Fee:", result.fee.ada, "ADA");
     console.log("View on Cardanoscan:", `https://cardanoscan.io/transaction/${result.txHash}`);
   } catch (error) {
     console.error("Transfer failed:", error);
@@ -427,11 +527,11 @@ const manager = new SdkManager(
 
 // Get SDK for a vault account (automatically pooled)
 const sdk1 = await manager.getSdk("vault-123");
-const balance1 = await sdk1.getBalanceByAddress();
+const balance1 = await sdk1.getBalanceByAddress({ index: 0 });
 
 // Reuses the same SDK instance
 const sdk2 = await manager.getSdk("vault-123");
-const balance2 = await sdk2.getBalanceByAddress();
+const balance2 = await sdk2.getBalanceByAddress({ index: 0 });
 
 // Release SDK back to pool when done
 manager.releaseSdk("vault-123");
@@ -472,6 +572,8 @@ async function getBalanceAndTransfer() {
       requiredTokenAmount: 1000000,
     });
     console.log("Transfer Result:", transferResponse.data);
+    console.log("Transaction Hash:", transferResponse.data.txHash);
+    console.log("Fee:", transferResponse.data.fee.ada, "ADA");
   } catch (error) {
     console.error("Error:", error.response?.data || error.message);
   }
@@ -496,6 +598,7 @@ async function demonstrateCaching() {
     },
     vaultAccountId: "vault-123",
     network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
   });
 
   // Check cache statistics
@@ -503,8 +606,8 @@ async function demonstrateCaching() {
   console.log(`Cache stats: ${stats.addressCount} addresses, ${stats.publicKeyCount} public keys`);
 
   // Multiple operations benefit from caching
-  const balance1 = await sdk.getBalanceByAddress(SupportedAssets.ADA, { index: 0 });
-  const balance2 = await sdk.getBalanceByAddress(SupportedAssets.ADA, { index: 0 });
+  const balance1 = await sdk.getBalanceByAddress({ index: 0 });
+  const balance2 = await sdk.getBalanceByAddress({ index: 0 });
   // Second balance check uses cached address - no Fireblocks API call!
 
   // Clear cache if needed
@@ -530,14 +633,8 @@ npm run build
 # Run in development mode with hot reload
 npm run dev
 
-# Run tests
-npm test
-
 # Generate documentation
 npm run docs
-
-# Lint code
-npm run lint
 ```
 
 ### Project Structure

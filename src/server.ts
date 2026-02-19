@@ -1,30 +1,42 @@
 import { fileURLToPath } from "url";
 import path, { dirname } from "path";
 import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
-import { Express } from "express-serve-static-core";
 import express, { Request, Response } from "express";
 
-import { config, Logger, LogLevel } from "./utils/index.js";
+import { config, Logger } from "./utils/index.js";
 import { getSwaggerSpec, swaggerUi } from "./utils/swagger.js";
 import { SdkManager } from "./pool/sdkManager.js";
 import { configureRouter } from "./api/router.js";
 import { FireblocksCardanoRawSDK } from "./FireblocksCardanoRawSDK.js";
 import { Networks } from "./types/index.js";
 
-const logLevel = "INFO";
-Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("app:server-setup");
 
 const startServer = () => {
   // Validate required environment variables for server mode
-  ["FIREBLOCKS_API_USER_KEY", "FIREBLOCKS_API_USER_SECRET_KEY_PATH"].forEach((key) => {
-    if (process.env[key] === undefined || process.env[key] === "") {
-      throw new Error(`Missing required environment variable: ${key}`);
+  ["FIREBLOCKS_API_USER_KEY", "FIREBLOCKS_API_USER_SECRET_KEY_PATH", "IAGON_API_KEY"].forEach(
+    (key) => {
+      if (process.env[key] === undefined || process.env[key] === "") {
+        throw new Error(`Missing required environment variable: ${key}`);
+      }
     }
-  });
+  );
+
   const app = express();
 
-  configureMiddlewares(app);
+  // Configure middlewares with raw body preservation for webhook endpoint
+  app.use(
+    express.json({
+      verify: (req: any, _res, buf, _encoding) => {
+        // Preserve raw body for webhook signature verification
+        if (req.url === "/api/webhook") {
+          req.rawBody = buf;
+        }
+      },
+    })
+  );
+  app.use(express.urlencoded({ extended: true }));
+  app.use(errorHandler);
 
   // Initialize base config for Fireblocks
   const baseConfig: ConfigurationOptions = {
@@ -85,12 +97,6 @@ const startServer = () => {
   app.listen(config.PORT, () => {
     logger.info(`${config.APP_NAME} listening on port ${config.PORT}`);
   });
-};
-
-const configureMiddlewares = (app: Express) => {
-  app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
-  app.use(errorHandler);
 };
 
 const errorHandler: express.ErrorRequestHandler = (err, _req, res, _next) => {

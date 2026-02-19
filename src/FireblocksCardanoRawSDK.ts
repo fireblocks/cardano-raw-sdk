@@ -1,22 +1,22 @@
 import {
   ConfigurationOptions,
   VaultWalletAddress,
-  SignedMessageSignature,
   TransactionRequest,
   TransactionOperation,
   TransferPeerPathType,
-  SignedMessageAlgorithmEnum,
 } from "@fireblocks/ts-sdk";
 
 import {
   Logger,
-  buildTransaction,
+  buildTransactionWithCalculatedFee,
+  calculateTransactionFee,
   calculateTtl,
   createTransactionInputs,
-  createTransactionOutputs,
   fetchAndSelectUtxos,
   submitTransaction,
   decodeAssetName,
+  formatWithDecimals,
+  getStakeAddressFromBaseAddress,
 } from "./utils/index.js";
 
 import {
@@ -54,22 +54,29 @@ import {
   StakeAccountInfoResponse,
   HealthStatusResponse,
   CurrentEpochResponse,
+  AssetInfoResponse,
+  TokenMetadata,
+  FeeEstimationRequest,
+  FeeEstimationResponse,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
-import { CardanoAmounts } from "./constants.js";
+import { CardanoAmounts, CardanoConstants, FireblocksWebhookConstants } from "./constants.js";
 
 import {
   Address,
   Ed25519Signature,
   PublicKey,
   Transaction,
+  TransactionBody,
   TransactionWitnessSet,
   Vkey,
   Vkeywitness,
   Vkeywitnesses,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { blake2b } from "blakejs";
+import crypto from "crypto";
+import { createRemoteJWKSet, compactVerify } from "jose";
 
 export interface SDKConfig {
   vaultAccountId: string;
@@ -89,6 +96,7 @@ export class FireblocksCardanoRawSDK {
   private addresses: Map<number, string> = new Map();
   private publicKeys: Map<string, string> = new Map();
   private readonly logger: Logger;
+  private jwksCache: Map<string, ReturnType<typeof createRemoteJWKSet>> = new Map();
 
   /**
    * Creates a new FireblocksCardanoRawSDK instance
@@ -108,23 +116,33 @@ export class FireblocksCardanoRawSDK {
     this.logger.info("FireblocksCardanoRawSDK initialized successfully");
   }
 
+  /**
+   * Gets the Fireblocks asset ID for the current network
+   * @returns SupportedAssets.ADA for mainnet, SupportedAssets.ADA_TEST for testnets
+   */
+  private get assetId(): SupportedAssets {
+    return this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+  }
+
   public static createInstance = async (params: {
     fireblocksConfig: ConfigurationOptions;
     vaultAccountId: string;
     network: Networks;
     iagonApiKey: string;
+    /** Asset metadata cache TTL in milliseconds (default: 1 hour) */
+    assetCacheTTL?: number;
   }): Promise<FireblocksCardanoRawSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-cardano-raw-sdk`);
 
-      const { fireblocksConfig, vaultAccountId, network, iagonApiKey } = params;
+      const { fireblocksConfig, vaultAccountId, network, iagonApiKey, assetCacheTTL } = params;
 
       if (network === Networks.PREVIEW) {
         throw new Error(`Unsupported network: ${network}`);
       }
 
       const fireblocksService = new FireblocksService(fireblocksConfig);
-      const iagonApiService = new IagonApiService(iagonApiKey, network);
+      const iagonApiService = new IagonApiService(iagonApiKey, network, assetCacheTTL);
       const stakingService = new StakingService(fireblocksService, iagonApiService, network);
       const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
       const wallet = await fireblocksService.getVaultAccountAddress(vaultAccountId, assetId);
@@ -160,43 +178,54 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Get balance by address for a vault account
+   * @param options.index - Address index (default: 0)
+   * @param options.groupByPolicy - Group assets by policy (default: false)
+   * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
   public getBalanceByAddress = async (
-    options: { index?: number; groupByPolicy?: boolean } = {}
-  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
-    const { index = 0, groupByPolicy = false } = options;
-
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+    options: { index?: number; groupByPolicy?: boolean; includeMetadata?: boolean } = {}
+  ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { index = 0, groupByPolicy = false, includeMetadata = false } = options;
 
     // Use cached address fetching
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
 
-    this.logger.info(`Getting balance for address ${address} (vault: ${this.vaultAccountId})`);
-    return await this.iagonApiService.getBalanceByAddress({
+    this.logger.info(
+      `Getting balance for address ${address} (vault: ${this.vaultAccountId}, includeMetadata: ${includeMetadata})`
+    );
+
+    const response = await this.iagonApiService.getBalanceByAddress({
       address,
       groupByPolicy,
     });
+
+    if (includeMetadata) {
+      return await this.enrichIagonResponse(response);
+    }
+
+    return response;
   };
 
   /**
    * Get total balance for all addresses in a vault account
+   * @param options.groupBy - How to group the balance data
+   * @param options.includeMetadata - Whether to enrich tokens with metadata (names, decimals, logos)
    */
   public getVaultBalance = async (
     options: {
       groupBy?: GroupByOptions;
+      includeMetadata?: boolean;
     } = {}
   ): Promise<VaultBalanceResponse> => {
-    const { groupBy = GroupByOptions.TOKEN } = options;
+    const { groupBy = GroupByOptions.TOKEN, includeMetadata = false } = options;
 
-    this.logger.info(`Getting vault balance for vault ${this.vaultAccountId}, groupBy: ${groupBy}`);
-
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+    this.logger.info(
+      `Getting vault balance for vault ${this.vaultAccountId}, groupBy: ${groupBy}, includeMetadata: ${includeMetadata}`
+    );
 
     const addresses = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
-      assetId
+      this.assetId
     );
 
     if (!addresses || addresses.length === 0) {
@@ -226,40 +255,74 @@ export class FireblocksCardanoRawSDK {
     const results = await Promise.all(balancePromises);
 
     // Aggregate based on groupBy parameter
-    return this.aggregateVaultBalance(results, groupBy);
+    return this.aggregateVaultBalance(results, groupBy, includeMetadata);
   };
 
   /**
    * Get balance by credential for a vault account
+   * @param options.credential - Payment credential
+   * @param options.groupByPolicy - Group assets by policy (default: false)
+   * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
   public getBalanceByCredential = async (options: {
     credential: string;
     groupByPolicy?: boolean;
-  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
-    const { credential, groupByPolicy = false } = options;
+    includeMetadata?: boolean;
+  }): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { credential, groupByPolicy = false, includeMetadata = false } = options;
 
-    this.logger.info(`Getting balance for credential ${credential}`);
-    return await this.iagonApiService.getBalanceByCredential({
+    this.logger.info(
+      `Getting balance for credential ${credential} (includeMetadata: ${includeMetadata})`
+    );
+
+    const response = await this.iagonApiService.getBalanceByCredential({
       credential,
       groupByPolicy,
     });
+
+    if (includeMetadata) {
+      return await this.enrichIagonResponse(response);
+    }
+
+    return response;
   };
 
   /**
    * Get balance by stake key for a vault account
+   * Automatically derives the stake key from the vault account address.
+   * Note: The stake key is shared across all addresses in the vault account.
+   * @param options.groupByPolicy - Group assets by policy (default: false)
+   * @param options.includeMetadata - Enrich tokens with metadata (default: false)
    */
-  public getBalanceByStakeKey = async (options: {
-    stakeKey: string;
-    groupByPolicy?: boolean;
-  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
-    const { stakeKey, groupByPolicy = false } = options;
+  public getBalanceByStakeKey = async (
+    options: {
+      groupByPolicy?: boolean;
+      includeMetadata?: boolean;
+    } = {}
+  ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+    const { groupByPolicy = false, includeMetadata = false } = options;
 
-    this.logger.info(`Getting balance for stake key ${stakeKey}`);
+    // Get the base address for this vault account (using index 0, but stake key is the same for all indices)
+    const baseAddress = await this.getAddressByIndex(this.assetId, 0);
 
-    return await this.iagonApiService.getBalanceByStakeKey({
+    // Derive the stake key from the base address
+    const isMainnet = this.network === Networks.MAINNET;
+    const stakeKey = getStakeAddressFromBaseAddress(baseAddress, isMainnet);
+
+    this.logger.info(
+      `Getting balance for stake key ${stakeKey} (vault: ${this.vaultAccountId}, includeMetadata: ${includeMetadata})`
+    );
+
+    const response = await this.iagonApiService.getBalanceByStakeKey({
       stakeKey,
       groupByPolicy,
     });
+
+    if (includeMetadata) {
+      return await this.enrichIagonResponse(response);
+    }
+
+    return response;
   };
 
   /**
@@ -267,9 +330,9 @@ export class FireblocksCardanoRawSDK {
    */
   private getEmptyVaultBalance(groupBy: GroupByOptions): VaultBalanceResponse {
     if (groupBy === GroupByOptions.ADDRESS) {
-      return { addresses: [], totals: { ada: "0", tokens: [] } };
+      return { addresses: [], totals: { lovelace: "0", tokens: [] } };
     } else if (groupBy === GroupByOptions.POLICY) {
-      return { balances: [], totalAda: "0" };
+      return { balances: [], totalLovelace: "0" };
     } else {
       return { balances: [{ assetId: "ADA", amount: "0", tokenName: "ADA" }] };
     }
@@ -320,9 +383,7 @@ export class FireblocksCardanoRawSDK {
    * Get UTXOs for a vault account address
    */
   public getUtxosByAddress = async (index: number = 0): Promise<UtxoIagonResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
 
     this.logger.info(
       `Getting UTXOs for vault ${this.vaultAccountId} at index ${index} (address: ${address})`
@@ -342,11 +403,9 @@ export class FireblocksCardanoRawSDK {
       fromSlot?: number;
     } = {}
   ): Promise<TransactionHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
     this.logger.info(
-      `Getting transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
+      `Getting transaction history for vault ${this.vaultAccountId}, asset ${this.assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getTransactionHistory({ address, ...options });
@@ -363,12 +422,10 @@ export class FireblocksCardanoRawSDK {
       fromSlot?: number;
     } = {}
   ): Promise<DetailedTxHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    const address = await this.getAddressByIndex(assetId, index);
+    const address = await this.getAddressByIndex(this.assetId, index);
 
     this.logger.info(
-      `Getting detailed transaction history for vault ${this.vaultAccountId}, asset ${assetId}, at index ${index} (address: ${address})`
+      `Getting detailed transaction history for vault ${this.vaultAccountId}, asset ${this.assetId}, at index ${index} (address: ${address})`
     );
 
     return await this.iagonApiService.getDetailedTxHistory({ address, ...options });
@@ -386,16 +443,13 @@ export class FireblocksCardanoRawSDK {
       groupByAddress?: boolean;
     } = {}
   ): Promise<TransactionHistoryResponse | GroupedTransactionHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     this.logger.info(
       `Getting transaction history for all addresses in vault ${this.vaultAccountId}`
     );
 
     const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
-      assetId
+      this.assetId
     );
 
     if (!addressesResponse || addressesResponse.length === 0) {
@@ -427,12 +481,15 @@ export class FireblocksCardanoRawSDK {
     );
 
     // Get the most recent last_updated from all histories
-    const mostRecentUpdate = allHistories.reduce((latest, current) => {
-      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
-        return current.last_updated || latest;
-      }
-      return latest;
-    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+    const mostRecentUpdate = allHistories.reduce(
+      (latest, current) => {
+        if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+          return current.last_updated || latest;
+        }
+        return latest;
+      },
+      allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" }
+    );
 
     if (options.groupByAddress) {
       // Group transactions by address
@@ -514,16 +571,13 @@ export class FireblocksCardanoRawSDK {
       groupByAddress?: boolean;
     } = {}
   ): Promise<DetailedTxHistoryResponse | GroupedDetailedTxHistoryResponse> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-
     this.logger.info(
       `Getting detailed transaction history for all addresses in vault ${this.vaultAccountId}`
     );
 
     const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
-      assetId
+      this.assetId
     );
 
     if (!addressesResponse || addressesResponse.length === 0) {
@@ -555,12 +609,15 @@ export class FireblocksCardanoRawSDK {
     );
 
     // Get the most recent last_updated from all histories
-    const mostRecentUpdate = allHistories.reduce((latest, current) => {
-      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
-        return current.last_updated || latest;
-      }
-      return latest;
-    }, allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" });
+    const mostRecentUpdate = allHistories.reduce(
+      (latest, current) => {
+        if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+          return current.last_updated || latest;
+        }
+        return latest;
+      },
+      allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" }
+    );
 
     if (options.groupByAddress) {
       // Group transactions by address
@@ -632,6 +689,7 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Selects and validates UTXOs for the transaction
+   * Minimum lovelace values are calculated dynamically based on policies
    */
   private async selectAndValidateUtxos(params: {
     address: string;
@@ -639,8 +697,6 @@ export class FireblocksCardanoRawSDK {
     tokenName: string;
     requiredTokenAmount: number;
     transactionFee: number;
-    minRecipientLovelace: number;
-    minChangeLovelace: number;
   }) {
     const utxoResult = await fetchAndSelectUtxos({
       iagonApiService: this.iagonApiService,
@@ -648,29 +704,80 @@ export class FireblocksCardanoRawSDK {
     });
 
     if (!utxoResult) {
-      throw new Error("UtxoSelectionFailed: No suitable UTXOs found for this transaction");
+      throw new SdkApiError(
+        "No suitable UTXOs found for this transaction",
+        400,
+        "UtxoSelectionFailed",
+        {
+          address: params.address,
+          tokenPolicyId: params.tokenPolicyId,
+          tokenName: params.tokenName,
+        },
+        "FireblocksCardanoRawSDK"
+      );
     }
 
-    const { selectedUtxos, accumulatedAda, accumulatedTokenAmount } = utxoResult;
-    const adaTarget = params.minRecipientLovelace + params.transactionFee;
+    const {
+      selectedUtxos,
+      accumulatedAda,
+      accumulatedTokenAmount,
+      minRecipientLovelace,
+      minChangeLovelace,
+    } = utxoResult;
+    const adaTarget = minRecipientLovelace + params.transactionFee;
 
     if (accumulatedTokenAmount < params.requiredTokenAmount || accumulatedAda < adaTarget) {
-      const error = new Error("InsufficientBalance: Insufficient balance for token or ADA");
-      (error as any).code = "INSUFFICIENT_BALANCE";
-      (error as any).details = {
-        requiredTokenAmount: params.requiredTokenAmount,
-        accumulatedTokenAmount,
-        requiredAda: adaTarget,
-        accumulatedAda,
-      };
-      throw error;
+      const tokenShortfall = Math.max(0, params.requiredTokenAmount - accumulatedTokenAmount);
+      const adaShortfall = Math.max(0, adaTarget - accumulatedAda);
+
+      let message = "Insufficient balance. ";
+      if (tokenShortfall > 0) {
+        message += `Token: need ${params.requiredTokenAmount.toLocaleString()}, have ${accumulatedTokenAmount.toLocaleString()} (short ${tokenShortfall.toLocaleString()}). `;
+      }
+      if (adaShortfall > 0) {
+        const required = formatWithDecimals(adaTarget, CardanoConstants.ADA_DECIMALS);
+        const recipient = formatWithDecimals(minRecipientLovelace, CardanoConstants.ADA_DECIMALS);
+        const fee = formatWithDecimals(params.transactionFee, CardanoConstants.ADA_DECIMALS);
+        const have = formatWithDecimals(accumulatedAda, CardanoConstants.ADA_DECIMALS);
+        const short = formatWithDecimals(adaShortfall, CardanoConstants.ADA_DECIMALS);
+
+        message += `ADA: need ${required.value} ADA (${required.raw} lovelace) = ${recipient.value} ADA for recipient + ${fee.value} ADA fee, have ${have.value} ADA (${have.raw} lovelace), short ${short.value} ADA (${short.raw} lovelace).`;
+      }
+
+      throw new SdkApiError(
+        message.trim(),
+        400,
+        "InsufficientBalance",
+        {
+          requiredTokenAmount: params.requiredTokenAmount,
+          accumulatedTokenAmount,
+          tokenShortfall,
+          requiredAda: adaTarget,
+          accumulatedAda,
+          adaShortfall,
+          breakdown: {
+            minRecipientLovelace,
+            minChangeLovelace,
+            transactionFee: params.transactionFee,
+          },
+        },
+        "FireblocksCardanoRawSDK"
+      );
     }
 
-    return { selectedUtxos, accumulatedAda, accumulatedTokenAmount };
+    return {
+      selectedUtxos,
+      accumulatedAda,
+      accumulatedTokenAmount,
+      minRecipientLovelace,
+      minChangeLovelace,
+    };
   }
 
   /**
-   * Builds the Cardano transaction body
+   * Builds the Cardano transaction body with dynamically calculated fees and minimums
+   * Fee and minimum lovelace values are calculated based on actual transaction size
+   * and number of policies to prevent rejection for wallets with many tokens (dust attack protection)
    */
   private async buildTransactionBody(params: {
     selectedUtxos: any[];
@@ -679,31 +786,37 @@ export class FireblocksCardanoRawSDK {
     tokenPolicyId: string;
     tokenName: string;
     requiredTokenAmount: number;
-    minRecipientLovelace: number;
-    transactionFee: number;
-  }) {
+    minRecipientLovelace: number; // Calculated dynamically based on policies
+    transactionFee?: number; // Optional - will be calculated dynamically if not provided
+  }): Promise<TransactionBody> {
     const txInputs = createTransactionInputs(params.selectedUtxos);
     const recipientAddrObj = Address.from_bech32(params.recipientAddress);
     const senderAddrObj = Address.from_bech32(params.senderAddress);
 
-    const txOutputs = createTransactionOutputs({
-      requiredLovelace: params.minRecipientLovelace,
-      fee: params.transactionFee,
-      recipientAddress: recipientAddrObj,
-      senderAddress: senderAddrObj,
-      tokenPolicyId: params.tokenPolicyId,
-      tokenName: params.tokenName,
-      transferAmount: params.requiredTokenAmount,
-      selectedUtxos: params.selectedUtxos,
-    });
+    // Get current slot from network for proper TTL calculation
+    // Cardano slots are counted from Shelley genesis, not epoch 0
+    const epochResponse = await this.iagonApiService.getCurrentEpoch();
+    const currentSlot = epochResponse.data.tip.slot;
+    this.logger.info(`Current slot: ${currentSlot}, calculating TTL`);
+    const ttl = calculateTtl(currentSlot);
 
-    const ttl = await calculateTtl(2600);
-    return buildTransaction({
+    // Use dynamic fee calculation
+    const { txBody } = buildTransactionWithCalculatedFee(
+      {
+        requiredLovelace: params.minRecipientLovelace,
+        recipientAddress: recipientAddrObj,
+        senderAddress: senderAddrObj,
+        tokenPolicyId: params.tokenPolicyId,
+        tokenName: params.tokenName,
+        transferAmount: params.requiredTokenAmount,
+        selectedUtxos: params.selectedUtxos,
+      },
       txInputs,
-      txOutputs,
-      fee: params.transactionFee,
       ttl,
-    });
+      1 // Estimate 1 witness (single signature)
+    );
+
+    return txBody;
   }
 
   /**
@@ -752,7 +865,7 @@ export class FireblocksCardanoRawSDK {
     const txHashHex = this.calculateTransactionHash(txBody);
     const transactionPayload = this.createFireblocksTransactionPayload(assetId, txHashHex);
 
-    const txData = await this.fireblocksService.broadcastTransaction(transactionPayload);
+    const txData = await this.fireblocksService.signTransaction(transactionPayload);
 
     const signatureResponse = txData?.data[0];
 
@@ -773,24 +886,57 @@ export class FireblocksCardanoRawSDK {
     const witnessSet = TransactionWitnessSet.new();
     witnessSet.set_vkeys(witnesses);
 
-    return Transaction.new(txBody, witnessSet);
+    const signedTx = Transaction.new(txBody, witnessSet);
+
+    // Verify the fee is sufficient using Cardano's min_fee calculation
+    const minRequiredFee = calculateTransactionFee(signedTx);
+    const allocatedFee = parseInt(txBody.fee().to_str());
+
+    if (minRequiredFee > allocatedFee) {
+      throw new SdkApiError(
+        `Transaction requires minimum ${minRequiredFee} lovelace but only ${allocatedFee} lovelace was allocated. This indicates a bug in fee calculation.`,
+        500,
+        "FeeEstimationError",
+        { minRequiredFee, allocatedFee, difference: minRequiredFee - allocatedFee },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    const feeDifference = allocatedFee - minRequiredFee;
+    this.logger.info(
+      `Transaction fee verified: allocated ${allocatedFee} lovelace, ` +
+        `minimum required ${minRequiredFee} lovelace (margin: ${feeDifference} lovelace)`
+    );
+
+    return signedTx;
   }
 
   /**
    * Execute a transfer of Cardano tokens
    *
    * @param options - Transfer configuration options
-   * @returns Transaction result with hash, sender address, and token name
+   * @returns Transaction result with hash, sender address, token name, and fee information
    * @throws SdkApiError with 400 status code for validation errors
    * @throws Error if any step of the transfer process fails
    */
-  public transfer = async (
-    options: transferOpts
-  ): Promise<{
-    txHash: string;
-    senderAddress: string;
+  /**
+   * Private helper that prepares and validates transaction parameters
+   * Shared by both estimateTransactionFee() and transfer()
+   */
+  private async prepareTransaction(params: {
+    index?: number;
+    recipientAddress?: string;
+    recipientVaultAccountId?: string;
+    recipientIndex?: number;
+    tokenPolicyId: string;
     tokenName: string;
-  }> => {
+    requiredTokenAmount: number;
+  }): Promise<{
+    txBody: any;
+    senderAddress: string;
+    resolvedRecipientAddress: string;
+    minRecipientLovelace: number;
+  }> {
     const {
       index = 0,
       recipientAddress,
@@ -799,7 +945,7 @@ export class FireblocksCardanoRawSDK {
       tokenPolicyId,
       tokenName,
       requiredTokenAmount,
-    } = options;
+    } = params;
 
     // Validate that exactly one recipient option is provided
     if (!recipientAddress && !recipientVaultAccountId) {
@@ -821,68 +967,203 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    const minRecipientLovelace = CardanoAmounts.MIN_RECIPIENT_LOVELACE;
-    const minChangeLovelace = CardanoAmounts.MIN_CHANGE_LOVELACE;
+    // Block native ADA transfers
+    const isNativeAdaTransfer =
+      (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
+      tokenPolicyId === "";
 
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
+    if ((!tokenPolicyId && !tokenName) || isNativeAdaTransfer) {
+      throw new SdkApiError(
+        "Native ADA transfers are not supported by this SDK. Please use the Fireblocks console for ADA transfers.",
+        400,
+        "UnsupportedOperation",
+        { tokenPolicyId, tokenName },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    if (!tokenPolicyId || !tokenName) {
+      throw new SdkApiError(
+        "For token transfers, please provide both 'tokenPolicyId' and 'tokenName' parameters.",
+        400,
+        "UnsupportedOperation",
+        { tokenPolicyId, tokenName },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    // Resolve recipient address
+    let resolvedRecipientAddress: string;
+    if (recipientVaultAccountId) {
+      const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
+        recipientVaultAccountId,
+        this.assetId,
+        recipientIndex
+      );
+      if (!recipientAddressData.address) {
+        throw new SdkApiError(
+          `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
+          404,
+          "AddressNotFound",
+          { recipientVaultAccountId, recipientIndex },
+          "FireblocksCardanoRawSDK"
+        );
+      }
+      resolvedRecipientAddress = recipientAddressData.address;
+    } else {
+      resolvedRecipientAddress = recipientAddress!;
+    }
+
+    // Fetch sender address
+    const senderAddress = await this.getAddressByIndex(this.assetId, index);
+
+    // Select and validate UTXOs with conservative fee estimate
+    const { selectedUtxos, minRecipientLovelace } = await this.selectAndValidateUtxos({
+      address: senderAddress,
+      tokenPolicyId,
+      tokenName,
+      requiredTokenAmount,
+      transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+    });
+
+    // Build transaction body to calculate actual fee
+    const txBody = await this.buildTransactionBody({
+      selectedUtxos,
+      recipientAddress: resolvedRecipientAddress,
+      senderAddress,
+      tokenPolicyId,
+      tokenName,
+      requiredTokenAmount,
+      minRecipientLovelace,
+    });
+
+    return {
+      txBody,
+      senderAddress,
+      resolvedRecipientAddress,
+      minRecipientLovelace,
+    };
+  }
+
+  /**
+   * Estimates transaction fee for a CNT transfer without signing or submitting
+   *
+   * @param request - Fee estimation request parameters
+   * @returns Fee estimation response with detailed breakdown
+   * @throws SdkApiError if validation fails or insufficient balance
+   */
+  public estimateTransactionFee = async (
+    request: FeeEstimationRequest
+  ): Promise<FeeEstimationResponse> => {
+    const { requiredTokenAmount, grossAmount = false } = request;
 
     try {
-      // Resolve recipient address
-      let resolvedRecipientAddress: string;
+      this.logger.info(
+        `Estimating transaction fee for ${requiredTokenAmount} ${request.tokenName} (grossAmount: ${grossAmount})`
+      );
+
+      // Prepare transaction (reuses validation and building logic)
+      const { txBody, minRecipientLovelace } = await this.prepareTransaction(request);
+
+      // Extract fee from transaction body
+      const feeLovelace = BigInt(txBody.fee().to_str());
+      const feeFormatted = formatWithDecimals(Number(feeLovelace), CardanoConstants.ADA_DECIMALS);
+
+      // Calculate minimum ADA required in output
+      const minAdaFormatted = formatWithDecimals(
+        minRecipientLovelace,
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      // Calculate total cost based on grossAmount flag
+      let totalCostLovelace: bigint;
+      let recipientReceivesAmount: number;
+
+      if (grossAmount) {
+        totalCostLovelace = BigInt(minRecipientLovelace);
+        recipientReceivesAmount = requiredTokenAmount;
+      } else {
+        totalCostLovelace = BigInt(minRecipientLovelace) + feeLovelace;
+        recipientReceivesAmount = requiredTokenAmount;
+      }
+
+      const totalCostFormatted = formatWithDecimals(
+        Number(totalCostLovelace),
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      this.logger.info(
+        `Fee estimation complete: ${feeFormatted.value} ADA, min ADA: ${minAdaFormatted.value} ADA, total cost: ${totalCostFormatted.value} ADA`
+      );
+
+      return {
+        fee: {
+          ada: feeFormatted.value,
+          lovelace: feeLovelace.toString(),
+        },
+        minAdaRequired: {
+          ada: minAdaFormatted.value,
+          lovelace: minRecipientLovelace.toString(),
+        },
+        totalCost: {
+          ada: totalCostFormatted.value,
+          lovelace: totalCostLovelace.toString(),
+        },
+        recipientReceives: {
+          amount: recipientReceivesAmount.toString(),
+          ada: minAdaFormatted.value,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Fee estimation failed: ${errorMessage}`);
+
+      if (error instanceof Error) {
+        throw error;
+      }
+
+      throw new Error(`FeeEstimationFailed: ${errorMessage}`);
+    }
+  };
+
+  public transfer = async (
+    options: transferOpts
+  ): Promise<{
+    txHash: string;
+    senderAddress: string;
+    tokenPolicyId: string;
+    tokenName: string;
+    amount: number;
+    fee: {
+      lovelace: string;
+      ada: string;
+    };
+  }> => {
+    const { recipientVaultAccountId, tokenPolicyId, tokenName, requiredTokenAmount } = options;
+
+    try {
+      // Log transfer initiation
       if (recipientVaultAccountId) {
-        // Vault-to-vault transfer: get the recipient address from the vault account
-        const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
-          recipientVaultAccountId,
-          assetId,
-          recipientIndex
-        );
-        if (!recipientAddressData.address) {
-          throw new SdkApiError(
-            `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
-            404,
-            "AddressNotFound",
-            { recipientVaultAccountId, recipientIndex },
-            "FireblocksCardanoRawSDK"
-          );
-        }
-        resolvedRecipientAddress = recipientAddressData.address;
         this.logger.info(
-          `Initiating vault-to-vault transfer: ${requiredTokenAmount} ${tokenName} from vault ${this.vaultAccountId} to vault ${recipientVaultAccountId} (${resolvedRecipientAddress})`
+          `Initiating vault-to-vault transfer: ${requiredTokenAmount} ${tokenName} from vault ${this.vaultAccountId} to vault ${recipientVaultAccountId}`
         );
       } else {
-        // Direct address transfer
-        resolvedRecipientAddress = recipientAddress!;
         this.logger.info(
-          `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${resolvedRecipientAddress}`
+          `Initiating transfer: ${requiredTokenAmount} ${tokenName} to ${options.recipientAddress}`
         );
       }
 
-      // Fetch sender address
-      const senderAddress = await this.getAddressByIndex(assetId, index);
+      // Prepare and validate transaction (reuses shared logic)
+      const { txBody, senderAddress, resolvedRecipientAddress } =
+        await this.prepareTransaction(options);
 
-      // Select and validate UTXOs
-      const { selectedUtxos } = await this.selectAndValidateUtxos({
-        address: senderAddress,
-        tokenPolicyId,
-        tokenName,
-        requiredTokenAmount,
-        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
-        minRecipientLovelace,
-        minChangeLovelace,
-      });
+      // Extract fee information from transaction body
+      const feeLovelace = txBody.fee().to_str();
+      const feeFormatted = formatWithDecimals(parseInt(feeLovelace), CardanoConstants.ADA_DECIMALS);
 
-      // Build transaction body
-      const txBody = await this.buildTransactionBody({
-        selectedUtxos,
-        recipientAddress: resolvedRecipientAddress,
-        senderAddress,
-        tokenPolicyId,
-        tokenName,
-        requiredTokenAmount,
-        minRecipientLovelace,
-        transactionFee: CardanoAmounts.DEFAULT_NATIVE_TX_FEE,
-      });
+      this.logger.info(
+        `Transaction prepared, recipient: ${resolvedRecipientAddress}, fee: ${feeFormatted.value} ADA`
+      );
 
       // Sign transaction with Fireblocks
       const signedTransaction = await this.signTransaction(txBody);
@@ -890,12 +1171,18 @@ export class FireblocksCardanoRawSDK {
       // Submit transaction to blockchain
       const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
 
-      this.logger.info(`Transfer successful: ${txHash}`);
+      this.logger.info(`Transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`);
 
       return {
         txHash,
         senderAddress,
+        tokenPolicyId,
         tokenName,
+        amount: requiredTokenAmount,
+        fee: {
+          lovelace: feeLovelace,
+          ada: feeFormatted.value,
+        },
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -918,18 +1205,165 @@ export class FireblocksCardanoRawSDK {
    * @throws Error if the retrieval fails.
    */
   public getVaultAccountAddresses = async (): Promise<VaultWalletAddress[]> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
-    return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, assetId);
+    return await this.fireblocksService.getVaultAccountAddresses(this.vaultAccountId, this.assetId);
   };
+
+  /**
+   * Gets the JWKS endpoint URL based on Fireblocks environment
+   * Defaults to US production if not specified
+   */
+  private getJwksEndpoint(environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"): string {
+    return FireblocksWebhookConstants.JWKS_ENDPOINTS[environment];
+  }
+
+  /**
+   * Verifies webhook signature using JWKS (JSON Web Key Set) method
+   * This is the new recommended method for webhook verification
+   *
+   * @param rawBody - The raw request body as Buffer
+   * @param jwsSignature - The value from Fireblocks-Webhook-Signature header
+   * @param environment - Fireblocks environment (US, EU, EU2, or SANDBOX)
+   * @returns true if signature is valid, false otherwise
+   */
+  private async verifyWebhookJWKS(
+    rawBody: Buffer,
+    jwsSignature: string,
+    environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"
+  ): Promise<boolean> {
+    try {
+      const jwksEndpoint = this.getJwksEndpoint(environment);
+
+      // Get or create JWKS instance (cached per endpoint)
+      let jwks = this.jwksCache.get(jwksEndpoint);
+      if (!jwks) {
+        jwks = createRemoteJWKSet(new URL(jwksEndpoint));
+        this.jwksCache.set(jwksEndpoint, jwks);
+        this.logger.debug(`Created JWKS client for ${jwksEndpoint}`);
+      }
+
+      // Detached JWS format: "header..signature" (no payload in the middle)
+      const [header, , sig] = jwsSignature.split(".");
+
+      if (!header || !sig) {
+        this.logger.warn("Invalid JWS signature format");
+        return false;
+      }
+
+      // Reconstruct full JWS with payload
+      const payload = Buffer.from(rawBody).toString("base64url");
+      const fullJws = `${header}.${payload}.${sig}`;
+
+      // jose extracts kid from header and fetches correct key from JWKS
+      await compactVerify(fullJws, jwks);
+      this.logger.info("JWKS webhook signature verification successful");
+      return true;
+    } catch (error: any) {
+      this.logger.error("JWKS verification failed:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Verifies webhook signature using legacy RSA-SHA512 method
+   * This method is being phased out in favor of JWKS
+   *
+   * @param rawBody - The raw request body as Buffer
+   * @param signature - The value from Fireblocks-Signature header (base64 encoded)
+   * @param environment - Fireblocks environment to determine which public key to use
+   * @returns true if signature is valid, false otherwise
+   */
+  private verifyWebhookLegacy(
+    rawBody: Buffer,
+    signature: string,
+    environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"
+  ): boolean {
+    try {
+      // Use US key for SANDBOX and US, EU key for EU and EU2
+      const publicKey =
+        environment === "EU" || environment === "EU2"
+          ? FireblocksWebhookConstants.LEGACY_PUBLIC_KEYS.EU
+          : environment === "SANDBOX"
+            ? FireblocksWebhookConstants.LEGACY_PUBLIC_KEYS.SANDBOX
+            : FireblocksWebhookConstants.LEGACY_PUBLIC_KEYS.US;
+
+      const verifier = crypto.createVerify("RSA-SHA512");
+      verifier.update(rawBody);
+      const isValid = verifier.verify(publicKey, signature, "base64");
+
+      if (isValid) {
+        this.logger.info("Legacy webhook signature verification successful");
+      } else {
+        this.logger.warn("Legacy webhook signature verification failed");
+      }
+
+      return isValid;
+    } catch (error: any) {
+      this.logger.error("Legacy signature verification failed:", error.message);
+      return false;
+    }
+  }
+
+  /**
+   * Verifies Fireblocks webhook authenticity using both JWKS and legacy methods
+   *
+   * @param rawBody - The raw request body as Buffer (before JSON parsing)
+   * @param headers - Request headers object (case-insensitive)
+   * @param environment - Fireblocks environment (US, EU, EU2, or SANDBOX). Defaults to US.
+   * @returns true if webhook is authentic, false otherwise
+   * @throws Error if verification fails critically
+   */
+  public async verifyWebhook(
+    rawBody: Buffer,
+    headers: Record<string, string | undefined>,
+    environment: "US" | "EU" | "EU2" | "SANDBOX" = "US"
+  ): Promise<boolean> {
+    // Normalize header keys to lowercase for case-insensitive lookup
+    const normalizedHeaders: Record<string, string | undefined> = {};
+    for (const [key, value] of Object.entries(headers)) {
+      normalizedHeaders[key.toLowerCase()] = value;
+    }
+
+    const jwksSignature =
+      normalizedHeaders[FireblocksWebhookConstants.HEADERS.JWKS_SIGNATURE.toLowerCase()];
+    const legacySignature =
+      normalizedHeaders[FireblocksWebhookConstants.HEADERS.LEGACY_SIGNATURE.toLowerCase()];
+
+    // Try JWKS verification first (preferred method)
+    if (jwksSignature) {
+      const jwksValid = await this.verifyWebhookJWKS(rawBody, jwksSignature, environment);
+      if (jwksValid) {
+        return true;
+      }
+      this.logger.warn("JWKS verification failed, trying legacy method");
+    }
+
+    // Fall back to legacy verification
+    if (legacySignature) {
+      const legacyValid = this.verifyWebhookLegacy(rawBody, legacySignature, environment);
+      if (legacyValid) {
+        return true;
+      }
+    }
+
+    // No valid signature found
+    if (!jwksSignature && !legacySignature) {
+      this.logger.error("No webhook signature headers found");
+    } else {
+      this.logger.error("Webhook signature verification failed with all methods");
+    }
+
+    return false;
+  }
 
   /**
    * Enriches a webhook payload with detailed Cardano transaction data
    *
+   * Note: This method only handles enrichment. Webhook signature verification
+   * should be performed separately using the verifyWebhook() method before calling this.
+   *
    * @param payload - The webhook payload to enrich
    * @returns The enriched webhook payload with cardanoTokensData if applicable
    */
-
   public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
     if (
       payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
@@ -985,10 +1419,8 @@ export class FireblocksCardanoRawSDK {
    * Get public key for a vault account address with caching
    */
   public getPublicKey = async (change: number = 0, addressIndex: number = 0): Promise<string> => {
-    const assetId =
-      this.network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
     // Create cache key from all parameters
-    const cacheKey = `${assetId}-${change}-${addressIndex}`;
+    const cacheKey = `${this.assetId}-${change}-${addressIndex}`;
     const cachedPublicKey = this.publicKeys.get(cacheKey);
 
     if (cachedPublicKey) {
@@ -999,7 +1431,7 @@ export class FireblocksCardanoRawSDK {
     // Fetch from Fireblocks if not cached
     const publicKey = await this.fireblocksService.getAssetPublicKey(
       this.vaultAccountId,
-      assetId,
+      this.assetId,
       change,
       addressIndex
     );
@@ -1012,58 +1444,170 @@ export class FireblocksCardanoRawSDK {
   };
 
   /**
-   * Broadcasts a transaction to the Fireblocks network and waits for signing completion.
-   *
-   * @param transactionRequest - The transaction request to broadcast
-   * @returns A promise that resolves to the signature data
-   * @throws Error if the transaction fails
+   * Helper to batch fetch and enrich asset metadata
+   * @param assetIds - Array of asset IDs (format: "policyId.assetName")
+   * @param amounts - Map of assetId to amount (for formatting)
+   * @returns Map of assetId to enriched metadata
    */
-  public broadcastTransaction = async (
-    transactionRequest: TransactionRequest
-  ): Promise<{
-    id: string;
-    data: Array<{
-      signature: SignedMessageSignature;
-      content?: string;
-      publicKey?: string;
-      algorithm?: SignedMessageAlgorithmEnum;
-    }>;
-  } | null> => {
-    return await this.fireblocksService.broadcastTransaction(transactionRequest);
-  };
+  private async enrichAssetMetadata(
+    assetIds: string[],
+    amounts: Map<string, string>
+  ): Promise<Map<string, TokenMetadata>> {
+    const metadataMap = new Map<string, TokenMetadata>();
+
+    // Fetch all metadata in parallel
+    const metadataPromises = assetIds.map(async (assetId) => {
+      try {
+        const [policyId, assetName] = assetId.split(".");
+        if (!policyId || !assetName) {
+          this.logger.warn(`Invalid assetId format: ${assetId}`);
+          return null;
+        }
+
+        const assetInfo = await this.iagonApiService.getAssetInfo(policyId, assetName);
+        const amount = amounts.get(assetId) || "0";
+        const decimals = assetInfo.data.metadata?.decimals || 0;
+        const amountNumber = Number(amount);
+        const formatted = formatWithDecimals(amountNumber, decimals);
+
+        const metadata: TokenMetadata = {
+          name: assetInfo.data.metadata?.name || null,
+          ticker: assetInfo.data.metadata?.ticker || null,
+          decimals,
+          formattedAmount: formatted.value,
+          description: assetInfo.data.metadata?.description || null,
+          fingerprint: assetInfo.data.fingerprint || null,
+        };
+
+        return { assetId, metadata };
+      } catch (error: any) {
+        this.logger.warn(`Failed to fetch metadata for ${assetId}: ${error.message}`);
+        return null;
+      }
+    });
+
+    const results = await Promise.all(metadataPromises);
+
+    // Build metadata map
+    for (const result of results) {
+      if (result) {
+        metadataMap.set(result.assetId, result.metadata);
+      }
+    }
+
+    this.logger.debug(`Enriched metadata for ${metadataMap.size}/${assetIds.length} assets`);
+    return metadataMap;
+  }
+
+  /**
+   * Helper to transform Iagon balance responses to include metadata
+   * @param response - Raw Iagon API response
+   * @returns Enriched response with metadata
+   */
+  private async enrichIagonResponse(
+    response: BalanceResponse | GroupedBalanceResponse
+  ): Promise<any> {
+    if (!response.success || !response.data) {
+      return response;
+    }
+
+    const { data } = response;
+    const assetIds: string[] = [];
+    const amounts = new Map<string, string>();
+
+    // Check if it's a GroupedBalanceResponse or BalanceResponse
+    const isGrouped = Object.values(data.assets || {}).some((val) => typeof val === "object");
+
+    if (isGrouped) {
+      // GroupedBalanceResponse
+      for (const [policyId, tokens] of Object.entries(data.assets || {})) {
+        for (const [assetName, amount] of Object.entries(tokens as any)) {
+          const assetId = `${policyId}.${assetName}`;
+          assetIds.push(assetId);
+          amounts.set(assetId, String(amount));
+        }
+      }
+    } else {
+      // BalanceResponse
+      for (const [assetId, amount] of Object.entries(data.assets || {})) {
+        assetIds.push(assetId);
+        amounts.set(assetId, String(amount));
+      }
+    }
+
+    // Fetch metadata for all assets
+    const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+
+    // Build enriched response
+    const enrichedAssets: any = {};
+
+    if (isGrouped) {
+      // GroupedBalanceResponse structure
+      for (const [policyId, tokens] of Object.entries(data.assets || {})) {
+        enrichedAssets[policyId] = {};
+        for (const [assetName, amount] of Object.entries(tokens as any)) {
+          const assetId = `${policyId}.${assetName}`;
+          const metadata = metadataMap.get(assetId);
+          enrichedAssets[policyId][assetName] = {
+            amount,
+            ...(metadata && { metadata }),
+          };
+        }
+      }
+    } else {
+      // BalanceResponse structure
+      for (const [assetId, amount] of Object.entries(data.assets || {})) {
+        const metadata = metadataMap.get(assetId);
+        enrichedAssets[assetId] = {
+          amount,
+          ...(metadata && { metadata }),
+        };
+      }
+    }
+
+    return {
+      success: true,
+      data: {
+        lovelace: data.lovelace,
+        assets: enrichedAssets,
+      },
+    };
+  }
 
   /**
    * Helper to aggregate vault balances based on groupBy option
    */
-  private aggregateVaultBalance(
+  private async aggregateVaultBalance(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
     }>,
-    groupBy: GroupByOptions
-  ): VaultBalanceResponse {
+    groupBy: GroupByOptions,
+    includeMetadata: boolean
+  ): Promise<VaultBalanceResponse> {
     if (groupBy === GroupByOptions.ADDRESS) {
-      return this.aggregateByAddress(results);
+      return this.aggregateByAddress(results, includeMetadata);
     } else if (groupBy === GroupByOptions.POLICY) {
-      return this.aggregateByPolicy(results);
+      return this.aggregateByPolicy(results, includeMetadata);
     } else {
-      return this.aggregateByToken(results);
+      return this.aggregateByToken(results, includeMetadata);
     }
   }
 
   /**
    * Aggregate balances by token (default view)
    */
-  private aggregateByToken(
+  private async aggregateByToken(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
-    }>
-  ): VaultBalanceTokenResponse {
+    }>,
+    includeMetadata: boolean
+  ): Promise<VaultBalanceTokenResponse> {
     const tokenMap = new Map<string, bigint>();
-    let totalAda = BigInt(0);
+    let totalLovelace = BigInt(0);
 
     for (const result of results) {
       if (!result.balance || !result.balance.success) continue;
@@ -1072,7 +1616,7 @@ export class FireblocksCardanoRawSDK {
       if (!bal) continue;
 
       // Add ADA
-      totalAda += BigInt(bal.lovelace || 0);
+      totalLovelace += BigInt(bal.lovelace || 0);
 
       // Add tokens
       if (bal.assets) {
@@ -1091,23 +1635,41 @@ export class FireblocksCardanoRawSDK {
       })
     );
 
+    // Enrich with metadata if requested
+    if (includeMetadata && tokenMap.size > 0) {
+      const assetIds = Array.from(tokenMap.keys());
+      const amounts = new Map(
+        Array.from(tokenMap.entries()).map(([id, amt]) => [id, amt.toString()])
+      );
+      const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+
+      // Attach metadata to tokens
+      for (const token of tokens) {
+        const metadata = metadataMap.get(token.assetId);
+        if (metadata) {
+          token.metadata = metadata;
+        }
+      }
+    }
+
     return {
-      balances: [{ assetId: "ADA", amount: totalAda.toString(), tokenName: "ADA" }, ...tokens],
+      balances: [{ assetId: "ADA", amount: totalLovelace.toString(), tokenName: "ADA" }, ...tokens],
     };
   }
 
   /**
    * Aggregate balances by address
    */
-  private aggregateByAddress(
+  private async aggregateByAddress(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
-    }>
-  ): VaultBalanceAddressResponse {
+    }>,
+    includeMetadata: boolean
+  ): Promise<VaultBalanceAddressResponse> {
     const addresses: VaultBalanceByAddress[] = [];
-    let totalAda = BigInt(0);
+    let totalLovelace = BigInt(0);
     const totalTokenMap = new Map<string, bigint>();
 
     for (const result of results) {
@@ -1115,7 +1677,7 @@ export class FireblocksCardanoRawSDK {
         addresses.push({
           address: result.address,
           index: result.index,
-          ada: "0",
+          lovelace: "0",
           tokens: [],
         });
         continue;
@@ -1126,7 +1688,7 @@ export class FireblocksCardanoRawSDK {
         addresses.push({
           address: result.address,
           index: result.index,
-          ada: "0",
+          lovelace: "0",
           tokens: [],
         });
         continue;
@@ -1142,7 +1704,7 @@ export class FireblocksCardanoRawSDK {
         }
       }
 
-      totalAda += addressAda;
+      totalLovelace += addressAda;
 
       const tokens: Array<{ assetId: string; amount: string; tokenName: string }> = Array.from(
         addressTokens.entries()
@@ -1155,7 +1717,7 @@ export class FireblocksCardanoRawSDK {
       addresses.push({
         address: result.address,
         index: result.index,
-        ada: addressAda.toString(),
+        lovelace: addressAda.toString(),
         tokens,
       });
     }
@@ -1168,10 +1730,41 @@ export class FireblocksCardanoRawSDK {
       tokenName: decodeAssetName(assetId),
     }));
 
+    // Enrich with metadata if requested
+    let metadataMap: Map<string, TokenMetadata> | null = null;
+    if (includeMetadata && totalTokenMap.size > 0) {
+      const assetIds = Array.from(totalTokenMap.keys());
+      const amounts = new Map(
+        Array.from(totalTokenMap.entries()).map(([id, amt]) => [id, amt.toString()])
+      );
+      metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+    }
+
+    // Attach metadata to tokens if available
+    if (metadataMap) {
+      // Attach to per-address tokens
+      for (const addr of addresses) {
+        for (const token of addr.tokens) {
+          const metadata = metadataMap.get(token.assetId);
+          if (metadata) {
+            (token as any).metadata = metadata;
+          }
+        }
+      }
+
+      // Attach to total tokens
+      for (const token of totalTokens) {
+        const metadata = metadataMap.get(token.assetId);
+        if (metadata) {
+          (token as any).metadata = metadata;
+        }
+      }
+    }
+
     return {
       addresses,
       totals: {
-        ada: totalAda.toString(),
+        lovelace: totalLovelace.toString(),
         tokens: totalTokens,
       },
     };
@@ -1180,15 +1773,16 @@ export class FireblocksCardanoRawSDK {
   /**
    * Aggregate balances by policy
    */
-  private aggregateByPolicy(
+  private async aggregateByPolicy(
     results: Array<{
       address: string;
       index: number;
       balance: BalanceResponse | GroupedBalanceResponse | null;
-    }>
-  ): VaultBalancePolicyResponse {
+    }>,
+    includeMetadata: boolean
+  ): Promise<VaultBalancePolicyResponse> {
     const policyMap = new Map<string, Map<string, bigint>>();
-    let totalAda = BigInt(0);
+    let totalLovelace = BigInt(0);
 
     for (const result of results) {
       if (!!!result.balance || !result.balance.success) continue;
@@ -1196,7 +1790,7 @@ export class FireblocksCardanoRawSDK {
       const balance = result.balance.data;
       if (!balance) continue;
 
-      totalAda += BigInt(balance.lovelace || 0);
+      totalLovelace += BigInt(balance.lovelace || 0);
 
       if (balance.assets && typeof balance.assets === "object") {
         for (const [policyId, tokens] of Object.entries(balance.assets)) {
@@ -1230,9 +1824,37 @@ export class FireblocksCardanoRawSDK {
       }
     );
 
+    // Enrich with metadata if requested
+    if (includeMetadata && policyMap.size > 0) {
+      // Build list of all assetIds
+      const assetIds: string[] = [];
+      const amounts = new Map<string, string>();
+
+      for (const [policyId, tokens] of policyMap.entries()) {
+        for (const [hexTokenName, amount] of tokens.entries()) {
+          const assetId = `${policyId}.${hexTokenName}`;
+          assetIds.push(assetId);
+          amounts.set(assetId, amount.toString());
+        }
+      }
+
+      const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
+
+      // Attach metadata to tokens in balances
+      for (const balance of balances) {
+        for (const [hexTokenName, tokenData] of Object.entries(balance.tokens)) {
+          const assetId = `${balance.policyId}.${hexTokenName}`;
+          const metadata = metadataMap.get(assetId);
+          if (metadata) {
+            (tokenData as any).metadata = metadata;
+          }
+        }
+      }
+    }
+
     return {
       balances,
-      totalAda: totalAda.toString(),
+      totalLovelace: totalLovelace.toString(),
     };
   }
 
@@ -1318,7 +1940,7 @@ export class FireblocksCardanoRawSDK {
       `Delegating to pool ${options.poolId} for vault account ${options.vaultAccountId}`
     );
 
-    const { vaultAccountId, poolId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, poolId, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     return await this.stakingService.delegateToPool({ vaultAccountId, poolId, fee });
   };
@@ -1348,7 +1970,7 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Deregistering staking credential for vault account ${options.vaultAccountId}`
     );
-    const { vaultAccountId, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     return await this.stakingService.deregisterStakingCredential({ vaultAccountId, fee });
   };
@@ -1388,7 +2010,7 @@ export class FireblocksCardanoRawSDK {
     }
   > => {
     this.logger.info(`Withdrawing rewards for vault account ${options.vaultAccountId}`);
-    const { vaultAccountId, limit, fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE } = options;
+    const { vaultAccountId, limit, fee = CardanoAmounts.STAKING_TX_FEE } = options;
 
     return await this.stakingService.withdrawRewards({ vaultAccountId, limit, fee });
   };
@@ -1477,7 +2099,7 @@ export class FireblocksCardanoRawSDK {
       `Delegating to DRep (${options.drepAction}) for vault account ${options.vaultAccountId}`
     );
 
-    const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.DREP_TX_FEE } = options;
+    const { vaultAccountId, drepAction, drepId, fee = CardanoAmounts.GOVERNANCE_TX_FEE } = options;
 
     return await this.stakingService.delegateToDRep({ vaultAccountId, drepAction, drepId, fee });
   };
@@ -1512,6 +2134,77 @@ export class FireblocksCardanoRawSDK {
     this.addresses.clear();
     this.publicKeys.clear();
     this.logger.info("Cache cleared");
+  }
+
+  /**
+   * Get asset information including metadata, decimals, and supply
+   *
+   * Retrieves detailed information about a Cardano native token including:
+   * - Asset name (decoded from hex)
+   * - Metadata (name, ticker, description, decimals, logo, etc.)
+   * - Total supply and mint/burn counts
+   * - Fingerprint for unique identification
+   *
+   * @param policyId - The policy ID of the asset (hex string)
+   * @param assetName - The asset name in hex format
+   * @returns Detailed asset information including metadata
+   * @throws Error if asset info retrieval fails
+   *
+   * @example
+   * ```typescript
+   * const assetInfo = await sdk.getAssetInfo(
+   *   "f0ff48bbb7bbe9d59a40f1ce90e9e9d0ff5002ec48f232b49ca0fb9a",
+   *   "4e4654"
+   * );
+   * console.log("Token Name:", assetInfo.data.metadata?.name);
+   * console.log("Decimals:", assetInfo.data.metadata?.decimals);
+   * console.log("Total Supply:", assetInfo.data.total_supply);
+   * ```
+   */
+  public async getAssetInfo(
+    policyId: string,
+    assetName: string,
+    skipCache: boolean = false
+  ): Promise<AssetInfoResponse> {
+    this.logger.info(`Getting asset info for ${policyId}.${assetName}`);
+    return await this.iagonApiService.getAssetInfo(policyId, assetName, skipCache);
+  }
+
+  /**
+   * Clear asset info cache
+   * @param policyId - Optional: Clear cache for specific policy ID only
+   * @param assetName - Optional: Clear cache for specific asset only (requires policyId)
+   * @example
+   * ```typescript
+   * // Clear entire cache
+   * sdk.clearAssetInfoCache();
+   *
+   * // Clear all assets for a specific policy
+   * sdk.clearAssetInfoCache("f0ff48bbb...");
+   *
+   * // Clear specific asset
+   * sdk.clearAssetInfoCache("f0ff48bbb...", "4e4654");
+   * ```
+   */
+  public clearAssetInfoCache(policyId?: string, assetName?: string): void {
+    this.iagonApiService.clearAssetInfoCache(policyId, assetName);
+  }
+
+  /**
+   * Get asset cache statistics
+   * @returns Cache statistics including size, TTL, and entry details
+   * @example
+   * ```typescript
+   * const stats = sdk.getAssetCacheStats();
+   * console.log(`Cache size: ${stats.size}`);
+   * console.log(`Cache TTL: ${stats.ttl}ms`);
+   * stats.entries.forEach(entry => {
+   *   console.log(`${entry.asset}: age ${entry.age}ms, expires in ${entry.expiresIn}ms`);
+   * });
+   * ```
+   */
+  public getAssetCacheStats() {
+    return this.iagonApiService.getAssetCacheStats();
   }
 
   /**

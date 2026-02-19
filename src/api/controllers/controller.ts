@@ -1,8 +1,27 @@
 import { Request, Response } from "express";
-import { Logger } from "../../utils/index.js";
+import { BasePath } from "@fireblocks/ts-sdk";
+import { Logger, config } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, SdkApiError } from "../../types/index.js";
 import { CardanoAmounts } from "../../constants.js";
+
+/**
+ * Map Fireblocks BasePath to webhook environment
+ */
+const getWebhookEnvironment = (basePath: BasePath): "US" | "EU" | "EU2" | "SANDBOX" => {
+  // Handle string or enum values
+  const path = basePath as string;
+
+  if (path === BasePath.EU2) {
+    return "EU2";
+  } else if (path === BasePath.EU) {
+    return "EU";
+  } else if (path === BasePath.Sandbox) {
+    return "SANDBOX";
+  } else {
+    return "US"; // Default for US or any other value
+  }
+};
 
 /**
  * Controller class that handles HTTP requests for Fireblocks operations.
@@ -57,15 +76,17 @@ export class ApiController {
   };
 
   public getBalanceByAddress = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const groupByPolicy = req.query.groupByPolicy === "true";
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByAddress({
         index,
         groupByPolicy,
+        includeMetadata,
       });
 
       res.status(200).json(result);
@@ -75,12 +96,13 @@ export class ApiController {
   };
 
   public getVaultBalance = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const groupBy = req.query.groupBy as GroupByOptions | undefined;
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getVaultBalance({ groupBy });
+      const result = await sdk.getVaultBalance({ groupBy, includeMetadata });
 
       res.status(200).json(result);
     } catch (error: any) {
@@ -89,14 +111,19 @@ export class ApiController {
   };
 
   public getBalanceByCredential = async (req: Request, res: Response) => {
-    const { vaultAccountId, credential } = req.params;
+    const { vaultAccountId, credential } = req.params as {
+      vaultAccountId: string;
+      credential: string;
+    };
     const groupByPolicy = req.query.groupByPolicy === "true";
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByCredential({
         credential,
         groupByPolicy,
+        includeMetadata,
       });
 
       res.status(200).json(result);
@@ -106,14 +133,15 @@ export class ApiController {
   };
 
   public getBalanceByStakeKey = async (req: Request, res: Response) => {
-    const { vaultAccountId, stakeKey } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const groupByPolicy = req.query.groupByPolicy === "true";
+    const includeMetadata = req.query.includeMetadata === "true";
 
     try {
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.getBalanceByStakeKey({
-        stakeKey,
         groupByPolicy,
+        includeMetadata,
       });
 
       res.status(200).json(result);
@@ -123,7 +151,7 @@ export class ApiController {
   };
 
   public getTransactionDetails = async (req: Request, res: Response) => {
-    const { hash } = req.params;
+    const { hash } = req.params as { hash: string };
     try {
       const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId as hash is global
       const result = await sdk.getTransactionDetails(hash);
@@ -134,8 +162,32 @@ export class ApiController {
     }
   };
 
+  /**
+   * Get asset information including metadata and decimals
+   * GET /api/assets/:policyId/:assetName
+   */
+  public getAssetInfo = async (req: Request, res: Response) => {
+    const { policyId, assetName } = req.params as { policyId: string; assetName: string };
+    try {
+      if (!policyId || !assetName) {
+        return res.status(400).json({
+          success: false,
+          error: "policyId and assetName are required",
+        });
+      }
+
+      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
+      const result = await sdk.getAssetInfo(policyId, assetName);
+
+      this.logger.info(`Asset info retrieved successfully for ${policyId}.${assetName}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getAssetInfo");
+    }
+  };
+
   public getUtxosByAddress = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
 
     try {
@@ -152,7 +204,7 @@ export class ApiController {
    * Helper method to parse transaction history query parameters
    */
   private parseTransactionHistoryParams(req: Request) {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
@@ -188,7 +240,7 @@ export class ApiController {
   };
 
   public getAllTransactionHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       offset: req.query.offset ? Number(req.query.offset) : undefined,
@@ -209,7 +261,7 @@ export class ApiController {
   };
 
   public getAllDetailedTxHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId } = req.params;
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
     const options = {
       limit: req.query.limit ? Number(req.query.limit) : undefined,
       offset: req.query.offset ? Number(req.query.offset) : undefined,
@@ -241,13 +293,58 @@ export class ApiController {
     }
   };
 
+  public estimateFee = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.estimateTransactionFee(req.body);
+      this.logger.info(`Fee estimation completed successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "estimateFee");
+    }
+  };
+
   public enrichWebhookPayload = async (req: Request, res: Response) => {
     try {
+      // Extract raw body (Buffer) for signature verification
+      // rawBody is attached by express.json verify callback
+      const rawBody = (req as any).rawBody as Buffer;
+
+      // Body is already parsed by express.json
       const payload = req.body;
+
+      // Extract headers for signature verification
+      const headers: Record<string, string | undefined> = {
+        "fireblocks-webhook-signature": req.headers["fireblocks-webhook-signature"] as
+          | string
+          | undefined,
+        "fireblocks-signature": req.headers["fireblocks-signature"] as string | undefined,
+      };
+
+      // Get webhook environment from Fireblocks basePath config
+      const environment = getWebhookEnvironment(
+        (config.FIREBLOCKS.basePath as BasePath) || BasePath.US
+      );
+
+      // Get SDK instance
       const vaultAccountId = payload.data.destination.id;
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
+
+      // Step 1: Verify webhook signature
+      const isValid = await sdk.verifyWebhook(rawBody, headers, environment);
+      if (!isValid) {
+        this.logger.error("Webhook signature verification failed");
+        return res.status(401).json({
+          success: false,
+          error: "Webhook signature verification failed",
+        });
+      }
+
+      // Step 2: Enrich webhook payload
       const result = await sdk.enrichWebhookPayload(payload);
-      this.logger.info(`Webhook enrichment executed successfully`);
+
+      this.logger.info("Webhook verified and enriched successfully");
       res.status(200).json(result);
     } catch (error: any) {
       this.handleError(error, res, "enrichWebhookPayload");
@@ -274,7 +371,7 @@ export class ApiController {
       }
 
       const depositAmount = CardanoAmounts.DEPOSIT_AMOUNT;
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.registerStakingCredential({
@@ -309,7 +406,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.deregisterStakingCredential({
         vaultAccountId,
@@ -348,7 +445,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToPool({
@@ -382,7 +479,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DEFAULT_NATIVE_TX_FEE;
+      const fee = CardanoAmounts.STAKING_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.withdrawRewards({
@@ -403,7 +500,7 @@ export class ApiController {
 
   public getStakeAccountInfo = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId } = req.params;
+      const { vaultAccountId } = req.params as { vaultAccountId: string };
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -443,7 +540,7 @@ export class ApiController {
    */
   public queryStakingRewards = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId } = req.params;
+      const { vaultAccountId } = req.params as { vaultAccountId: string };
 
       if (!vaultAccountId) {
         return res.status(400).json({
@@ -494,7 +591,7 @@ export class ApiController {
         });
       }
 
-      const fee = CardanoAmounts.DREP_TX_FEE;
+      const fee = CardanoAmounts.GOVERNANCE_TX_FEE;
 
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
       const result = await sdk.delegateToDRep({
@@ -520,7 +617,7 @@ export class ApiController {
    */
   public getStakeAddress = async (req: Request, res: Response) => {
     try {
-      const { vaultAccountId } = req.params;
+      const { vaultAccountId } = req.params as { vaultAccountId: string };
 
       if (!vaultAccountId) {
         return res.status(400).json({

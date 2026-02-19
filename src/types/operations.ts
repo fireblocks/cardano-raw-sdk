@@ -48,8 +48,6 @@ export interface fetchAndSelectUtxosParams {
   requiredTokenAmount: number;
   transactionFee: number;
   tokenName: string;
-  minRecipientLovelace: number;
-  minChangeLovelace: number;
 }
 
 /**
@@ -130,20 +128,43 @@ export type ResultForOperation<T extends TransactionType> = Extract<
   { type: T }
 >["result"];
 
+/**
+ * Enriched token metadata from on-chain data
+ */
+export interface TokenMetadata {
+  /** Official token name from metadata */
+  name: string | null;
+  /** Token ticker symbol */
+  ticker: string | null;
+  /** Number of decimal places */
+  decimals: number;
+  /** Human-readable formatted amount using decimals */
+  formattedAmount: string;
+  /** Token description */
+  description: string | null;
+  /** Asset fingerprint */
+  fingerprint: string | null;
+}
+
 export interface VaultBalanceByToken {
   assetId: string;
   amount: string;
   tokenName?: string;
+  /** Enriched metadata (when includeMetadata=true) */
+  metadata?: TokenMetadata;
 }
 
 export interface VaultBalanceByAddress {
   address: string;
   index: number;
-  ada: string;
+  /** Balance in lovelace (1 ADA = 1,000,000 lovelace) */
+  lovelace: string;
   tokens: Array<{
     assetId: string;
     amount: string;
     tokenName?: string;
+    /** Enriched metadata (when includeMetadata=true) */
+    metadata?: TokenMetadata;
   }>;
 }
 
@@ -153,15 +174,20 @@ export interface VaultBalanceByPolicy {
     [hexTokenName: string]: {
       tokenName: string;
       amount: string;
+      /** Enriched metadata (when includeMetadata=true) */
+      metadata?: TokenMetadata;
     };
   };
 }
 
 export interface VaultBalanceSummary {
-  totalAda: string;
+  /** Total balance in lovelace (1 ADA = 1,000,000 lovelace) */
+  totalLovelace: string;
   tokens: Array<{
     assetId: string;
     amount: string;
+    /** Enriched metadata (when includeMetadata=true) */
+    metadata?: TokenMetadata;
   }>;
 }
 
@@ -172,18 +198,22 @@ export interface VaultBalanceTokenResponse {
 export interface VaultBalanceAddressResponse {
   addresses: VaultBalanceByAddress[];
   totals: {
-    ada: string;
+    /** Total balance in lovelace (1 ADA = 1,000,000 lovelace) */
+    lovelace: string;
     tokens: Array<{
       assetId: string;
       amount: string;
       tokenName?: string;
+      /** Enriched metadata (when includeMetadata=true) */
+      metadata?: TokenMetadata;
     }>;
   };
 }
 
 export interface VaultBalancePolicyResponse {
   balances: VaultBalanceByPolicy[];
-  totalAda: string;
+  /** Total balance in lovelace (1 ADA = 1,000,000 lovelace) */
+  totalLovelace: string;
 }
 
 export type VaultBalanceResponse =
@@ -191,3 +221,59 @@ export type VaultBalanceResponse =
   | VaultBalanceTokenResponse
   | VaultBalanceAddressResponse
   | VaultBalancePolicyResponse;
+
+/**
+ * Request parameters for fee estimation
+ */
+export interface FeeEstimationRequest {
+  /** Recipient Cardano address */
+  recipientAddress?: string;
+  /** Recipient vault account ID (for vault-to-vault transfers) */
+  recipientVaultAccountId?: string;
+  /** Recipient address index (when using recipientVaultAccountId) */
+  recipientIndex?: number;
+  /** Source address index (defaults to 0) */
+  index?: number;
+  /** Token policy ID (hex format) */
+  tokenPolicyId: string;
+  /** Token name (hex format) */
+  tokenName: string;
+  /** Required token amount in base units */
+  requiredTokenAmount: number;
+  /** If true, fee is deducted from the amount being sent */
+  grossAmount?: boolean;
+}
+
+/**
+ * Fee estimation response with detailed breakdown
+ */
+export interface FeeEstimationResponse {
+  /** Transaction fee details */
+  fee: {
+    /** Fee in ADA (human-readable) */
+    ada: string;
+    /** Fee in lovelace (base units) */
+    lovelace: string;
+  };
+  /** Minimum ADA required in output UTXO for CNT transfers */
+  minAdaRequired: {
+    /** Minimum ADA in human-readable format */
+    ada: string;
+    /** Minimum ADA in lovelace */
+    lovelace: string;
+  };
+  /** Total cost including fee */
+  totalCost: {
+    /** Total in ADA */
+    ada: string;
+    /** Total in lovelace */
+    lovelace: string;
+  };
+  /** What the recipient will actually receive */
+  recipientReceives: {
+    /** Token amount recipient receives (in base units) */
+    amount: string;
+    /** ADA amount if applicable */
+    ada: string;
+  };
+}

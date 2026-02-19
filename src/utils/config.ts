@@ -1,13 +1,11 @@
 import { readFileSync } from "fs";
 import { BasePath, ConfigurationOptions as FireblocksConfig } from "@fireblocks/ts-sdk";
 import dotenv from "dotenv";
-import { Logger, LogLevel } from "./logger.js";
+import { Logger } from "./logger.js";
 
 // Load dotenv but don't initialize config yet
 dotenv.config();
 
-const logLevel = "INFO";
-Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("utils:config");
 
 // Config type definition

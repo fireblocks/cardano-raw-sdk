@@ -291,7 +291,7 @@ export class FireblocksService {
   };
 
   /**
-   * Broadcasts a transaction to the Fireblocks network and waits for signing completion.
+   * Signs a transaction via Fireblocks and waits for signing completion.
    *
    * This method submits a transaction request to Fireblocks, monitors its status until
    * completion, and extracts the signed message data. It's primarily used for message
@@ -299,9 +299,10 @@ export class FireblocksService {
    * rather than transferring assets.
    *
    * The method polls the transaction status until it reaches a terminal state and
-   * returns the signature data from the completed transaction.
+   * returns the signature data from the completed transaction. Note: This method does
+   * NOT broadcast the transaction to the Cardano network - it only obtains signatures.
    *
-   * @param transactionPayload - The transaction request to broadcast, containing:
+   * @param transactionPayload - The transaction request to sign, containing:
    *   - Operation type (TYPED_MESSAGE for signing)
    *   - Source vault account
    *   - Message content to sign
@@ -337,7 +338,7 @@ export class FireblocksService {
    *   note: 'Claim signature'
    * };
    *
-   * const result = await service.broadcastTransaction(payload);
+   * const result = await service.signTransaction(payload);
    *
    * if (result) {
    *   console.log('Signature:', result.signature.fullSig);
@@ -351,7 +352,7 @@ export class FireblocksService {
    * for custom transaction payloads. The transaction status polling is handled by
    * the getTxStatus utility function, which waits for the transaction to complete.
    */
-  public broadcastTransaction = async (
+  public signTransaction = async (
     transactionPayload: TransactionRequest
   ): Promise<{
     id: string;

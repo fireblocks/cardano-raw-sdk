@@ -3,7 +3,6 @@ import {
   TransactionHash,
   BigNum,
   TransactionOutput,
-  Address,
   MultiAsset,
   Assets,
   Value,
@@ -13,20 +12,88 @@ import {
   TransactionInputs,
   TransactionOutputs,
   Transaction,
+  LinearFee,
+  min_fee,
+  min_ada_for_output,
+  DataCost,
 } from "@emurgo/cardano-serialization-lib-nodejs";
 import { toHex } from "./general.js";
-import { IagonApiService } from "../services/iagon.api.service.js";
+import { IagonApiService } from "../services/index.js";
 import {
   createTransactionOutputsParams,
   UtxoData,
   fetchAndSelectUtxosParams,
   SupportedAssets,
 } from "../types/index.js";
-import { Logger, LogLevel } from "./logger.js";
+import { Logger } from "./logger.js";
+import { CardanoAmounts } from "../constants.js";
 
-const logLevel = "INFO";
-Logger.setLogLevel(LogLevel[logLevel as keyof typeof LogLevel] || LogLevel.INFO);
 const logger = new Logger("utils:cardano");
+
+/**
+ * Cardano protocol parameters for fee calculation
+ * Based on mainnet parameters:
+ * - txFeePerByte (a): 44 lovelace/byte
+ * - txFeeFixed (b): 155,381 lovelace
+ * Formula: min_fee = (a × tx_size_bytes) + b
+ */
+const CARDANO_LINEAR_FEE = LinearFee.new(
+  BigNum.from_str("44"), // coefficient (lovelace per byte)
+  BigNum.from_str("155381") // constant (base fee in lovelace)
+);
+
+/**
+ * Calculate the minimum required lovelace for a UTXO based on number of policies
+ *
+ * The minimum ADA required for a UTXO scales with the number of distinct token policies:
+ * - Base: 1 ADA (1,000,000 lovelace) for ADA-only or single policy
+ * - Additional: ~0.15 ADA (150,000 lovelace) per additional policy
+ *
+ * This implements the Cardano protocol's minUTxO requirement which prevents
+ * UTXOs from being too small and bloating the blockchain state.
+ *
+ * @param numPolicies - Number of distinct token policies in the UTXO
+ * @returns The minimum lovelace required for the UTXO
+ * @example
+ * calculateMinLovelaceForUtxo(0) // 1,000,000 (ADA-only)
+ * calculateMinLovelaceForUtxo(1) // 1,150,000 (1 token policy)
+ * calculateMinLovelaceForUtxo(3) // 1,450,000 (3 token policies)
+ */
+export const calculateMinLovelaceForUtxo = (numPolicies: number): number => {
+  if (numPolicies === 0) {
+    return CardanoAmounts.MIN_UTXO_BASE_LOVELACE;
+  }
+  return (
+    CardanoAmounts.MIN_UTXO_BASE_LOVELACE +
+    numPolicies * CardanoAmounts.MIN_UTXO_PER_POLICY_LOVELACE
+  );
+};
+
+/**
+ * Count distinct token policies from a collection of assets
+ * @param assets - Record of assetUnit (policyId.tokenName) to amount
+ * @returns Number of distinct policies
+ */
+export const countDistinctPolicies = (assets: Record<string, number>): number => {
+  const policies = new Set<string>();
+  for (const assetUnit of Object.keys(assets)) {
+    const [policyId] = assetUnit.split(".");
+    if (policyId) {
+      policies.add(policyId);
+    }
+  }
+  return policies.size;
+};
+
+/**
+ * Calculate the minimum required fee for a transaction based on its size
+ * @param tx - The transaction to calculate fee for
+ * @returns The calculated fee in lovelace
+ */
+export const calculateTransactionFee = (tx: Transaction): number => {
+  const calculatedFee = min_fee(tx, CARDANO_LINEAR_FEE);
+  return parseInt(calculatedFee.to_str());
+};
 
 export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => {
   const {
@@ -36,8 +103,6 @@ export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => 
     requiredTokenAmount,
     transactionFee,
     tokenName,
-    minRecipientLovelace = 1_200_000,
-    minChangeLovelace = 1_200_000,
   } = params;
   try {
     const utxos = await fetchUtxos(iagonApiService, address);
@@ -53,7 +118,13 @@ export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => 
     let accumulatedTokenAmount = 0;
     let accumulatedAda = 0;
 
-    // Accumulate token UTXOs
+    // Phase 1: Initial UTXO selection with heuristic
+    // Use 1-policy estimate (1.15 ADA) as heuristic for performance
+    // Most token transfers have 1-3 policies, so this covers the common case
+    // Phase 2 below will add more UTXOs if we underestimated
+    const initialMinRecipient = calculateMinLovelaceForUtxo(1);
+
+    // Accumulate token UTXOs until we have enough tokens and estimated ADA
     for (const { utxo, tokenAmount, adaAmount } of tokenUtxosWithAmounts) {
       selectedUtxos.push(utxo);
       accumulatedTokenAmount += tokenAmount;
@@ -61,12 +132,33 @@ export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => 
 
       if (
         accumulatedTokenAmount >= requiredTokenAmount &&
-        accumulatedAda >= minRecipientLovelace + transactionFee
+        accumulatedAda >= initialMinRecipient + transactionFee
       ) {
         break;
       }
     }
-    const adaTarget = minRecipientLovelace + transactionFee + minChangeLovelace;
+
+    // Collect all assets from selected UTXOs to calculate actual minimums
+    const allAssets: Record<string, number> = {};
+    selectedUtxos.forEach((utxo) => {
+      if (utxo.value.assets) {
+        Object.entries(utxo.value.assets).forEach(([assetUnit, amount]) => {
+          allAssets[assetUnit] = (allAssets[assetUnit] || 0) + amount;
+        });
+      }
+    });
+
+    // Phase 2: Calculate actual minimum lovelace based on real policy count
+    // Recipient gets the transferred token (1 policy), change gets all remaining assets
+    const numChangePolicies = countDistinctPolicies(allAssets);
+    const actualMinRecipient = calculateMinLovelaceForUtxo(tokenPolicyId ? 1 : 0);
+    const actualMinChange = calculateMinLovelaceForUtxo(numChangePolicies);
+
+    logger.info(
+      `Calculated minimums - Recipient: ${actualMinRecipient}, Change: ${actualMinChange} (${numChangePolicies} policies)`
+    );
+
+    const adaTarget = actualMinRecipient + transactionFee + actualMinChange;
     if (accumulatedAda < adaTarget) {
       const remainingUtxos = utxos.filter((u) => !selectedUtxos.includes(u));
       const adaUtxos = remainingUtxos
@@ -87,6 +179,8 @@ export const fetchAndSelectUtxos = async (params: fetchAndSelectUtxosParams) => 
       selectedUtxos,
       accumulatedAda,
       accumulatedTokenAmount,
+      minRecipientLovelace: actualMinRecipient,
+      minChangeLovelace: actualMinChange,
     };
   } catch (error) {
     throw new Error(
@@ -134,13 +228,12 @@ export const calculateTokenAmount = (
   policyId: string,
   tokenName: string
 ): number => {
-  if (
-    (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
-    policyId === ""
-  ) {
-    return 0;
-  }
-
+  // Handle ADA detection (native currency)
+  // Note: While native ADA transfers are blocked at the SDK level,
+  // ADA amount calculation is still needed for:
+  // - Fee payment verification
+  // - UTXO selection for token transfers (UTXOs contain both tokens and ADA)
+  // - Change calculation
   if (
     (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
     policyId === ""
@@ -148,6 +241,7 @@ export const calculateTokenAmount = (
     return utxo.value.lovelace;
   }
 
+  // Handle native token transfers
   // Check if assets exist
   if (!utxo.value.assets || Object.keys(utxo.value.assets).length === 0) {
     return 0;
@@ -170,14 +264,20 @@ export const filterUtxos = (
   try {
     logger.info(`Filtering ${utxos.length} UTXOs for token: ${tokenPolicyId}.${tokenName}`);
 
+    // Check if this is an ADA transfer
+    const isAdaTransfer =
+      (tokenName === SupportedAssets.ADA || tokenName === SupportedAssets.ADA_TEST) &&
+      tokenPolicyId === "";
+
     // Log all available asset keys in the first UTXO for debugging
     if (utxos.length > 0 && utxos[0].value.assets) {
       logger.info(`Available asset keys in first UTXO:`, Object.keys(utxos[0].value.assets));
     }
 
     const filtered = utxos.filter((utxo) => {
-      // Skip UTXOs without assets
-      if (!utxo.value.assets) {
+      // For ADA transfers, we don't need to check the assets field
+      // For native tokens, skip UTXOs without assets
+      if (!isAdaTransfer && !utxo.value.assets) {
         return false;
       }
 
@@ -261,7 +361,7 @@ export const createTransactionOutputs = (
   }
 
   // Calculate change
-  const changeLovelace = totalLovelace - requiredLovelace - fee;
+  let changeLovelace = totalLovelace - requiredLovelace - fee;
 
   logger.info("=== CREATING OUTPUTS ===");
   logger.info("Change ADA:", changeLovelace);
@@ -278,7 +378,37 @@ export const createTransactionOutputs = (
     recipientMultiAsset.insert(policy, assets);
     recipientValue.set_multiasset(recipientMultiAsset);
   }
-  const recipientOutput = TransactionOutput.new(recipientAddress, recipientValue);
+  let recipientOutput = TransactionOutput.new(recipientAddress, recipientValue);
+
+  // Calculate actual minimum ADA required for recipient output
+  const dataCost = DataCost.new_coins_per_byte(
+    BigNum.from_str(CardanoAmounts.COINS_PER_UTXO_BYTE.toString())
+  );
+  const actualMinRecipient = parseInt(min_ada_for_output(recipientOutput, dataCost).to_str());
+
+  // If actual minimum is higher than what we allocated, recreate the output with correct amount
+  if (actualMinRecipient > requiredLovelace) {
+    logger.info(
+      `Adjusting recipient min ADA: ${requiredLovelace} → ${actualMinRecipient} (+${actualMinRecipient - requiredLovelace} lovelace)`
+    );
+    const adjustedRecipientValue = Value.new(BigNum.from_str(actualMinRecipient.toString()));
+    if (transferAmount > 0) {
+      const recipientMultiAsset = MultiAsset.new();
+      const [policyId, tokenNameHex] = tokenUnit.split(".");
+      const policy = ScriptHash.from_hex(policyId);
+      const assetName = AssetName.new(Buffer.from(tokenNameHex, "hex"));
+      const assets = Assets.new();
+      assets.insert(assetName, BigNum.from_str(transferAmount.toString()));
+      recipientMultiAsset.insert(policy, assets);
+      adjustedRecipientValue.set_multiasset(recipientMultiAsset);
+    }
+    recipientOutput = TransactionOutput.new(recipientAddress, adjustedRecipientValue);
+
+    // Adjust change to account for the additional ADA given to recipient
+    const changeAdjustment = actualMinRecipient - requiredLovelace;
+    changeLovelace = changeLovelace - changeAdjustment;
+    logger.info(`Adjusted change ADA: ${changeLovelace + changeAdjustment} → ${changeLovelace}`);
+  }
 
   // Create change output (ALL remaining assets)
   const changeValue = Value.new(BigNum.from_str(changeLovelace.toString()));
@@ -310,6 +440,11 @@ export const createTransactionOutputs = (
 
   // Build MultiAsset for change output
   Object.entries(assetsByPolicy).forEach(([policyId, tokens]) => {
+    // Skip policies with no tokens (empty object)
+    if (Object.keys(tokens).length === 0) {
+      return;
+    }
+
     const policy = ScriptHash.from_hex(policyId);
     const assets = Assets.new();
 
@@ -321,7 +456,10 @@ export const createTransactionOutputs = (
     changeMultiAsset.insert(policy, assets);
   });
 
-  changeValue.set_multiasset(changeMultiAsset);
+  // Only set multiasset if there are actually tokens in the change
+  if (Object.keys(assetsByPolicy).length > 0) {
+    changeValue.set_multiasset(changeMultiAsset);
+  }
   const changeOutput = TransactionOutput.new(senderAddress, changeValue);
 
   // Final validation
@@ -334,6 +472,95 @@ export const createTransactionOutputs = (
   });
 
   return [recipientOutput, changeOutput];
+};
+
+/**
+ * Builds transaction outputs with dynamically calculated fees
+ * This function iteratively calculates the correct fee by:
+ * 1. Building outputs with an estimated fee
+ * 2. Creating a transaction body to measure size
+ * 3. Calculating actual fee based on transaction size
+ * 4. Rebuilding if fee changed significantly
+ *
+ * @param params - Same parameters as createTransactionOutputs except 'fee' (calculated internally)
+ * @param txInputs - Transaction inputs needed for fee calculation
+ * @param ttl - Time to live for the transaction
+ * @param estimatedWitnessCount - Number of signatures (default: 1)
+ * @returns Object containing the final outputs, calculated fee, and transaction body
+ */
+export const buildTransactionWithCalculatedFee = (
+  params: Omit<createTransactionOutputsParams, "fee">,
+  txInputs: TransactionInput[],
+  ttl: number,
+  estimatedWitnessCount: number = 1
+): { outputs: TransactionOutput[]; fee: number; txBody: TransactionBody } => {
+  const WITNESS_SIZE_BYTES = 139; // Size of one Ed25519 signature witness
+  const MAX_ITERATIONS = 5;
+  const FEE_TOLERANCE = 1000; // 1000 lovelace tolerance to avoid infinite loops
+
+  let currentFee = 200000; // Start with a reasonable estimate
+  let iteration = 0;
+
+  while (iteration < MAX_ITERATIONS) {
+    logger.info(`Fee calculation iteration ${iteration + 1}, current fee: ${currentFee}`);
+
+    // Build outputs with current fee estimate
+    const outputs = createTransactionOutputs({
+      ...params,
+      fee: currentFee,
+    });
+
+    // Build transaction body
+    const txBody = buildTransaction({
+      txInputs,
+      txOutputs: outputs,
+      fee: currentFee,
+      ttl,
+    });
+
+    // Estimate total transaction size including witnesses
+    const txBodySize = txBody.to_bytes().length;
+    const estimatedWitnessesSize = estimatedWitnessCount * WITNESS_SIZE_BYTES;
+    const estimatedTotalSize = txBodySize + estimatedWitnessesSize + 10; // +10 for witness set overhead
+
+    // Calculate actual required fee
+    const calculatedFee =
+      44 * estimatedTotalSize + // txFeePerByte × size
+      155381; // txFeeFixed
+
+    logger.info(`Transaction body size: ${txBodySize} bytes`);
+    logger.info(`Estimated total size: ${estimatedTotalSize} bytes`);
+    logger.info(`Calculated fee: ${calculatedFee} lovelace`);
+
+    // Check if fee converged
+    if (Math.abs(calculatedFee - currentFee) <= FEE_TOLERANCE) {
+      logger.info(`Fee converged at ${calculatedFee} lovelace after ${iteration + 1} iterations`);
+      return { outputs, fee: calculatedFee, txBody };
+    }
+
+    // Update fee for next iteration
+    currentFee = calculatedFee;
+    iteration++;
+  }
+
+  // If we hit max iterations, use the last calculated fee with a warning
+  logger.warn(
+    `Fee calculation did not converge after ${MAX_ITERATIONS} iterations, using ${currentFee}`
+  );
+
+  const finalOutputs = createTransactionOutputs({
+    ...params,
+    fee: currentFee,
+  });
+
+  const finalTxBody = buildTransaction({
+    txInputs,
+    txOutputs: finalOutputs,
+    fee: currentFee,
+    ttl,
+  });
+
+  return { outputs: finalOutputs, fee: currentFee, txBody: finalTxBody };
 };
 
 export const buildTransaction = ({
@@ -366,6 +593,11 @@ export const submitTransaction = async (
 ): Promise<string> => {
   try {
     const txCbor = Buffer.from(signedTx.to_bytes()).toString("hex");
+
+    logger.info(`=== TRANSACTION CBOR DEBUG ===`);
+    logger.info(`CBOR length: ${txCbor.length} chars (${txCbor.length / 2} bytes)`);
+    logger.info(`CBOR hex (first 200 chars): ${txCbor.substring(0, 200)}`);
+    logger.info(`CBOR hex (full): ${txCbor}`);
 
     // Submit transaction using Iagon API
     const response = await iagonApiService.submitTransfer(txCbor, false);

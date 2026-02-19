@@ -25,8 +25,24 @@ export class ErrorHandler {
       this.logger.error("Response Data:", data);
       this.logger.error("Request URL:", error.config?.url);
 
+      // Log additional axios error details for non-response errors
+      if (!error.response) {
+        this.logger.error("Error Code:", error.code);
+        this.logger.error("Error Message:", error.message);
+        if (error.request) {
+          this.logger.error("Request was made but no response received");
+        } else {
+          this.logger.error("Error setting up request");
+        }
+      }
+
       const message =
-        data?.message || data?.info || error.response?.statusText || `Error ${context}`;
+        data?.message ||
+        data?.info ||
+        data?.error ||
+        error.response?.statusText ||
+        error.message ||
+        `Error ${context}`;
 
       return new SdkApiError(message, status, data?.type, data?.info, this.serviceName);
     }
