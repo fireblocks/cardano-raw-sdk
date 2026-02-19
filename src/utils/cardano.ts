@@ -462,6 +462,19 @@ export const createTransactionOutputs = (
   }
   const changeOutput = TransactionOutput.new(senderAddress, changeValue);
 
+  // Validate change output meets minimum ADA requirement (mirrors the recipient check above)
+  const actualMinChange = parseInt(min_ada_for_output(changeOutput, dataCost).to_str());
+  if (changeLovelace < actualMinChange) {
+    throw new Error(
+      `Insufficient ADA for change output: ${changeLovelace} lovelace available, ` +
+        `minimum required is ${actualMinChange} lovelace. ` +
+        `Consider adding more ADA UTXOs.`
+    );
+  }
+  logger.info(
+    `Change output min-ADA check passed: ${changeLovelace} lovelace ≥ ${actualMinChange} lovelace minimum`
+  );
+
   // Final validation
   logger.info("=== FINAL VALIDATION ===");
   logger.info("Recipient gets:", transferAmount, "of", tokenUnit);
