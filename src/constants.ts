@@ -10,6 +10,14 @@ export enum CardanoConstants {
   CARDANO_BASE_ADDRESS_MIN_LENGTH = 57, // 1 byte header + 28 bytes payment + 28 bytes stake
   CARDANO_PAYMENT_CREDENTIAL_OFFSET = 29, // 1 byte header + 28 bytes payment hash
   ADA_DECIMALS = 6, // 1 ADA = 1,000,000 lovelace
+  /**
+   * Bytes per Ed25519 signature witness in the CBOR-encoded transaction
+   */
+  TX_WITNESS_SIZE_BYTES = 139,
+  /**
+   * Maximum iterations for the transaction-fee convergence loop
+   */
+  TX_FEE_MAX_ITERATIONS = 5,
 }
 
 export enum CardanoAmounts {
@@ -49,6 +57,15 @@ export enum CardanoAmounts {
    */
   COINS_PER_UTXO_BYTE = 4310,
   TX_TTL_SECS = 7_200,
+  /**
+   * Initial fee estimate for the fee-convergence loop.
+   * A reasonable conservative starting point; the loop converges to the real fee.
+   */
+  TX_FEE_INITIAL_ESTIMATE = 200_000,
+  /**
+   * Stop the fee-convergence loop when the delta between iterations is within this bound (lovelace).
+   */
+  TX_FEE_TOLERANCE = 1_000,
 }
 
 /**

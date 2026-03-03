@@ -162,4 +162,104 @@ export const feeEstimationRequestSchema = z
     }
   );
 
-export type FeeEstimationRequest = z.infer<typeof feeEstimationRequestSchema>;
+export type CntFeeEstimationRequest = z.infer<typeof feeEstimationRequestSchema>;
+
+const adaRecipientRefinement = (data: {
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+}) => {
+  const hasAddress = data.recipientAddress !== undefined;
+  const hasVaultId = data.recipientVaultAccountId !== undefined;
+  return (hasAddress && !hasVaultId) || (!hasAddress && hasVaultId);
+};
+
+const adaRecipientRefinementMessage =
+  "Exactly one recipient must be specified: recipientAddress OR recipientVaultAccountId (not both, not neither)";
+
+export const adaTransferRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    lovelaceAmount: z
+      .number()
+      .int("lovelaceAmount must be an integer")
+      .min(1_000_000, "lovelaceAmount must be at least 1,000,000 lovelace (1 ADA)"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+  })
+  .refine(adaRecipientRefinement, { message: adaRecipientRefinementMessage });
+
+export type AdaTransferRequest = z.infer<typeof adaTransferRequestSchema>;
+
+export const adaFeeEstimationRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    lovelaceAmount: z
+      .number()
+      .int("lovelaceAmount must be an integer")
+      .min(1_000_000, "lovelaceAmount must be at least 1,000,000 lovelace (1 ADA)"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+    grossAmount: z.boolean().optional(),
+  })
+  .refine(adaRecipientRefinement, { message: adaRecipientRefinementMessage });
+
+export type AdaFeeEstimationRequest = z.infer<typeof adaFeeEstimationRequestSchema>;
+
+const tokenSpecSchema = z.object({
+  tokenPolicyId: z.string().min(1, "tokenPolicyId is required"),
+  tokenName: z.string().min(1, "tokenName is required"),
+  amount: z.number().int().positive("token amount must be a positive integer"),
+});
+
+const multiTokenRecipientRefinement = (data: {
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+}) => {
+  const hasAddress = data.recipientAddress !== undefined;
+  const hasVaultId = data.recipientVaultAccountId !== undefined;
+  return (hasAddress && !hasVaultId) || (!hasAddress && hasVaultId);
+};
+
+const multiTokenRecipientMessage =
+  "Exactly one recipient must be specified: recipientAddress OR recipientVaultAccountId (not both, not neither)";
+
+export const multiTokenTransferRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    tokens: z.array(tokenSpecSchema).min(1, "At least one token must be specified"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+    minRecipientLovelace: z.number().int().positive().optional(),
+  })
+  .refine(multiTokenRecipientRefinement, { message: multiTokenRecipientMessage });
+
+export type MultiTokenTransferRequest = z.infer<typeof multiTokenTransferRequestSchema>;
+
+export const multiTokenFeeEstimationRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    tokens: z.array(tokenSpecSchema).min(1, "At least one token must be specified"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+    minRecipientLovelace: z.number().int().positive().optional(),
+    grossAmount: z.boolean().optional(),
+  })
+  .refine(multiTokenRecipientRefinement, { message: multiTokenRecipientMessage });
+
+export type MultiTokenFeeEstimationRequest = z.infer<typeof multiTokenFeeEstimationRequestSchema>;
+
+export const consolidateUtxosRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  index: z.number().int().nonnegative().optional(),
+  minUtxoCount: z.number().int().min(2, "minUtxoCount must be at least 2").optional(),
+});
+
+export type ConsolidateUtxosRequest = z.infer<typeof consolidateUtxosRequestSchema>;

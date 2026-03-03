@@ -6,6 +6,11 @@ import {
   validateParams,
   transferRequestSchema,
   feeEstimationRequestSchema,
+  adaTransferRequestSchema,
+  adaFeeEstimationRequestSchema,
+  multiTokenTransferRequestSchema,
+  multiTokenFeeEstimationRequestSchema,
+  consolidateUtxosRequestSchema,
   vaultAccountIdParamsSchema,
   credentialParamsSchema,
   hashParamsSchema,
@@ -1444,6 +1449,448 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
     "/fee-estimate",
     validateRequest(feeEstimationRequestSchema),
     apiController.estimateFee
+  );
+
+  /**
+   * @swagger
+   * /api/transfers/ada:
+   *   post:
+   *     summary: Transfer native ADA
+   *     description: |
+   *       Transfers native ADA from a Fireblocks vault account to a recipient address or vault.
+   *
+   *       **UTXO Selection Strategy:**
+   *       ADA-only UTxOs are consumed first to avoid touching native tokens.
+   *       Multi-asset UTxOs are only selected if ADA-only UTxOs are insufficient.
+   *
+   *       **Token Preservation:**
+   *       When multi-asset UTxOs are consumed, ALL their tokens are returned to the sender
+   *       in the change output (Cardano protocol requirement — tokens cannot be dropped).
+   *       The `tokensPresentedInChange` field in the response lists affected policy IDs.
+   *     tags: [Transfers]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [vaultAccountId, lovelaceAmount]
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Sender Fireblocks vault account ID
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 description: Amount to send in lovelace (1 ADA = 1,000,000 lovelace)
+   *                 example: 5000000
+   *               recipientAddress:
+   *                 type: string
+   *                 description: Recipient bech32 Cardano address (mutually exclusive with recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: Recipient Fireblocks vault account ID (mutually exclusive with recipientAddress)
+   *               recipientIndex:
+   *                 type: integer
+   *                 default: 0
+   *                 description: Address index on the recipient vault account
+   *               index:
+   *                 type: integer
+   *                 default: 0
+   *                 description: Address index on the sender vault account
+   *     responses:
+   *       200:
+   *         description: ADA transfer executed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Submitted transaction hash
+   *                 senderAddress:
+   *                   type: string
+   *                 recipientAddress:
+   *                   type: string
+   *                 lovelaceAmount:
+   *                   type: integer
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                     ada:
+   *                       type: string
+   *                 tokensPresentedInChange:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                   description: Policy IDs of tokens returned to sender in change (only present when token UTxOs were consumed)
+   *       400:
+   *         description: Validation error or insufficient ADA balance
+   *       404:
+   *         description: Recipient vault account address not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.post("/transfers/ada", validateRequest(adaTransferRequestSchema), apiController.transferAda);
+
+  /**
+   * @swagger
+   * /api/fee-estimate/ada:
+   *   post:
+   *     summary: Estimate fee for a native ADA transfer
+   *     description: |
+   *       Dry-runs the full ADA transaction pipeline (UTXO selection, output construction,
+   *       iterative fee convergence) without signing or submitting. Returns an accurate fee
+   *       breakdown. Use this to display estimated costs to users before they confirm.
+   *
+   *       When selected UTxOs contain native tokens, a `tokenChangeWarning` is included
+   *       in the response to inform the caller that tokens will appear in the change output.
+   *     tags: [Transfers]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [vaultAccountId, lovelaceAmount]
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 example: 5000000
+   *               recipientAddress:
+   *                 type: string
+   *               recipientVaultAccountId:
+   *                 type: string
+   *               recipientIndex:
+   *                 type: integer
+   *                 default: 0
+   *               index:
+   *                 type: integer
+   *                 default: 0
+   *               grossAmount:
+   *                 type: boolean
+   *                 default: false
+   *                 description: If true, fee is deducted from lovelaceAmount (recipient receives less)
+   *     responses:
+   *       200:
+   *         description: Fee estimation successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       example: "0.174165"
+   *                     lovelace:
+   *                       type: string
+   *                       example: "174165"
+   *                 recipientReceives:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 totalCost:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 tokenChangeWarning:
+   *                   type: object
+   *                   nullable: true
+   *                   description: Present only when token UTxOs are consumed by this transfer
+   *                   properties:
+   *                     policiesAffected:
+   *                       type: integer
+   *                     message:
+   *                       type: string
+   *       400:
+   *         description: Validation error or insufficient ADA balance
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/fee-estimate/ada",
+    validateRequest(adaFeeEstimationRequestSchema),
+    apiController.estimateAdaFee
+  );
+
+  /**
+   * @swagger
+   * /api/transfers/tokens:
+   *   post:
+   *     summary: Transfer multiple Cardano native tokens in a single transaction
+   *     description: |
+   *       Sends one or more CNTs to a recipient in a single Cardano transaction.
+   *       All specified tokens are bundled into one recipient output.
+   *
+   *       If consumed UTxOs carry tokens not listed in `tokens`, those tokens are
+   *       automatically returned to the sender in the change output — no tokens are lost.
+   *
+   *       The `tokensPresentedInChange` field in the response lists any extra policy IDs
+   *       that ended up in the change output.
+   *     tags:
+   *       - Transfers
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - tokens
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID of the sender
+   *               tokens:
+   *                 type: array
+   *                 minItems: 1
+   *                 items:
+   *                   type: object
+   *                   required: [tokenPolicyId, tokenName, amount]
+   *                   properties:
+   *                     tokenPolicyId:
+   *                       type: string
+   *                       description: Token policy ID (hex)
+   *                     tokenName:
+   *                       type: string
+   *                       description: Token name (hex)
+   *                     amount:
+   *                       type: integer
+   *                       description: Amount to transfer in base units
+   *               recipientAddress:
+   *                 type: string
+   *                 description: Recipient bech32 Cardano address (mutually exclusive with recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: Recipient Fireblocks vault account ID (mutually exclusive with recipientAddress)
+   *               recipientIndex:
+   *                 type: integer
+   *                 description: Address index on the recipient vault (default 0)
+   *               index:
+   *                 type: integer
+   *                 description: Address index on the sender vault (default 0)
+   *               minRecipientLovelace:
+   *                 type: integer
+   *                 description: Override minimum lovelace attached to the recipient output
+   *     responses:
+   *       200:
+   *         description: Transfer successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                 senderAddress:
+   *                   type: string
+   *                 recipientAddress:
+   *                   type: string
+   *                 tokens:
+   *                   type: array
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                     ada:
+   *                       type: string
+   *                 tokensPresentedInChange:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                   description: Policy IDs of tokens returned to sender in change (only when extra token UTxOs were consumed)
+   *       400:
+   *         description: Validation error or insufficient balance
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/transfers/tokens",
+    validateRequest(multiTokenTransferRequestSchema),
+    apiController.transferMultipleTokens
+  );
+
+  /**
+   * @swagger
+   * /api/fee-estimate/tokens:
+   *   post:
+   *     summary: Estimate fee for a multi-token transfer
+   *     description: |
+   *       Dry-runs the full multi-token transaction pipeline and returns the fee breakdown.
+   *       Does not sign or submit anything.
+   *
+   *       The `tokenChangeWarning` field is included when the selected UTxOs carry additional
+   *       tokens not listed in `tokens` — those tokens will appear in the change output.
+   *     tags:
+   *       - Fee Estimation
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - tokens
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *               tokens:
+   *                 type: array
+   *                 minItems: 1
+   *                 items:
+   *                   type: object
+   *                   required: [tokenPolicyId, tokenName, amount]
+   *                   properties:
+   *                     tokenPolicyId:
+   *                       type: string
+   *                     tokenName:
+   *                       type: string
+   *                     amount:
+   *                       type: integer
+   *               recipientAddress:
+   *                 type: string
+   *               recipientVaultAccountId:
+   *                 type: string
+   *               grossAmount:
+   *                 type: boolean
+   *                 description: If true, fee is considered included in the amounts being sent
+   *     responses:
+   *       200:
+   *         description: Fee estimation result
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 minAdaRequired:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 totalCost:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 tokenChangeWarning:
+   *                   type: object
+   *                   description: Present when extra-token UTxOs are consumed
+   *                   properties:
+   *                     policiesAffected:
+   *                       type: integer
+   *                     message:
+   *                       type: string
+   *       400:
+   *         description: Validation error or insufficient balance
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/fee-estimate/tokens",
+    validateRequest(multiTokenFeeEstimationRequestSchema),
+    apiController.estimateMultiTokenFee
+  );
+
+  /**
+   * @swagger
+   * /api/utxos/consolidate:
+   *   post:
+   *     summary: Consolidate all UTxOs at an address into a single UTxO
+   *     description: |
+   *       Sweeps all UTxOs at the specified address index into a single output back to the sender.
+   *       All ADA and all native tokens are preserved — nothing is lost.
+   *
+   *       Useful for combating UTxO fragmentation after many incoming transfers.
+   *       Fails if the address has fewer UTxOs than `minUtxoCount` (default: 2).
+   *     tags:
+   *       - UTxO Management
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID
+   *               index:
+   *                 type: integer
+   *                 description: Address index to consolidate (default 0)
+   *               minUtxoCount:
+   *                 type: integer
+   *                 minimum: 2
+   *                 description: Minimum UTxO count required to proceed (default 2)
+   *     responses:
+   *       200:
+   *         description: Consolidation successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                 address:
+   *                   type: string
+   *                 utxosCombined:
+   *                   type: integer
+   *                   description: Number of UTxOs merged into the consolidated output
+   *                 lovelace:
+   *                   type: string
+   *                   description: ADA in the consolidated output (after fee)
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                     ada:
+   *                       type: string
+   *                 tokenPolicies:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                   description: Distinct token policy IDs present in the consolidated output
+   *       400:
+   *         description: Fewer UTxOs than minUtxoCount, or validation error
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/utxos/consolidate",
+    validateRequest(consolidateUtxosRequestSchema),
+    apiController.consolidateUtxos
   );
 
   /**

@@ -1,5 +1,6 @@
 import { Address } from "@emurgo/cardano-serialization-lib-nodejs";
 import { UtxoData } from "./UTXOs.js";
+import { TokenTransferSpec } from "./general.js";
 
 export interface LastUpdated {
   slot_no: number;
@@ -66,7 +67,7 @@ export interface TransactionDetailsResponse {
   data: DetailedTransaction;
 }
 
-export interface createTransactionOutputsParams {
+export interface CntTransactionOutputsParams {
   requiredLovelace: number;
   fee: number;
   recipientAddress: Address;
@@ -74,6 +75,23 @@ export interface createTransactionOutputsParams {
   tokenPolicyId: string;
   tokenName: string;
   transferAmount: number;
+  selectedUtxos: UtxoData[];
+}
+
+export interface MultiTokenTransactionOutputsParams {
+  /** All tokens to send to the recipient in a single output */
+  tokens: TokenTransferSpec[];
+  fee: number;
+  recipientAddress: Address;
+  senderAddress: Address;
+  selectedUtxos: UtxoData[];
+  /** Explicit lovelace for recipient output; calculated from policy count if absent */
+  minRecipientLovelace?: number;
+}
+
+export interface ConsolidationTransactionOutputParams {
+  fee: number;
+  senderAddress: Address;
   selectedUtxos: UtxoData[];
 }
 

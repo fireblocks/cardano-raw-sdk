@@ -305,6 +305,66 @@ export class ApiController {
     }
   };
 
+  public transferAda = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.transferAda(req.body);
+      this.logger.info(`ADA transfer executed successfully: ${result.txHash}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "transferAda");
+    }
+  };
+
+  public estimateAdaFee = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.estimateAdaTransactionFee(req.body);
+      this.logger.info(`ADA fee estimation completed successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "estimateAdaFee");
+    }
+  };
+
+  public transferMultipleTokens = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.transferMultipleTokens(req.body);
+      this.logger.info(`Multi-token transfer executed successfully: ${result.txHash}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "transferMultipleTokens");
+    }
+  };
+
+  public estimateMultiTokenFee = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.estimateMultiTokenTransactionFee(req.body);
+      this.logger.info(`Multi-token fee estimation completed successfully`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "estimateMultiTokenFee");
+    }
+  };
+
+  public consolidateUtxos = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId } = req.body;
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.consolidateUtxos(req.body);
+      this.logger.info(`UTxO consolidation executed successfully: ${result.txHash}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "consolidateUtxos");
+    }
+  };
+
   public enrichWebhookPayload = async (req: Request, res: Response) => {
     try {
       // Extract raw body (Buffer) for signature verification
