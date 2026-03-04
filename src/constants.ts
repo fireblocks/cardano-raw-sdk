@@ -29,10 +29,15 @@ export enum CardanoAmounts {
    */
   STAKING_TX_FEE = 300_000,
   /**
-   * Fee for governance operations (DRep delegation)
+   * Fee for governance operations (DRep delegation, DRep registration)
    * These transactions involve governance certificates
    */
   GOVERNANCE_TX_FEE = 1_000_000,
+  /**
+   * Deposit required to register as a DRep on Cardano mainnet (Conway era)
+   * 500 ADA = 500,000,000 lovelace
+   */
+  DREP_REGISTRATION_DEPOSIT = 500_000_000,
   /**
    * Conservative fee estimate for UTXO selection in CNT transfers
    * Used to ensure sufficient ADA is available before calculating actual fee
