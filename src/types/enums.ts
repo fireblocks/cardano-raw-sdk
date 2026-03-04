@@ -73,6 +73,7 @@ export enum CertificateType {
   STAKE_REGISTRATION = 7, // Conway: includes deposit amount
   STAKE_DEREGISTRATION = 8, // Conway: includes refund amount
   VOTE_DELEGATION = 9, // Conway: voting delegation
+  DREP_REGISTRATION = 16, // Conway: register as a DRep
 }
 
 /**
@@ -90,4 +91,6 @@ export enum StakingOperation {
   DEREGISTER = "deregister",
   WITHDRAW_REWARDS = "withdraw-rewards",
   VOTE_DELEGATE = "vote-delegate",
+  REGISTER_DREP = "register-drep",
+  CAST_VOTE = "cast-vote",
 }
