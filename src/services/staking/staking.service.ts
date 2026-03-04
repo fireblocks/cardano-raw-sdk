@@ -14,6 +14,9 @@ import {
   buildDelegationCertificate,
   buildDeregistrationCertificate,
   buildVoteDelegationCertificate,
+  buildDRepRegistrationCertificate,
+  buildVotingProcedures,
+  encodeDRepId,
   serializeWithdrawals,
   embedSignaturesInTx,
   getSigningPayload,
@@ -26,6 +29,10 @@ import {
   DeregisterStakingOptions,
   WithdrawRewardsOptions,
   DRepDelegationOptions,
+  RegisterAsDRepOptions,
+  RegisterAsDRepResult,
+  CastVoteOptions,
+  CastVoteResult,
   StakingTransactionResult,
   RewardsData,
   Networks,
@@ -425,6 +432,131 @@ export class StakingService {
   }
 
   /**
+   * Register the vault account as a DRep (Conway era governance)
+   */
+  async registerAsDRep(options: RegisterAsDRepOptions): Promise<RegisterAsDRepResult> {
+    try {
+      const {
+        vaultAccountId,
+        anchor,
+        depositAmount = CardanoAmounts.DREP_REGISTRATION_DEPOSIT,
+        fee = CardanoAmounts.GOVERNANCE_TX_FEE,
+      } = options;
+
+      this.logger.info(`Registering vault account ${vaultAccountId} as a DRep`);
+
+      const minInputAmount = depositAmount + fee;
+      const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
+        vaultAccountId,
+        minInputAmount
+      );
+
+      const credential = getCertificateFromBaseAddress(
+        addressWithUtxo.address,
+        this.networkConfig.isMainnet()
+      );
+
+      const drepRegistrationCertificate = buildDRepRegistrationCertificate(
+        credential,
+        depositAmount,
+        anchor
+      );
+
+      const drepId = encodeDRepId(credential);
+      const netAmount = addressWithUtxo.utxo.nativeAmount - fee - depositAmount;
+
+      const submitResponse = await this.buildSignAndSubmit({
+        vaultAccountId,
+        addressInfo: addressWithUtxo,
+        netAmount,
+        fee,
+        certificates: [drepRegistrationCertificate],
+        operation: "register as DRep",
+        skipValidation: true,
+        skipTtl: true,
+      });
+
+      this.logger.info(
+        `DRep registration transaction submitted: ${submitResponse.data.txHash}, DRep ID: ${drepId}`
+      );
+
+      return {
+        txHash: submitResponse.data.txHash,
+        status: "submitted",
+        operation: StakingOperation.REGISTER_DREP,
+        drepId,
+        addressIndex: addressWithUtxo.addressIndex,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "registering as DRep");
+    }
+  }
+
+  /**
+   * Cast a governance vote as a DRep (Conway era)
+   */
+  async castVote(options: CastVoteOptions): Promise<CastVoteResult> {
+    try {
+      const {
+        vaultAccountId,
+        governanceActionId,
+        vote,
+        anchor,
+        fee = CardanoAmounts.GOVERNANCE_TX_FEE,
+      } = options;
+
+      this.logger.info(
+        `Casting vote "${vote}" on governance action ${governanceActionId.txHash}#${governanceActionId.index} for vault ${vaultAccountId}`
+      );
+
+      const voteInteger: 0 | 1 | 2 = vote === "no" ? 0 : vote === "yes" ? 1 : 2;
+
+      const minInputAmount = fee;
+      const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
+        vaultAccountId,
+        minInputAmount
+      );
+
+      const credential = getCertificateFromBaseAddress(
+        addressWithUtxo.address,
+        this.networkConfig.isMainnet()
+      );
+
+      const votingProcedures = buildVotingProcedures(
+        credential,
+        governanceActionId,
+        voteInteger,
+        anchor
+      );
+
+      const netAmount = addressWithUtxo.utxo.nativeAmount - fee;
+
+      const submitResponse = await this.buildSignAndSubmit({
+        vaultAccountId,
+        addressInfo: addressWithUtxo,
+        netAmount,
+        fee,
+        votingProcedures,
+        operation: `cast vote "${vote}" on governance action`,
+        skipValidation: true,
+        skipTtl: true,
+      });
+
+      this.logger.info(`Governance vote transaction submitted: ${submitResponse.data.txHash}`);
+
+      return {
+        txHash: submitResponse.data.txHash,
+        status: "submitted",
+        operation: StakingOperation.CAST_VOTE,
+        vote,
+        governanceActionId,
+      };
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, "casting governance vote");
+    }
+  }
+
+  /**
    * Get stake address for a vault account
    */
   async getStakeAddress(vaultAccountId: string): Promise<string> {
@@ -515,6 +647,7 @@ export class StakingService {
     fee: number;
     certificates?: Array<any>;
     withdrawals?: Map<Uint8Array, number>;
+    votingProcedures?: Map<any, any>;
     operation: string;
     skipValidation?: boolean;
     skipTtl?: boolean; // Skip TTL for Conway-era governance transactions
@@ -526,6 +659,7 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
+      votingProcedures,
       operation,
       skipValidation = false,
       skipTtl = false,
@@ -542,6 +676,7 @@ export class StakingService {
       ttl,
       certificates,
       withdrawals,
+      votingProcedures,
       network: this.networkConfig.network,
     });
 
@@ -666,6 +801,7 @@ export class StakingService {
     fee: number;
     certificates?: Array<any>;
     withdrawals?: Map<Uint8Array, number>;
+    votingProcedures?: Map<any, any>;
     operation: string;
     skipValidation?: boolean;
     skipTtl?: boolean;
@@ -677,6 +813,7 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
+      votingProcedures,
       operation,
       skipValidation = false,
       skipTtl = false,
@@ -689,6 +826,7 @@ export class StakingService {
       fee,
       certificates,
       withdrawals,
+      votingProcedures,
       operation,
       skipValidation,
       skipTtl,
