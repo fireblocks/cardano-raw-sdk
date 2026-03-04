@@ -19,6 +19,10 @@ import {
   StakeAccountInfoResponse,
   CurrentEpochResponse,
   PoolInfoResponse,
+  PoolMetadataResponse,
+  PoolDelegatorsResponse,
+  PoolDelegatorsListResponse,
+  PoolBlocksResponse,
   DelegationHistoryResponse,
   AccountAssetsResponse,
   RegistrationHistoryResponse,
@@ -375,6 +379,78 @@ export class IagonApiService {
       throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: any) {
       throw this.errorHandler.handleApiError(error, `fetching pool info for ${poolId}`);
+    }
+  };
+
+  /**
+   * Get pool metadata (name, ticker, description, homepage)
+   */
+  public getPoolMetadata = async (poolId: string): Promise<PoolMetadataResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/pools/${encodeURIComponent(poolId)}/metadata`;
+      const response = await this.axiosInstance.get(url);
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching pool metadata for ${poolId}`);
+    }
+  };
+
+  /**
+   * Get pool delegator count and total active stake
+   */
+  public getPoolDelegators = async (poolId: string): Promise<PoolDelegatorsResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/pools/${encodeURIComponent(poolId)}/delegators`;
+      const response = await this.axiosInstance.get(url);
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching pool delegators for ${poolId}`);
+    }
+  };
+
+  /**
+   * Get paginated list of individual pool delegators
+   */
+  public getPoolDelegatorsList = async (
+    poolId: string,
+    limit: number = 100,
+    offset: number = 0
+  ): Promise<PoolDelegatorsListResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/pools/${encodeURIComponent(poolId)}/delegators/list?limit=${limit}&offset=${offset}`;
+      const response = await this.axiosInstance.get(url);
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching pool delegators list for ${poolId}`);
+    }
+  };
+
+  /**
+   * Get pool block production statistics
+   */
+  public getPoolBlocks = async (poolId: string): Promise<PoolBlocksResponse> => {
+    try {
+      const url = `${this.iagonBaseUrl}/v1/pools/${encodeURIComponent(poolId)}/blocks`;
+      const response = await this.axiosInstance.get(url);
+
+      if (response.status === 200) {
+        return response.data;
+      }
+      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+    } catch (error: any) {
+      throw this.errorHandler.handleApiError(error, `fetching pool blocks for ${poolId}`);
     }
   };
 
