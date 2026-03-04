@@ -59,12 +59,21 @@ import {
   DeregisterStakingOptions,
   WithdrawRewardsOptions,
   DRepDelegationOptions,
+  RegisterAsDRepOptions,
+  RegisterAsDRepResult,
+  CastVoteOptions,
+  CastVoteResult,
   RewardsData,
   WebhookEventTypes,
   StakeAccountInfoResponse,
   HealthStatusResponse,
   CurrentEpochResponse,
   AssetInfoResponse,
+  PoolInfoResponse,
+  PoolMetadataResponse,
+  PoolDelegatorsResponse,
+  PoolDelegatorsListResponse,
+  PoolBlocksResponse,
   TokenMetadata,
   CntFeeEstimationRequest,
   CntFeeEstimationResponse,
@@ -1333,8 +1342,18 @@ export class FireblocksCardanoRawSDK {
       recipientVaultAccountId,
       recipientIndex = 0,
       tokens,
-      minRecipientLovelace,
+      lovelaceAmount,
     } = params;
+
+    if (lovelaceAmount !== undefined && lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+      throw new SdkApiError(
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        400,
+        "BelowMinimumUtxo",
+        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        "FireblocksCardanoRawSDK"
+      );
+    }
 
     if (!tokens || tokens.length === 0) {
       throw new SdkApiError(
@@ -1371,12 +1390,13 @@ export class FireblocksCardanoRawSDK {
         address: senderAddress,
         tokens,
         transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+        lovelaceAmount,
       });
 
     // Conservative balance check before building
     const recipientPolicies = new Set(tokens.map((t) => t.tokenPolicyId)).size;
     const estimatedMinRecipient =
-      minRecipientLovelace ??
+      lovelaceAmount ??
       CardanoAmounts.MIN_UTXO_BASE_LOVELACE +
         recipientPolicies * CardanoAmounts.MIN_UTXO_PER_POLICY_LOVELACE;
     const minimumRequired =
@@ -1409,7 +1429,7 @@ export class FireblocksCardanoRawSDK {
         recipientAddress: Address.from_bech32(resolvedRecipientAddress),
         senderAddress: Address.from_bech32(senderAddress),
         selectedUtxos,
-        minRecipientLovelace,
+        minRecipientLovelace: lovelaceAmount,
       },
       txInputs,
       ttl,
@@ -2510,6 +2530,66 @@ export class FireblocksCardanoRawSDK {
    * console.log(`DRep delegation TX: ${result.txHash}`);
    * ```
    */
+  /**
+   * Register the vault account as a DRep (Delegated Representative) on Cardano
+   *
+   * Submits a Conway-era `reg_drep_cert` certificate to register the vault's stake
+   * credential as a DRep. This costs a 500 ADA deposit (refundable on deregistration).
+   * An optional anchor can point to publicly accessible DRep metadata.
+   *
+   * @param options - DRep registration options
+   * @returns Transaction result with hash, status, and the bech32 DRep ID
+   *
+   * @example
+   * ```typescript
+   * // Register without metadata anchor
+   * const result = await sdk.registerAsDRep({ vaultAccountId: "0" });
+   *
+   * // Register with a metadata anchor
+   * const result = await sdk.registerAsDRep({
+   *   vaultAccountId: "0",
+   *   anchor: {
+   *     url: "https://example.com/drep-metadata.json",
+   *     dataHash: "abc123...", // blake2b-256 hex hash of the JSON file
+   *   },
+   * });
+   * console.log(`DRep registration TX: ${result.txHash}, DRep ID: ${result.drepId}`);
+   * ```
+   */
+  public registerAsDRep = async (options: RegisterAsDRepOptions): Promise<RegisterAsDRepResult> => {
+    this.logger.info(`Registering vault account ${options.vaultAccountId} as a DRep`);
+    return await this.stakingService.registerAsDRep(options);
+  };
+
+  /**
+   * Cast a governance vote as a DRep (Conway era)
+   *
+   * Submits a `voting_procedures` transaction allowing a registered DRep to vote
+   * Yes, No, or Abstain on a governance action.
+   *
+   * @param options - Vote options including governance action ID and vote choice
+   * @returns Transaction result with hash, status, and the vote cast
+   *
+   * @example
+   * ```typescript
+   * const result = await sdk.castGovernanceVote({
+   *   vaultAccountId: "0",
+   *   governanceActionId: {
+   *     txHash: "abc123...", // TX hash of the governance action proposal
+   *     index: 0,
+   *   },
+   *   vote: "yes",
+   * });
+   * console.log(`Vote TX: ${result.txHash}`);
+   * ```
+   */
+  public castGovernanceVote = async (options: CastVoteOptions): Promise<CastVoteResult> => {
+    this.logger.info(
+      `Casting vote "${options.vote}" on governance action ${options.governanceActionId.txHash}#${options.governanceActionId.index}`
+    );
+    return await this.stakingService.castVote(options);
+  };
+
   public delegateToDRep = async (
     options: DRepDelegationOptions
   ): Promise<StakingTransactionResult> => {
@@ -2589,9 +2669,65 @@ export class FireblocksCardanoRawSDK {
   }
 
   /**
+   * Get staking pool information by pool ID
+   *
+   * Returns live metrics including saturation, stake, delegator count, margin, and fixed cost.
+   *
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   * @returns Pool information including saturation and financial metrics
+   */
+  public async getPoolInfo(poolId: string): Promise<PoolInfoResponse> {
+    this.logger.info(`Getting pool info for ${poolId}`);
+    return await this.iagonApiService.getPoolInfo(poolId);
+  }
+
+  /**
+   * Get pool metadata (name, ticker, description, homepage)
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   */
+  public async getPoolMetadata(poolId: string): Promise<PoolMetadataResponse> {
+    this.logger.info(`Getting pool metadata for ${poolId}`);
+    return await this.iagonApiService.getPoolMetadata(poolId);
+  }
+
+  /**
+   * Get aggregate pool delegator count and total active stake
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   */
+  public async getPoolDelegators(poolId: string): Promise<PoolDelegatorsResponse> {
+    this.logger.info(`Getting pool delegators for ${poolId}`);
+    return await this.iagonApiService.getPoolDelegators(poolId);
+  }
+
+  /**
+   * Get paginated list of individual pool delegators
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   * @param limit - Maximum number of results (default: 100)
+   * @param offset - Pagination offset (default: 0)
+   */
+  public async getPoolDelegatorsList(
+    poolId: string,
+    limit?: number,
+    offset?: number
+  ): Promise<PoolDelegatorsListResponse> {
+    this.logger.info(`Getting pool delegators list for ${poolId}`);
+    return await this.iagonApiService.getPoolDelegatorsList(poolId, limit, offset);
+  }
+
+  /**
+   * Get pool block production statistics
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   */
+  public async getPoolBlocks(poolId: string): Promise<PoolBlocksResponse> {
+    this.logger.info(`Getting pool blocks for ${poolId}`);
+    return await this.iagonApiService.getPoolBlocks(poolId);
+  }
+
+  /**
    * Clear asset info cache
    * @param policyId - Optional: Clear cache for specific policy ID only
-   * @param assetName - Optional: Clear cache for specific asset only (requires policyId)
+   * @param assetName - Op
+   * tional: Clear cache for specific asset only (requires policyId)
    * @example
    * ```typescript
    * // Clear entire cache

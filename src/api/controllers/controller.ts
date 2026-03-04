@@ -623,6 +623,32 @@ export class ApiController {
   };
 
   /**
+   * Cast a governance vote as a DRep (Conway governance)
+   * POST /api/governance/vote
+   */
+  public castGovernanceVote = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, governanceActionId, vote, anchor, fee } = req.body;
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.castGovernanceVote({
+        vaultAccountId,
+        governanceActionId,
+        vote,
+        anchor,
+        fee,
+      });
+
+      this.logger.info(
+        `Governance vote "${vote}" submitted for vault ${vaultAccountId}: ${result.txHash}`
+      );
+      res.status(200).json({ success: true, data: result });
+    } catch (error: any) {
+      this.handleError(error, res, "castGovernanceVote");
+    }
+  };
+
+  /**
    * Delegate to a DRep (Conway governance)
    * POST /api/governance/delegate-drep
    */
@@ -672,9 +698,99 @@ export class ApiController {
   };
 
   /**
+   * Register a vault account as a DRep (Conway governance)
+   * POST /api/governance/register-drep
+   */
+  public registerAsDRep = async (req: Request, res: Response) => {
+    try {
+      const { vaultAccountId, anchor, depositAmount, fee } = req.body;
+
+      const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      const result = await sdk.registerAsDRep({
+        vaultAccountId,
+        anchor,
+        depositAmount,
+        fee,
+      });
+
+      this.logger.info(`DRep registration submitted for vault ${vaultAccountId}: ${result.txHash}`);
+      res.status(200).json({ success: true, data: result });
+    } catch (error: any) {
+      this.handleError(error, res, "registerAsDRep");
+    }
+  };
+
+  /**
    * Get stake address for a vault account
    * GET /api/staking/stake-address/:vaultAccountId
    */
+  public getPoolInfo = async (req: Request, res: Response) => {
+    try {
+      const { poolId } = req.params as { poolId: string };
+      const sdk = await this.sdkManager.getSdk("0");
+      const result = await sdk.getPoolInfo(poolId);
+
+      this.logger.info(`Pool info retrieved for ${poolId}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getPoolInfo");
+    }
+  };
+
+  public getPoolMetadata = async (req: Request, res: Response) => {
+    try {
+      const { poolId } = req.params as { poolId: string };
+      const sdk = await this.sdkManager.getSdk("0");
+      const result = await sdk.getPoolMetadata(poolId);
+
+      this.logger.info(`Pool metadata retrieved for ${poolId}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getPoolMetadata");
+    }
+  };
+
+  public getPoolDelegators = async (req: Request, res: Response) => {
+    try {
+      const { poolId } = req.params as { poolId: string };
+      const sdk = await this.sdkManager.getSdk("0");
+      const result = await sdk.getPoolDelegators(poolId);
+
+      this.logger.info(`Pool delegators retrieved for ${poolId}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getPoolDelegators");
+    }
+  };
+
+  public getPoolDelegatorsList = async (req: Request, res: Response) => {
+    try {
+      const { poolId } = req.params as { poolId: string };
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+      const offset = req.query.offset ? Number(req.query.offset) : undefined;
+      const sdk = await this.sdkManager.getSdk("0");
+      const result = await sdk.getPoolDelegatorsList(poolId, limit, offset);
+
+      this.logger.info(`Pool delegators list retrieved for ${poolId}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getPoolDelegatorsList");
+    }
+  };
+
+  public getPoolBlocks = async (req: Request, res: Response) => {
+    try {
+      const { poolId } = req.params as { poolId: string };
+      const sdk = await this.sdkManager.getSdk("0");
+      const result = await sdk.getPoolBlocks(poolId);
+
+      this.logger.info(`Pool blocks retrieved for ${poolId}`);
+      res.status(200).json(result);
+    } catch (error: any) {
+      this.handleError(error, res, "getPoolBlocks");
+    }
+  };
+
   public getStakeAddress = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.params as { vaultAccountId: string };
