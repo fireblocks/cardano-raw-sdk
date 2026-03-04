@@ -82,5 +82,7 @@ export interface TransactionBuildContext {
   readonly ttl?: number; // Optional for Conway-era governance transactions
   readonly certificates?: Array<any>;
   readonly withdrawals?: Map<Uint8Array, number>;
+  /** Conway-era voting procedures (key 19 in the TX body) */
+  readonly votingProcedures?: Map<any, any>;
   readonly network: Networks;
 }
