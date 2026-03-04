@@ -11,9 +11,12 @@ import {
   multiTokenTransferRequestSchema,
   multiTokenFeeEstimationRequestSchema,
   consolidateUtxosRequestSchema,
+  registerAsDRepRequestSchema,
+  castVoteRequestSchema,
   vaultAccountIdParamsSchema,
   credentialParamsSchema,
   hashParamsSchema,
+  poolIdParamsSchema,
 } from "./validation.js";
 
 export const configureRouter = (sdkManager: SdkManager): Router => {
@@ -402,7 +405,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get transaction details by hash
    *     description: Retrieves detailed information about a specific transaction using its hash
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: hash
@@ -546,7 +549,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get UTXOs by vault account address
    *     description: Retrieves unspent transaction outputs (UTXOs) for a vault account address. The network (mainnet/preprod) is determined by the server configuration.
-   *     tags: [UTXOs]
+   *     tags: [UTxOs]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -628,7 +631,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       Retrieves basic transaction history for all addresses in a vault account with pagination and filtering.
    *       When groupByAddress=false (default): Returns a flat array of transactions sorted by slot number (most recent first), with each transaction including an 'address' field. Duplicates are removed.
    *       When groupByAddress=true: Returns transactions grouped by address in a nested object structure.
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -751,7 +754,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get transaction history
    *     description: Retrieves basic transaction history for a vault account address with pagination and filtering
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -859,7 +862,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       Retrieves detailed transaction history for all addresses in a vault account with full input/output information, pagination, and filtering.
    *       When groupByAddress=false (default): Returns a flat array of transactions sorted by slot number (most recent first), with each transaction including an 'address' field. Duplicates are removed.
    *       When groupByAddress=true: Returns transactions grouped by address in a nested object structure.
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -1040,7 +1043,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get detailed transaction history
    *     description: Retrieves detailed transaction history for a vault account address with full input/output information, pagination, and filtering
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -1198,7 +1201,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       2. **Vault-to-vault transfer**: Specify `recipientVaultAccountId` (and optionally `recipientIndex`) to transfer between vault accounts
    *
    *       **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
-   *     tags: [Transactions]
+   *     tags: [Transfers]
    *     requestBody:
    *       required: true
    *       content:
@@ -1321,7 +1324,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *
    *       **Gross Amount**: When `grossAmount: true`, the fee is deducted from the amount being sent (recipient receives less).
    *       When `grossAmount: false` (default), the fee is added to the total cost (recipient receives full amount).
-   *     tags: [Transactions]
+   *     tags: [Transfers]
    *     requestBody:
    *       required: true
    *       content:
@@ -1534,7 +1537,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/transfers/ada", validateRequest(adaTransferRequestSchema), apiController.transferAda);
+  router.post(
+    "/transfers/ada",
+    validateRequest(adaTransferRequestSchema),
+    apiController.transferAda
+  );
 
   /**
    * @swagger
@@ -1685,9 +1692,13 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *               index:
    *                 type: integer
    *                 description: Address index on the sender vault (default 0)
-   *               minRecipientLovelace:
+   *               lovelaceAmount:
    *                 type: integer
-   *                 description: Override minimum lovelace attached to the recipient output
+   *                 minimum: 1000000
+   *                 description: |
+   *                   Explicit ADA amount (in lovelace) to include in the recipient output alongside the tokens.
+   *                   Defaults to the protocol minimum for the number of token policies. Use this to send
+   *                   ADA together with tokens in a single transaction (e.g. 5000000 = 5 ADA + all listed tokens).
    *     responses:
    *       200:
    *         description: Transfer successful
@@ -1739,7 +1750,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       The `tokenChangeWarning` field is included when the selected UTxOs carry additional
    *       tokens not listed in `tokens` — those tokens will appear in the change output.
    *     tags:
-   *       - Fee Estimation
+   *       - Transfers
    *     requestBody:
    *       required: true
    *       content:
@@ -1769,6 +1780,10 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 type: string
    *               recipientVaultAccountId:
    *                 type: string
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 description: Explicit ADA amount (in lovelace) to bundle with tokens in the recipient output
    *               grossAmount:
    *                 type: boolean
    *                 description: If true, fee is considered included in the amounts being sent
@@ -1832,7 +1847,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       Useful for combating UTxO fragmentation after many incoming transfers.
    *       Fails if the address has fewer UTxOs than `minUtxoCount` (default: 2).
    *     tags:
-   *       - UTxO Management
+   *       - UTxOs
    *     requestBody:
    *       required: true
    *       content:
@@ -2384,6 +2399,210 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.post("/governance/delegate-drep", apiController.delegateToDRep);
 
   /**
+   * @swagger
+   * /api/governance/register-drep:
+   *   post:
+   *     summary: Register vault account as a DRep
+   *     description: |
+   *       Submits a Conway-era `reg_drep_cert` certificate to register the vault's stake
+   *       credential as a Delegated Representative (DRep) on Cardano.
+   *
+   *       **Requirements:**
+   *       - The vault must have a pure-ADA UTxO of at least 501 ADA (500 ADA deposit + fee).
+   *       - The stake key does NOT need to be registered first.
+   *
+   *       **Anchor (optional):** Provide a publicly accessible URL to a JSON metadata document
+   *       and the blake2b-256 hex hash of that document. This helps voters identify your DRep.
+   *
+   *       **Deposit:** 500 ADA (500,000,000 lovelace) — refundable upon DRep deregistration.
+   *     tags: [Governance]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID
+   *                 example: "0"
+   *               anchor:
+   *                 type: object
+   *                 description: Optional DRep metadata anchor
+   *                 required:
+   *                   - url
+   *                   - dataHash
+   *                 properties:
+   *                   url:
+   *                     type: string
+   *                     description: Public URL of the DRep metadata JSON document
+   *                     example: "https://example.com/drep-metadata.json"
+   *                   dataHash:
+   *                     type: string
+   *                     description: Blake2b-256 hex hash (64 chars) of the metadata document
+   *                     example: "abcd1234...ef567890"
+   *               depositAmount:
+   *                 type: integer
+   *                 description: Deposit in lovelace (default 500,000,000 = 500 ADA)
+   *                 example: 500000000
+   *               fee:
+   *                 type: integer
+   *                 description: Transaction fee in lovelace (default 1,000,000 = 1 ADA)
+   *                 example: 1000000
+   *     responses:
+   *       200:
+   *         description: DRep registration transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     txHash:
+   *                       type: string
+   *                       description: Transaction hash
+   *                     status:
+   *                       type: string
+   *                       example: "submitted"
+   *                     operation:
+   *                       type: string
+   *                       example: "register-drep"
+   *                     drepId:
+   *                       type: string
+   *                       description: Bech32 DRep ID (drep1...)
+   *                     addressIndex:
+   *                       type: integer
+   *       400:
+   *         description: Validation error
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/governance/register-drep",
+    validateRequest(registerAsDRepRequestSchema),
+    apiController.registerAsDRep
+  );
+
+  /**
+   * @swagger
+   * /api/governance/vote:
+   *   post:
+   *     summary: Cast a governance vote as a DRep
+   *     description: |
+   *       Submits a Conway-era `voting_procedures` transaction allowing a registered DRep
+   *       to vote on a specific governance action (Yes, No, or Abstain).
+   *
+   *       **Requirements:**
+   *       - The vault must be registered as a DRep (via `POST /api/governance/register-drep`).
+   *       - The vault must have a pure-ADA UTxO sufficient to cover the transaction fee (~1 ADA).
+   *
+   *       **Governance Action ID:** A governance action is identified by the transaction hash
+   *       and index of the proposal transaction on-chain.
+   *
+   *       **Anchor (optional):** A URL and blake2b-256 hash of a rationale document explaining
+   *       the vote.
+   *     tags: [Governance]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - governanceActionId
+   *               - vote
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID
+   *                 example: "0"
+   *               governanceActionId:
+   *                 type: object
+   *                 required:
+   *                   - txHash
+   *                   - index
+   *                 properties:
+   *                   txHash:
+   *                     type: string
+   *                     description: Transaction hash (hex, 64 chars) of the governance action proposal
+   *                     example: "abcd1234...ef567890"
+   *                   index:
+   *                     type: integer
+   *                     description: Index of the governance action in that transaction
+   *                     example: 0
+   *               vote:
+   *                 type: string
+   *                 enum: [yes, no, abstain]
+   *                 description: Vote choice
+   *                 example: "yes"
+   *               anchor:
+   *                 type: object
+   *                 description: Optional vote rationale anchor
+   *                 required:
+   *                   - url
+   *                   - dataHash
+   *                 properties:
+   *                   url:
+   *                     type: string
+   *                     description: Public URL of the vote rationale document
+   *                   dataHash:
+   *                     type: string
+   *                     description: Blake2b-256 hex hash (64 chars) of the rationale document
+   *               fee:
+   *                 type: integer
+   *                 description: Transaction fee in lovelace (default 1,000,000 = 1 ADA)
+   *                 example: 1000000
+   *     responses:
+   *       200:
+   *         description: Vote transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     txHash:
+   *                       type: string
+   *                     status:
+   *                       type: string
+   *                       example: "submitted"
+   *                     operation:
+   *                       type: string
+   *                       example: "cast-vote"
+   *                     vote:
+   *                       type: string
+   *                       example: "yes"
+   *                     governanceActionId:
+   *                       type: object
+   *                       properties:
+   *                         txHash:
+   *                           type: string
+   *                         index:
+   *                           type: integer
+   *       400:
+   *         description: Validation error
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/governance/vote",
+    validateRequest(castVoteRequestSchema),
+    apiController.castGovernanceVote
+  );
+
+  /**
    * NETWORK
    */
 
@@ -2425,5 +2644,301 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.get("/epochs", apiController.getCurrentEpoch);
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}:
+   *   get:
+   *     summary: Get staking pool information
+   *     description: |
+   *       Returns live metrics for a Cardano staking pool including saturation, stake,
+   *       delegator count, margin cost, and fixed cost.
+   *       Use this after delegation to display pool stats to the user.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     live_saturation:
+   *                       type: number
+   *                       description: Live saturation ratio (1.0 = fully saturated, >1.0 = oversaturated)
+   *                     live_stake:
+   *                       type: string
+   *                     active_stake:
+   *                       type: string
+   *                     live_delegators:
+   *                       type: integer
+   *                     margin_cost:
+   *                       type: number
+   *                       description: Pool margin as a fraction (e.g. 0.03 = 3%)
+   *                     fixed_cost:
+   *                       type: string
+   *                       description: Fixed fee per epoch in lovelace
+   *                     declared_pledge:
+   *                       type: string
+   *                     live_pledge:
+   *                       type: string
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/pools/:poolId", validateParams(poolIdParamsSchema), apiController.getPoolInfo);
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/metadata:
+   *   get:
+   *     summary: Get pool metadata
+   *     description: Returns pool off-chain metadata including name, ticker, description, and homepage URL.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool metadata retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     name:
+   *                       type: string
+   *                       nullable: true
+   *                     ticker:
+   *                       type: string
+   *                       nullable: true
+   *                     description:
+   *                       type: string
+   *                       nullable: true
+   *                     homepage:
+   *                       type: string
+   *                       nullable: true
+   *                     extended:
+   *                       type: string
+   *                       nullable: true
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/metadata",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolMetadata
+  );
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/delegators:
+   *   get:
+   *     summary: Get pool delegator summary
+   *     description: Returns the total delegator count and total active stake for a pool.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool delegator summary retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     delegator_count:
+   *                       type: integer
+   *                     active_stake:
+   *                       type: string
+   *                       description: Total active stake in lovelace
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/delegators",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolDelegators
+  );
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/delegators/list:
+   *   get:
+   *     summary: Get paginated list of pool delegators
+   *     description: Returns individual delegator entries for a pool with pagination support.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 100
+   *         description: Maximum number of delegators to return
+   *       - in: query
+   *         name: offset
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *         description: Pagination offset
+   *     responses:
+   *       200:
+   *         description: Pool delegators list retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     delegators:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           stake_address:
+   *                             type: string
+   *                           amount:
+   *                             type: string
+   *                           active_epoch_no:
+   *                             type: integer
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                     offset:
+   *                       type: integer
+   *                     total:
+   *                       type: integer
+   *                     hasMore:
+   *                       type: boolean
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/delegators/list",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolDelegatorsList
+  );
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/blocks:
+   *   get:
+   *     summary: Get pool block production statistics
+   *     description: Returns block production stats for a pool including total blocks minted and current epoch blocks.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool block stats retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     blocks_minted:
+   *                       type: integer
+   *                       description: Total blocks minted by the pool
+   *                     blocks_epoch:
+   *                       type: integer
+   *                       description: Blocks minted in the current epoch
+   *                     current_epoch:
+   *                       type: integer
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/blocks",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolBlocks
+  );
+
   return router;
 };
