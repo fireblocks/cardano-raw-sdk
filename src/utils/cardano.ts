@@ -800,7 +800,7 @@ export const fetchAndSelectUtxosForMultiToken = async (
   changeTokenAssets: Record<string, number>;
   minChangeLovelace: number;
 }> => {
-  const { iagonApiService, address, tokens, transactionFee } = params;
+  const { iagonApiService, address, tokens, transactionFee, lovelaceAmount } = params;
 
   const utxos = await fetchUtxos(iagonApiService, address);
   if (!utxos || utxos.length === 0) {
@@ -852,7 +852,10 @@ export const fetchAndSelectUtxosForMultiToken = async (
 
   // Phase 2: supplement with ADA if needed — ADA-only UTxOs first
   const recipientPolicyCount = new Set(tokens.map((t) => t.tokenPolicyId)).size;
-  const minRecipient = calculateMinLovelaceForUtxo(recipientPolicyCount);
+  const minRecipient = Math.max(
+    lovelaceAmount ?? 0,
+    calculateMinLovelaceForUtxo(recipientPolicyCount)
+  );
 
   const getMinChange = () =>
     calculateMinLovelaceForUtxo(countDistinctPolicies(collectAllAssets(selectedUtxos)));

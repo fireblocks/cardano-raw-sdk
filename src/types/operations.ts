@@ -65,6 +65,8 @@ export interface fetchAndSelectUtxosForMultiTokenParams {
   address: string;
   tokens: TokenTransferSpec[];
   transactionFee: number;
+  /** Optional explicit lovelace to send with tokens — used to set the ADA selection target */
+  lovelaceAmount?: number;
 }
 
 /**
