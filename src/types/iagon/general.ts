@@ -48,8 +48,12 @@ export interface MultiTokenTransferOpts {
   recipientIndex?: number;
   /** One or more tokens to send to the recipient in a single output */
   tokens: TokenTransferSpec[];
-  /** Explicit lovelace to attach to recipient output; defaults to protocol minimum */
-  minRecipientLovelace?: number;
+  /**
+   * Explicit ADA amount (in lovelace) to include in the recipient output alongside the tokens.
+   * Must be ≥ 1,000,000 lovelace (1 ADA) if provided. Defaults to the protocol minimum for the
+   * number of token policies in the output.
+   */
+  lovelaceAmount?: number;
 }
 
 export interface ConsolidateUtxosOpts {
