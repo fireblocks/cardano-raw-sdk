@@ -23,6 +23,57 @@ export interface PoolInfoResponse {
   };
 }
 
+export interface PoolMetadataResponse {
+  success: boolean;
+  data: {
+    pool_id: string;
+    name: string | null;
+    ticker: string | null;
+    description: string | null;
+    homepage: string | null;
+    extended: string | null;
+  };
+}
+
+export interface PoolDelegatorsResponse {
+  success: boolean;
+  data: {
+    pool_id: string;
+    delegator_count: number;
+    active_stake: string;
+  };
+}
+
+export interface PoolDelegatorEntry {
+  stake_address: string;
+  amount: string;
+  active_epoch_no: number;
+}
+
+export interface PoolDelegatorsListResponse {
+  success: boolean;
+  data: {
+    pool_id: string;
+    delegators: PoolDelegatorEntry[];
+  };
+  pagination: {
+    limit: number;
+    offset: number;
+    total: number;
+    hasMore: boolean;
+  };
+}
+
+export interface PoolBlocksResponse {
+  success: boolean;
+  data: {
+    pool_id: string;
+    blocks_minted: number;
+    blocks_epoch: number;
+    current_epoch: number;
+  };
+}
+
 export interface DelegationHistoryResponse {
   success: boolean;
   data: {
