@@ -615,31 +615,32 @@ export class FireblocksCardanoRawSDK {
   /**
    * Get UTXOs for all addresses in a vault account, grouped by address.
    */
-  public getUtxosByVaultAccountId = async (): Promise<Record<string, UtxoData[]>> => {
-    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
+  public getUtxosByVaultAccountId = async (): Promise<
+    Array<{ index: number; address: string; utxos: UtxoData[] }>
+  > => {
+    const allAddresses = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
       this.assetId
     );
 
-    const addresses = addressesResponse.filter(
-      (addr) => addr.address && addr.addressFormat === "BASE"
-    );
+    const addresses = allAddresses.filter((addr) => addr.address && addr.addressFormat === "BASE");
 
     this.logger.info(
-      `Getting UTxOs for all ${addresses.length} addresses in vault ${this.vaultAccountId}`
+      `Getting UTxOs for all ${addresses.length} BASE addresses in vault ${this.vaultAccountId}`
     );
 
-    const result: Record<string, UtxoData[]> = {};
-
-    await Promise.all(
+    const results = await Promise.all(
       addresses.map(async (addr) => {
-        if (!addr.address) return;
-        const response = await this.iagonApiService.getUtxosByAddress(addr.address);
-        result[addr.address] = response.data ?? [];
+        const response = await this.iagonApiService.getUtxosByAddress(addr.address!);
+        return {
+          index: addr.bip44AddressIndex ?? 0,
+          address: addr.address!,
+          utxos: response.data ?? [],
+        };
       })
     );
 
-    return result;
+    return results.sort((a, b) => a.index - b.index);
   };
 
   /**

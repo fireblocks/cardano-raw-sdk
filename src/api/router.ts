@@ -647,39 +647,48 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 success:
    *                   type: boolean
    *                 data:
-   *                   type: object
-   *                   description: Map of address to its UTxO array
-   *                   additionalProperties:
-   *                     type: array
-   *                     items:
-   *                       type: object
-   *                       properties:
-   *                         transaction_id:
-   *                           type: string
-   *                         output_index:
-   *                           type: integer
-   *                         address:
-   *                           type: string
-   *                         value:
+   *                   type: array
+   *                   description: Addresses sorted by BIP44 index, each with their UTxOs
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       index:
+   *                         type: integer
+   *                         description: BIP44 address index
+   *                       address:
+   *                         type: string
+   *                         description: Bech32 Cardano address
+   *                       utxos:
+   *                         type: array
+   *                         items:
    *                           type: object
    *                           properties:
-   *                             lovelace:
-   *                               type: integer
-   *                             assets:
-   *                               type: object
-   *                         datum_hash:
-   *                           type: string
-   *                           nullable: true
-   *                         script_hash:
-   *                           type: string
-   *                           nullable: true
-   *                         created_at:
-   *                           type: object
-   *                           properties:
-   *                             slot_no:
-   *                               type: integer
-   *                             header_hash:
+   *                             transaction_id:
    *                               type: string
+   *                             output_index:
+   *                               type: integer
+   *                             address:
+   *                               type: string
+   *                             value:
+   *                               type: object
+   *                               properties:
+   *                                 lovelace:
+   *                                   type: integer
+   *                                 assets:
+   *                                   type: object
+   *                             datum_hash:
+   *                               type: string
+   *                               nullable: true
+   *                             script_hash:
+   *                               type: string
+   *                               nullable: true
+   *                             created_at:
+   *                               type: object
+   *                               properties:
+   *                                 slot_no:
+   *                                   type: integer
+   *                                 header_hash:
+   *                                   type: string
    *       500:
    *         description: Internal server error
    */
