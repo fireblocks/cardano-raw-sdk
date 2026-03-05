@@ -616,9 +616,13 @@ export class FireblocksCardanoRawSDK {
    * Get UTXOs for all addresses in a vault account, grouped by address.
    */
   public getUtxosByVaultAccountId = async (): Promise<Record<string, UtxoData[]>> => {
-    const addresses = await this.fireblocksService.getVaultAccountAddresses(
+    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
       this.vaultAccountId,
       this.assetId
+    );
+
+    const addresses = addressesResponse.filter(
+      (addr) => addr.address && addr.addressFormat === "BASE"
     );
 
     this.logger.info(
