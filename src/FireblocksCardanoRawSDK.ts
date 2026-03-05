@@ -44,6 +44,7 @@ import {
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
+  UtxoData,
   GroupByOptions,
   VaultBalanceResponse,
   VaultBalanceTokenResponse,
@@ -609,6 +610,32 @@ export class FireblocksCardanoRawSDK {
     );
 
     return await this.iagonApiService.getUtxosByAddress(address);
+  };
+
+  /**
+   * Get UTXOs for all addresses in a vault account, grouped by address.
+   */
+  public getUtxosByVaultAccountId = async (): Promise<Record<string, UtxoData[]>> => {
+    const addresses = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      this.assetId
+    );
+
+    this.logger.info(
+      `Getting UTxOs for all ${addresses.length} addresses in vault ${this.vaultAccountId}`
+    );
+
+    const result: Record<string, UtxoData[]> = {};
+
+    await Promise.all(
+      addresses.map(async (addr) => {
+        if (!addr.address) return;
+        const response = await this.iagonApiService.getUtxosByAddress(addr.address);
+        result[addr.address] = response.data ?? [];
+      })
+    );
+
+    return result;
   };
 
   /**

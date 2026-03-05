@@ -624,6 +624,73 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/utxos/{vaultAccountId}/all:
+   *   get:
+   *     summary: Get UTXOs for all addresses in a vault account
+   *     description: Retrieves all UTXOs across every address in the vault account, grouped by address. Useful for inspecting the full UTxO set when a vault has multiple addresses.
+   *     tags: [UTxOs]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *     responses:
+   *       200:
+   *         description: UTXOs retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   description: Map of address to its UTxO array
+   *                   additionalProperties:
+   *                     type: array
+   *                     items:
+   *                       type: object
+   *                       properties:
+   *                         transaction_id:
+   *                           type: string
+   *                         output_index:
+   *                           type: integer
+   *                         address:
+   *                           type: string
+   *                         value:
+   *                           type: object
+   *                           properties:
+   *                             lovelace:
+   *                               type: integer
+   *                             assets:
+   *                               type: object
+   *                         datum_hash:
+   *                           type: string
+   *                           nullable: true
+   *                         script_hash:
+   *                           type: string
+   *                           nullable: true
+   *                         created_at:
+   *                           type: object
+   *                           properties:
+   *                             slot_no:
+   *                               type: integer
+   *                             header_hash:
+   *                               type: string
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/utxos/:vaultAccountId/all",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getVaultUtxos
+  );
+
+  /**
+   * @swagger
    * /api/tx/history/{vaultAccountId}/all:
    *   get:
    *     summary: Get transaction history for all addresses
