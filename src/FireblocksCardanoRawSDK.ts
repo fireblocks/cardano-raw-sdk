@@ -1281,42 +1281,55 @@ export class FireblocksCardanoRawSDK {
    */
   public transferAda = async (options: AdaTransferOpts): Promise<AdaTransferResult> => {
     try {
+      const {
+        index = 0,
+        recipientAddress,
+        recipientVaultAccountId,
+        recipientIndex = 0,
+        lovelaceAmount,
+      } = options;
+
       this.logger.info(
-        `Initiating ADA transfer: ${options.lovelaceAmount} lovelace to ${options.recipientAddress ?? `vault ${options.recipientVaultAccountId}`}`
+        `Initiating ADA transfer: ${lovelaceAmount} lovelace to ${recipientAddress ?? `vault ${recipientVaultAccountId}`}`
       );
 
-      const { txBody, senderAddress, resolvedRecipientAddress, fee, changeTokenAssets } =
-        await this.prepareAdaTransaction(options);
-
-      const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
-
-      this.logger.info(
-        `ADA transaction prepared, recipient: ${resolvedRecipientAddress}, fee: ${feeFormatted.value} ADA`
+      const senderAddress = await this.getAddressByIndex(this.assetId, index);
+      const resolvedRecipientAddress = await this.resolveRecipientAddress(
+        recipientAddress,
+        recipientVaultAccountId,
+        recipientIndex
       );
 
-      const signedTransaction = await this.signTransaction(txBody);
-      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      const amount = formatWithDecimals(lovelaceAmount, CardanoConstants.ADA_DECIMALS).value;
+
+      const { txHash, networkFee } = await this.fireblocksService.createTransfer({
+        assetId: this.assetId,
+        sourceVaultAccountId: this.vaultAccountId,
+        amount,
+        recipientAddress: recipientVaultAccountId ? undefined : resolvedRecipientAddress,
+        recipientVaultAccountId,
+      });
+
+      // networkFee is returned as a decimal ADA string (e.g. "0.178701") — convert to lovelace
+      const networkFeeLovelace = networkFee
+        ? Math.round(parseFloat(networkFee) * Math.pow(10, CardanoConstants.ADA_DECIMALS))
+        : undefined;
+      const feeFormatted = networkFeeLovelace
+        ? formatWithDecimals(networkFeeLovelace, CardanoConstants.ADA_DECIMALS)
+        : { value: "unknown" };
 
       this.logger.info(`ADA transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`);
 
-      const result: AdaTransferResult = {
+      return {
         txHash,
         senderAddress,
         recipientAddress: resolvedRecipientAddress,
-        lovelaceAmount: options.lovelaceAmount,
-        fee: { lovelace: fee.toString(), ada: feeFormatted.value },
+        lovelaceAmount,
+        fee: {
+          lovelace: networkFeeLovelace?.toString() ?? "unknown",
+          ada: feeFormatted.value,
+        },
       };
-
-      // Report which token policies ended up in the change output
-      const policyIds = [...new Set(Object.keys(changeTokenAssets).map((u) => u.split(".")[0]))];
-      if (policyIds.length > 0) {
-        result.tokensPresentedInChange = policyIds;
-        this.logger.warn(
-          `ADA transfer consumed token UTxOs. Policies returned in change: ${policyIds.join(", ")}`
-        );
-      }
-
-      return result;
     } catch (error) {
       this.logAndRethrow("AdaTransfer", error);
     }

@@ -5,9 +5,12 @@ import {
   TransactionRequest,
   SignedMessageAlgorithmEnum,
   VaultWalletAddress,
+  TransactionOperation,
+  TransferPeerPathType,
 } from "@fireblocks/ts-sdk";
 
 import { getTxStatus, Logger } from "../utils/index.js";
+import { SdkApiError } from "../types/index.js";
 
 /**
  * Service class for interacting with the Fireblocks SDK.
@@ -393,6 +396,65 @@ export class FireblocksService {
       this.logger.error(`${transactionPayload.assetId} signing error:`, message);
       throw error;
     }
+  };
+
+  public createTransfer = async (params: {
+    assetId: string;
+    sourceVaultAccountId: string;
+    amount: string;
+    recipientAddress?: string;
+    recipientVaultAccountId?: string;
+    note?: string;
+  }): Promise<{ txHash: string; networkFee?: string }> => {
+    const destination = params.recipientVaultAccountId
+      ? { type: TransferPeerPathType.VaultAccount, id: params.recipientVaultAccountId }
+      : {
+          type: TransferPeerPathType.OneTimeAddress,
+          oneTimeAddress: { address: params.recipientAddress! },
+        };
+
+    const transactionResponse = await this.fireblocksSDK.transactions.createTransaction({
+      transactionRequest: {
+        assetId: params.assetId,
+        operation: TransactionOperation.Transfer,
+        source: { type: TransferPeerPathType.VaultAccount, id: params.sourceVaultAccountId },
+        destination,
+        amount: params.amount,
+        note: params.note ?? `${params.assetId} transfer via Cardano Raw SDK`,
+      },
+    });
+
+    const txId = transactionResponse.data.id;
+    if (!txId) throw new Error("Transfer: transaction ID is undefined");
+
+    const FIREBLOCKS_SUB_STATUS_MESSAGES: Record<string, string> = {
+      AMOUNT_TOO_SMALL:
+        "Insufficient asset amount remaining after transfer: the change output does not meet the minimum required",
+      BLOCKED: "Transaction blocked by Fireblocks policy",
+      CANCELLED: "Transaction was cancelled",
+      REJECTED: "Transaction was rejected by Fireblocks approval policy",
+    };
+
+    let completedTx;
+    try {
+      completedTx = await getTxStatus(txId, this.fireblocksSDK);
+    } catch (error) {
+      if (error instanceof Error) {
+        const subStatusMatch = error.message.match(/Sub-Status:\s*(\S+)/);
+        const subStatus = subStatusMatch?.[1];
+        if (subStatus) {
+          const message =
+            FIREBLOCKS_SUB_STATUS_MESSAGES[subStatus] ?? `Transfer failed: ${subStatus}`;
+          throw new SdkApiError(message, 400, subStatus, { txId });
+        }
+      }
+      throw error;
+    }
+
+    const txHash = completedTx.txHash;
+    if (!txHash) throw new Error("Transfer completed but txHash is missing");
+
+    return { txHash, networkFee: completedTx.feeInfo?.networkFee };
   };
 
   /**
