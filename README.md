@@ -6,10 +6,24 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 
 - 🔐 **Fireblocks Integration**: Secure vault account management and transaction signing
 - 🏦 **Balance Queries**: Check balances by address, credential, or stake key
-- 💸 **Token Transfers**: Execute Cardano native token transfers with automatic UTXO selection
+- 💸 **Token Transfers**: Execute Cardano token transfers with automatic UTXO selection
+  - Native ADA transfers
+  - Single token (CNT) transfers
+  - Multi-token transfers (multiple tokens in one transaction)
   - Address-to-address transfers
   - Vault-to-vault transfers for seamless internal operations
+- 💰 **Fee Estimation**: Accurate fee calculation for ADA, single-token, and multi-token transfers
+- 🔧 **UTxO Management**: Consolidate fragmented UTxOs to optimize wallet efficiency
+- 🗳️ **Governance Operations**: Full Conway-era governance support
+  - Register as a DRep (Delegated Representative)
+  - Cast votes on governance actions
+  - Delegate voting power to DReps
+- 🏊 **Staking Operations**: Complete staking lifecycle management
+  - Register/deregister stake keys
+  - Delegate to stake pools
+  - Withdraw rewards
 - 📊 **Transaction History**: Retrieve basic and detailed transaction history with pagination
+- 🏊 **Pool Information**: Query stake pool metadata, delegators, and blocks
 - 🔄 **Connection Pooling**: Efficient SDK instance management with automatic cleanup
 - 🌐 **Multi-Network Support**: Works with Cardano mainnet, preprod, and preview networks
 - 🚀 **REST API Server**: Optional Express server for HTTP-based operations
@@ -101,7 +115,23 @@ const stakeBalance = await sdk.getBalanceByStakeKey({
 });
 ```
 
-#### Transfer Tokens
+#### Transfer Native ADA
+
+Transfer ADA without any tokens:
+
+```typescript
+const result = await sdk.transferAda({
+  index: 0, // Source address index
+  recipientAddress: "addr1qxy...",
+  adaAmount: 5000000, // 5 ADA in lovelace
+});
+
+console.log("Transaction Hash:", result.txHash);
+console.log("Sender Address:", result.senderAddress);
+console.log("Fee:", result.fee.ada, "ADA");
+```
+
+#### Transfer Single Token (CNT)
 
 The SDK supports two transfer modes:
 
@@ -140,6 +170,64 @@ console.log("Fee:", transferResult.fee.ada, "ADA"); // e.g., "0.170000 ADA"
 ```
 
 **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
+
+#### Transfer Multiple Tokens
+
+Transfer multiple different tokens in a single transaction:
+
+```typescript
+const result = await sdk.transferMultipleTokens({
+  index: 0,
+  recipientAddress: "addr1qxy...",
+  tokens: [
+    {
+      policyId: "f0ff48bbb7bbe9d5...",
+      assetName: "4e4654",
+      amount: 1000000,
+    },
+    {
+      policyId: "a1b2c3d4e5f6...",
+      assetName: "544f4b454e",
+      amount: 500000,
+    },
+  ],
+  includeAda: true, // Optional: include extra ADA in the transfer
+  adaAmount: 2000000, // 2 ADA in lovelace (required if includeAda is true)
+});
+
+console.log("Transaction Hash:", result.txHash);
+console.log("Fee:", result.fee.ada, "ADA");
+```
+
+**Estimate multi-token transfer fee:**
+
+```typescript
+const feeEstimate = await sdk.estimateMultiTokenTransactionFee({
+  index: 0,
+  recipientAddress: "addr1qxy...",
+  tokens: [
+    { policyId: "f0ff48bbb...", assetName: "4e4654", amount: 1000000 },
+    { policyId: "a1b2c3d4e5f6...", assetName: "544f4b454e", amount: 500000 },
+  ],
+});
+
+console.log("Estimated Fee:", feeEstimate.fee.ada, "ADA");
+```
+
+#### Consolidate UTxOs
+
+Consolidate fragmented UTxOs to optimize your wallet:
+
+```typescript
+const result = await sdk.consolidateUtxos({
+  index: 0,
+  targetAddress: "addr1qxy...", // Optional: defaults to source address
+});
+
+console.log("Transaction Hash:", result.txHash);
+console.log("Consolidated", result.inputCount, "UTxOs");
+console.log("Fee:", result.fee.ada, "ADA");
+```
 
 #### Transaction History
 
@@ -183,6 +271,72 @@ const rawAmount = 1000000;
 const decimals = assetInfo.data.metadata?.decimals || 0;
 const formattedAmount = rawAmount / Math.pow(10, decimals);
 console.log(`Amount: ${formattedAmount} ${assetInfo.data.metadata?.ticker}`);
+```
+
+#### Governance Operations
+
+**Register as a DRep (Delegated Representative)**
+
+```typescript
+const result = await sdk.registerAsDRep({
+  vaultAccountId: "your-vault-id",
+  index: 0,
+  anchor: {
+    url: "https://example.com/drep-metadata.json",
+    dataHash: "abc123...", // Blake2b-256 hash of the metadata
+  },
+});
+
+console.log("Transaction Hash:", result.txHash);
+console.log("DRep ID:", result.drepId);
+// Note: Requires 500 ADA deposit
+```
+
+**Cast a Governance Vote (as a DRep)**
+
+```typescript
+const result = await sdk.castGovernanceVote({
+  vaultAccountId: "your-vault-id",
+  index: 0,
+  governanceActionTxHash: "abc123...",
+  governanceActionIndex: 0,
+  vote: "yes", // "yes", "no", or "abstain"
+});
+
+console.log("Transaction Hash:", result.txHash);
+```
+
+**Delegate Voting Power to a DRep**
+
+```typescript
+const result = await sdk.delegateToDRep({
+  vaultAccountId: "your-vault-id",
+  index: 0,
+  drepId: "drep1...", // DRep credential or key hash
+});
+
+console.log("Transaction Hash:", result.txHash);
+```
+
+#### Pool Information
+
+```typescript
+// Get pool metadata (name, ticker, description)
+const metadata = await sdk.getPoolMetadata("pool1...");
+console.log("Pool Name:", metadata.data.name);
+console.log("Ticker:", metadata.data.ticker);
+
+// Get pool delegators summary
+const delegators = await sdk.getPoolDelegators("pool1...");
+console.log("Total Delegators:", delegators.data.total_count);
+console.log("Active Stake:", delegators.data.active_stake);
+
+// Get detailed delegator list with pagination
+const delegatorList = await sdk.getPoolDelegatorsList("pool1...", 10, 0);
+
+// Get blocks produced by pool
+const blocks = await sdk.getPoolBlocks("pool1...");
+console.log("Total Blocks:", blocks.data.length);
 ```
 
 #### Vault Account Operations
@@ -316,7 +470,39 @@ GET /api/tx/history/:vaultAccountId?index=0&limit=10&offset=0&fromSlot=100000
 
 # Get detailed transaction history
 GET /api/tx/address/:vaultAccountId?index=0&limit=10&offset=0
+```
 
+##### Transfer Operations
+
+**ADA Transfers**
+
+```bash
+# Transfer native ADA
+POST /api/transfers/ada
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "recipientAddress": "addr1qxy...",
+  "adaAmount": 5000000,
+  "index": 0
+}
+
+# Estimate ADA transfer fee
+POST /api/fee-estimate/ada
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "recipientAddress": "addr1qxy...",
+  "adaAmount": 5000000,
+  "index": 0
+}
+```
+
+**Single Token (CNT) Transfers**
+
+```bash
 # Execute transfer (to address)
 POST /api/transfers
 Content-Type: application/json
@@ -356,6 +542,126 @@ Content-Type: application/json
 }
 ```
 
+**Multi-Token Transfers**
+
+```bash
+# Transfer multiple tokens in one transaction
+POST /api/transfers/tokens
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "recipientAddress": "addr1qxy...",
+  "tokens": [
+    {
+      "policyId": "f0ff48bbb7bbe9d5...",
+      "assetName": "4e4654",
+      "amount": 1000000
+    },
+    {
+      "policyId": "a1b2c3d4e5f6...",
+      "assetName": "544f4b454e",
+      "amount": 500000
+    }
+  ],
+  "includeAda": true,
+  "adaAmount": 2000000,
+  "index": 0
+}
+
+# Estimate multi-token transfer fee
+POST /api/fee-estimate/tokens
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "recipientAddress": "addr1qxy...",
+  "tokens": [
+    { "policyId": "f0ff48bbb...", "assetName": "4e4654", "amount": 1000000 }
+  ],
+  "index": 0
+}
+```
+
+**UTxO Consolidation**
+
+```bash
+# Consolidate fragmented UTxOs
+POST /api/utxos/consolidate
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "index": 0,
+  "targetAddress": "addr1qxy..." // Optional
+}
+
+# Response:
+{
+  "txHash": "a1b2c3d4e5f6...",
+  "inputCount": 15,
+  "fee": {
+    "lovelace": "200000",
+    "ada": "0.200000"
+  }
+}
+```
+
+##### Governance Operations
+
+```bash
+# Register as a DRep (requires 500 ADA deposit)
+POST /api/governance/register-drep
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "index": 0,
+  "anchor": {
+    "url": "https://example.com/drep-metadata.json",
+    "dataHash": "abc123..."
+  }
+}
+
+# Cast a governance vote (as a DRep)
+POST /api/governance/vote
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "index": 0,
+  "governanceActionTxHash": "abc123...",
+  "governanceActionIndex": 0,
+  "vote": "yes"
+}
+
+# Delegate voting power to a DRep
+POST /api/governance/delegate-drep
+Content-Type: application/json
+
+{
+  "vaultAccountId": "your-vault-id",
+  "index": 0,
+  "drepId": "drep1..."
+}
+```
+
+##### Pool Information
+
+```bash
+# Get pool metadata (name, ticker, description)
+GET /api/pools/:poolId/metadata
+
+# Get pool delegators summary
+GET /api/pools/:poolId/delegators?limit=10&offset=0
+
+# Get detailed delegator list
+GET /api/pools/:poolId/delegators/list?limit=10&offset=0
+
+# Get blocks produced by pool
+GET /api/pools/:poolId/blocks
+```
+
 ##### Example cURL Commands
 
 ```bash
@@ -368,7 +674,27 @@ curl http://localhost:8000/api/tx/history/vault-123?limit=5
 # Get asset information
 curl http://localhost:8000/api/assets/f0ff48bbb7bbe9d5.../4e4654
 
-# Execute transfer (to address)
+# Transfer native ADA
+curl -X POST http://localhost:8000/api/transfers/ada \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "recipientAddress": "addr1qxy...",
+    "adaAmount": 5000000,
+    "index": 0
+  }'
+
+# Estimate ADA transfer fee
+curl -X POST http://localhost:8000/api/fee-estimate/ada \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "recipientAddress": "addr1qxy...",
+    "adaAmount": 5000000,
+    "index": 0
+  }'
+
+# Execute CNT transfer (to address)
 curl -X POST http://localhost:8000/api/transfers \
   -H "Content-Type: application/json" \
   -d '{
@@ -380,7 +706,7 @@ curl -X POST http://localhost:8000/api/transfers \
   }'
 # Response: {"txHash":"a1b2c3d4...","senderAddress":"addr1qxy...","tokenName":"4e49...","fee":{"lovelace":"170000","ada":"0.170000"}}
 
-# Execute transfer (vault-to-vault)
+# Execute CNT transfer (vault-to-vault)
 curl -X POST http://localhost:8000/api/transfers \
   -H "Content-Type: application/json" \
   -d '{
@@ -390,6 +716,69 @@ curl -X POST http://localhost:8000/api/transfers \
     "tokenName": "4e49...",
     "requiredTokenAmount": 1000000
   }'
+
+# Transfer multiple tokens
+curl -X POST http://localhost:8000/api/transfers/tokens \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "recipientAddress": "addr1qxy...",
+    "tokens": [
+      {"policyId": "f0ff48bbb...", "assetName": "4e4654", "amount": 1000000},
+      {"policyId": "a1b2c3d4e5f6...", "assetName": "544f4b454e", "amount": 500000}
+    ],
+    "includeAda": true,
+    "adaAmount": 2000000
+  }'
+
+# Consolidate UTxOs
+curl -X POST http://localhost:8000/api/utxos/consolidate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "index": 0
+  }'
+
+# Register as DRep
+curl -X POST http://localhost:8000/api/governance/register-drep \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "index": 0,
+    "anchor": {
+      "url": "https://example.com/drep-metadata.json",
+      "dataHash": "abc123..."
+    }
+  }'
+
+# Cast governance vote
+curl -X POST http://localhost:8000/api/governance/vote \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "index": 0,
+    "governanceActionTxHash": "abc123...",
+    "governanceActionIndex": 0,
+    "vote": "yes"
+  }'
+
+# Delegate to DRep
+curl -X POST http://localhost:8000/api/governance/delegate-drep \
+  -H "Content-Type: application/json" \
+  -d '{
+    "vaultAccountId": "vault-123",
+    "index": 0,
+    "drepId": "drep1..."
+  }'
+
+# Get pool metadata
+curl http://localhost:8000/api/pools/pool1.../metadata
+
+# Get pool delegators
+curl http://localhost:8000/api/pools/pool1.../delegators?limit=10
+
+# Get pool blocks
+curl http://localhost:8000/api/pools/pool1.../blocks
 ```
 
 ## Configuration
@@ -617,6 +1006,204 @@ async function demonstrateCaching() {
 }
 
 demonstrateCaching();
+```
+
+### Example 5: Transfer Native ADA
+
+```typescript
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks } from "cardano-raw-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
+
+async function transferAda() {
+  const sdk = await FireblocksCardanoRawSDK.createInstance({
+    fireblocksConfig: {
+      apiKey: process.env.FIREBLOCKS_API_KEY!,
+      secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
+      basePath: BasePath.US,
+    },
+    vaultAccountId: "vault-123",
+    network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
+  });
+
+  try {
+    // Estimate fee first
+    const feeEstimate = await sdk.estimateAdaTransactionFee({
+      index: 0,
+      recipientAddress: "addr1qxy...",
+      adaAmount: 5000000, // 5 ADA
+    });
+    console.log("Estimated Fee:", feeEstimate.fee.ada, "ADA");
+
+    // Execute transfer
+    const result = await sdk.transferAda({
+      index: 0,
+      recipientAddress: "addr1qxy...",
+      adaAmount: 5000000,
+    });
+
+    console.log("ADA Transfer successful!");
+    console.log("Transaction Hash:", result.txHash);
+    console.log("Actual Fee:", result.fee.ada, "ADA");
+  } catch (error) {
+    console.error("Transfer failed:", error);
+  } finally {
+    await sdk.shutdown();
+  }
+}
+
+transferAda();
+```
+
+### Example 6: Multi-Token Transfer
+
+```typescript
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks } from "cardano-raw-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
+
+async function transferMultipleTokens() {
+  const sdk = await FireblocksCardanoRawSDK.createInstance({
+    fireblocksConfig: {
+      apiKey: process.env.FIREBLOCKS_API_KEY!,
+      secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
+      basePath: BasePath.US,
+    },
+    vaultAccountId: "vault-123",
+    network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
+  });
+
+  try {
+    const result = await sdk.transferMultipleTokens({
+      index: 0,
+      recipientAddress: "addr1qxy...",
+      tokens: [
+        {
+          policyId: "f0ff48bbb7bbe9d5...",
+          assetName: "4e4654",
+          amount: 1000000,
+        },
+        {
+          policyId: "a1b2c3d4e5f6...",
+          assetName: "544f4b454e",
+          amount: 500000,
+        },
+      ],
+      includeAda: true,
+      adaAmount: 2000000, // Also send 2 ADA
+    });
+
+    console.log("Multi-token transfer successful!");
+    console.log("Transaction Hash:", result.txHash);
+    console.log("Fee:", result.fee.ada, "ADA");
+  } catch (error) {
+    console.error("Transfer failed:", error);
+  } finally {
+    await sdk.shutdown();
+  }
+}
+
+transferMultipleTokens();
+```
+
+### Example 7: UTxO Consolidation
+
+```typescript
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks } from "cardano-raw-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
+
+async function consolidateUtxos() {
+  const sdk = await FireblocksCardanoRawSDK.createInstance({
+    fireblocksConfig: {
+      apiKey: process.env.FIREBLOCKS_API_KEY!,
+      secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
+      basePath: BasePath.US,
+    },
+    vaultAccountId: "vault-123",
+    network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
+  });
+
+  try {
+    const result = await sdk.consolidateUtxos({
+      index: 0,
+      // targetAddress: "addr1qxy..." // Optional: defaults to source address
+    });
+
+    console.log("UTxO consolidation successful!");
+    console.log("Transaction Hash:", result.txHash);
+    console.log("Consolidated", result.inputCount, "UTxOs");
+    console.log("Fee:", result.fee.ada, "ADA");
+  } catch (error) {
+    console.error("Consolidation failed:", error);
+  } finally {
+    await sdk.shutdown();
+  }
+}
+
+consolidateUtxos();
+```
+
+### Example 8: Governance Operations
+
+```typescript
+import { FireblocksCardanoRawSDK } from "cardano-raw-sdk";
+import { Networks } from "cardano-raw-sdk/types";
+import { BasePath } from "@fireblocks/ts-sdk";
+
+async function participateInGovernance() {
+  const sdk = await FireblocksCardanoRawSDK.createInstance({
+    fireblocksConfig: {
+      apiKey: process.env.FIREBLOCKS_API_KEY!,
+      secretKey: process.env.FIREBLOCKS_SECRET_KEY!,
+      basePath: BasePath.US,
+    },
+    vaultAccountId: "vault-123",
+    network: Networks.MAINNET,
+    iagonApiKey: process.env.IAGON_API_KEY!,
+  });
+
+  try {
+    // Register as a DRep (requires 500 ADA deposit)
+    const drepResult = await sdk.registerAsDRep({
+      vaultAccountId: "vault-123",
+      index: 0,
+      anchor: {
+        url: "https://example.com/drep-metadata.json",
+        dataHash: "abc123...",
+      },
+    });
+    console.log("Registered as DRep:", drepResult.drepId);
+    console.log("Transaction Hash:", drepResult.txHash);
+
+    // Cast a vote on a governance action
+    const voteResult = await sdk.castGovernanceVote({
+      vaultAccountId: "vault-123",
+      index: 0,
+      governanceActionTxHash: "abc123...",
+      governanceActionIndex: 0,
+      vote: "yes", // or "no" or "abstain"
+    });
+    console.log("Vote cast! TX Hash:", voteResult.txHash);
+
+    // Delegate voting power to another DRep
+    const delegateResult = await sdk.delegateToDRep({
+      vaultAccountId: "vault-123",
+      index: 0,
+      drepId: "drep1...",
+    });
+    console.log("Delegated to DRep! TX Hash:", delegateResult.txHash);
+  } catch (error) {
+    console.error("Governance operation failed:", error);
+  } finally {
+    await sdk.shutdown();
+  }
+}
+
+participateInGovernance();
 ```
 
 ## Development
