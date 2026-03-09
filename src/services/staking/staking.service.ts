@@ -169,7 +169,8 @@ export class StakingService {
       );
 
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
-      this.registrationVerifier.verifyAsync(stakeAddress);
+      // Fire-and-forget: verifyAsync handles its own errors internally via .catch()
+      void this.registrationVerifier.verifyAsync(stakeAddress);
 
       return {
         txHash,
