@@ -734,6 +734,7 @@ export class FireblocksCardanoRawSDK {
     tokenName: string;
     requiredTokenAmount: number;
     transactionFee: number;
+    lock?: boolean;
   }) {
     const utxoResult = await fetchAndSelectUtxosForCnt({
       iagonApiService: this.iagonApiService,
@@ -760,6 +761,7 @@ export class FireblocksCardanoRawSDK {
       accumulatedTokenAmount,
       minRecipientLovelace,
       minChangeLovelace,
+      release,
     } = utxoResult;
     const adaTarget = minRecipientLovelace + params.transactionFee;
 
@@ -808,6 +810,7 @@ export class FireblocksCardanoRawSDK {
       accumulatedTokenAmount,
       minRecipientLovelace,
       minChangeLovelace,
+      release,
     };
   }
 
@@ -923,11 +926,13 @@ export class FireblocksCardanoRawSDK {
     tokenPolicyId: string;
     tokenName: string;
     requiredTokenAmount: number;
+    lock?: boolean;
   }): Promise<{
     txBody: TransactionBody;
     senderAddress: string;
     resolvedRecipientAddress: string;
     minRecipientLovelace: number;
+    release: () => void;
   }> {
     const {
       index = 0,
@@ -937,6 +942,7 @@ export class FireblocksCardanoRawSDK {
       tokenPolicyId,
       tokenName,
       requiredTokenAmount,
+      lock = false,
     } = params;
 
     // Block native ADA transfers
@@ -972,12 +978,13 @@ export class FireblocksCardanoRawSDK {
 
     const senderAddress = await this.getAddressByIndex(this.assetId, index);
 
-    const { selectedUtxos, minRecipientLovelace } = await this.selectAndValidateUtxos({
+    const { selectedUtxos, minRecipientLovelace, release } = await this.selectAndValidateUtxos({
       address: senderAddress,
       tokenPolicyId,
       tokenName,
       requiredTokenAmount,
       transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+      lock,
     });
 
     const txInputs = createTransactionInputs(selectedUtxos);
@@ -998,7 +1005,7 @@ export class FireblocksCardanoRawSDK {
       WITNESS_COUNT_PAYMENT_KEY_ONLY
     );
 
-    return { txBody, senderAddress, resolvedRecipientAddress, minRecipientLovelace };
+    return { txBody, senderAddress, resolvedRecipientAddress, minRecipientLovelace, release };
   }
 
   /**
@@ -1090,6 +1097,7 @@ export class FireblocksCardanoRawSDK {
   }> => {
     const { recipientVaultAccountId, tokenPolicyId, tokenName, requiredTokenAmount } = options;
 
+    let release = () => {};
     try {
       // Log transfer initiation
       if (recipientVaultAccountId) {
@@ -1102,9 +1110,14 @@ export class FireblocksCardanoRawSDK {
         );
       }
 
-      // Prepare and validate transaction (reuses shared logic)
-      const { txBody, senderAddress, resolvedRecipientAddress } =
-        await this.prepareTransaction(options);
+      // Prepare and validate transaction and lock UTxOs to prevent concurrent double-spend
+      const {
+        txBody,
+        senderAddress,
+        resolvedRecipientAddress,
+        release: _release,
+      } = await this.prepareTransaction({ ...options, lock: true });
+      release = _release; // promote to outer scope so finally can call it
 
       // Extract fee information from transaction body
       const feeLovelace = txBody.fee().to_str();
@@ -1135,6 +1148,8 @@ export class FireblocksCardanoRawSDK {
       };
     } catch (error) {
       this.logAndRethrow("Transfer", error);
+    } finally {
+      release();
     }
   };
 
@@ -1373,13 +1388,17 @@ export class FireblocksCardanoRawSDK {
    * Shared preparation logic for multi-token transfers.
    * Validates inputs, selects UTxOs, and builds the transaction body.
    */
-  private async prepareMultiTokenTransaction(params: MultiTokenTransferOpts): Promise<{
+  private async prepareMultiTokenTransaction(
+    params: MultiTokenTransferOpts,
+    lock = false
+  ): Promise<{
     txBody: TransactionBody;
     senderAddress: string;
     resolvedRecipientAddress: string;
     fee: number;
     changeTokenAssets: Record<string, number>;
     minRecipientLovelace: number;
+    release: () => void;
   }> {
     const {
       index = 0,
@@ -1429,13 +1448,14 @@ export class FireblocksCardanoRawSDK {
 
     const senderAddress = await this.getAddressByIndex(this.assetId, index);
 
-    const { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace } =
+    const { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace, release } =
       await fetchAndSelectUtxosForMultiToken({
         iagonApiService: this.iagonApiService,
         address: senderAddress,
         tokens,
         transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
         lovelaceAmount,
+        lock,
       });
 
     // Conservative balance check before building
@@ -1488,6 +1508,7 @@ export class FireblocksCardanoRawSDK {
       fee,
       changeTokenAssets,
       minRecipientLovelace: estimatedMinRecipient,
+      release,
     };
   }
 
@@ -1557,13 +1578,23 @@ export class FireblocksCardanoRawSDK {
   public transferMultipleTokens = async (
     options: MultiTokenTransferOpts
   ): Promise<MultiTokenTransferResult> => {
+    // Declared before try so finally { release() } is always safe to call,
+    // even if prepareMultiTokenTransaction throws before producing the real fn.
+    let release = () => {};
     try {
       this.logger.info(
         `Initiating multi-token transfer: ${options.tokens.length} token type(s) to ${options.recipientAddress ?? `vault ${options.recipientVaultAccountId}`}`
       );
 
-      const { txBody, senderAddress, resolvedRecipientAddress, fee, changeTokenAssets } =
-        await this.prepareMultiTokenTransaction(options);
+      const {
+        txBody,
+        senderAddress,
+        resolvedRecipientAddress,
+        fee,
+        changeTokenAssets,
+        release: _release,
+      } = await this.prepareMultiTokenTransaction(options, true);
+      release = _release; // promote to outer scope so finally can call it
 
       const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
       this.logger.info(
@@ -1600,6 +1631,8 @@ export class FireblocksCardanoRawSDK {
       return result;
     } catch (error) {
       this.logAndRethrow("MultiTokenTransfer", error);
+    } finally {
+      release();
     }
   };
 

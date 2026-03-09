@@ -32,6 +32,7 @@ import {
 } from "../types/index.js";
 import { Logger } from "./logger.js";
 import { CardanoAmounts, CardanoConstants } from "../constants.js";
+import { utxoLocks } from "./utxoLock.js";
 
 const logger = new Logger("utils:cardano");
 
@@ -116,9 +117,11 @@ export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCn
     requiredTokenAmount,
     transactionFee,
     tokenName,
+    lock = false,
   } = params;
   try {
-    const utxos = await fetchUtxos(iagonApiService, address);
+    const rawUtxos = await fetchUtxos(iagonApiService, address);
+    const utxos = rawUtxos.filter((u) => !utxoLocks.isLocked(u.transaction_id, u.output_index));
 
     const tokenUtxosWithAmounts = filterUtxos(utxos, tokenPolicyId, tokenName)
       .map((utxo) => ({
@@ -188,12 +191,15 @@ export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCn
       }
     }
 
+    const release = lock ? utxoLocks.lock(selectedUtxos) : () => {};
+
     return {
       selectedUtxos,
       accumulatedAda,
       accumulatedTokenAmount,
       minRecipientLovelace: actualMinRecipient,
       minChangeLovelace: actualMinChange,
+      release,
     };
   } catch (error) {
     throw new Error(
@@ -371,6 +377,13 @@ export const createTransactionOutputs = (
   }
 
   const changeLovelace = totalLovelace - recipientLovelace - fee;
+
+  if (changeLovelace < 0) {
+    throw new Error(
+      `Insufficient funds: inputs ${totalLovelace} lovelace < recipient ${recipientLovelace} + fee ${fee} = ${recipientLovelace + fee} lovelace`
+    );
+  }
+
   logger.info("=== CREATING OUTPUTS ===", "Change ADA:", changeLovelace);
 
   // Build recipient output with the confirmed lovelace amount
@@ -606,7 +619,7 @@ const convergeTransactionFee = (
 
     const txBodySize = txBody.to_bytes().length;
     const totalSize = txBodySize + witnessCount * CardanoConstants.TX_WITNESS_SIZE_BYTES + 10;
-    const calculatedFee = 44 * totalSize + 155_381;
+    const calculatedFee = CardanoConstants.MIN_FEE_A * totalSize + CardanoConstants.MIN_FEE_B;
 
     logger.info(
       `[${label}] body: ${txBodySize}B, total: ${totalSize}B, fee: ${calculatedFee} lovelace`
@@ -645,10 +658,12 @@ export const fetchAndSelectUtxosForAda = async (
   accumulatedAda: number;
   changeTokenAssets: Record<string, number>;
   minChangeLovelace: number;
+  release: () => void;
 }> => {
-  const { iagonApiService, address, lovelaceAmount, transactionFee } = params;
+  const { iagonApiService, address, lovelaceAmount, transactionFee, lock = false } = params;
 
-  const utxos = await fetchUtxos(iagonApiService, address);
+  const rawUtxos = await fetchUtxos(iagonApiService, address);
+  const utxos = rawUtxos.filter((u) => !utxoLocks.isLocked(u.transaction_id, u.output_index));
   if (!utxos || utxos.length === 0) {
     throw new Error(`No UTxOs found for address: ${address}`);
   }
@@ -698,7 +713,9 @@ export const fetchAndSelectUtxosForAda = async (
       `min change lovelace: ${minChangeLovelace}`
   );
 
-  return { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace };
+  const release = lock ? utxoLocks.lock(selectedUtxos) : () => {};
+
+  return { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace, release };
 };
 
 export interface createAdaTransactionOutputsParams {
@@ -799,10 +816,12 @@ export const fetchAndSelectUtxosForMultiToken = async (
   accumulatedAda: number;
   changeTokenAssets: Record<string, number>;
   minChangeLovelace: number;
+  release: () => void;
 }> => {
-  const { iagonApiService, address, tokens, transactionFee, lovelaceAmount } = params;
+  const { iagonApiService, address, tokens, transactionFee, lovelaceAmount, lock = false } = params;
 
-  const utxos = await fetchUtxos(iagonApiService, address);
+  const rawUtxos = await fetchUtxos(iagonApiService, address);
+  const utxos = rawUtxos.filter((u) => !utxoLocks.isLocked(u.transaction_id, u.output_index));
   if (!utxos || utxos.length === 0) {
     throw new Error(`No UTxOs found for address: ${address}`);
   }
@@ -884,7 +903,9 @@ export const fetchAndSelectUtxosForMultiToken = async (
       `${numChangePolicies} change policies, min change: ${minChangeLovelace}`
   );
 
-  return { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace };
+  const release = lock ? utxoLocks.lock(selectedUtxos) : () => {};
+
+  return { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace, release };
 };
 
 /**
