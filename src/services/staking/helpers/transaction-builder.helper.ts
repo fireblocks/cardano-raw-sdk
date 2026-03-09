@@ -32,6 +32,7 @@ export class TransactionBuilder {
       ttl: context.ttl,
       certificates: context.certificates,
       withdrawals: context.withdrawals,
+      votingProcedures: context.votingProcedures,
       network: context.network,
     });
   }

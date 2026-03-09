@@ -1,6 +1,7 @@
 import { TransactionRequest, VaultWalletAddress, SignedMessageSignature } from "@fireblocks/ts-sdk";
 import { IagonApiService } from "../services/iagon.api.service.js";
 import { TransactionType, TransactionHistoryResponse } from "./index.js";
+import { TokenTransferSpec } from "./iagon/general.js";
 
 /**
  * Options for getting a single vault account address by index
@@ -41,13 +42,70 @@ export interface GetTransactionHistoryOpts {
   fromSlot?: number;
 }
 
-export interface fetchAndSelectUtxosParams {
+export interface fetchAndSelectUtxosForCntParams {
   iagonApiService: IagonApiService;
   address: string;
   tokenPolicyId: string;
   requiredTokenAmount: number;
   transactionFee: number;
   tokenName: string;
+}
+
+export interface fetchAndSelectUtxosForAdaParams {
+  iagonApiService: IagonApiService;
+  address: string;
+  /** Amount to send in lovelace */
+  lovelaceAmount: number;
+  /** Conservative fee upper bound for initial UTXO selection */
+  transactionFee: number;
+}
+
+export interface fetchAndSelectUtxosForMultiTokenParams {
+  iagonApiService: IagonApiService;
+  address: string;
+  tokens: TokenTransferSpec[];
+  transactionFee: number;
+  /** Optional explicit lovelace to send with tokens — used to set the ADA selection target */
+  lovelaceAmount?: number;
+}
+
+/**
+ * Result of a multi-token transfer
+ */
+export interface MultiTokenTransferResult {
+  txHash: string;
+  senderAddress: string;
+  recipientAddress: string;
+  /** Tokens that were sent to the recipient */
+  tokens: TokenTransferSpec[];
+  fee: { lovelace: string; ada: string };
+  /** Policy IDs of tokens returned to sender in change (present only when extra token UTxOs were consumed) */
+  tokensPresentedInChange?: string[];
+}
+
+/**
+ * Request parameters for multi-token fee estimation
+ */
+export interface MultiTokenFeeEstimationRequest {
+  index?: number;
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+  recipientIndex?: number;
+  tokens: TokenTransferSpec[];
+  minRecipientLovelace?: number;
+  grossAmount?: boolean;
+}
+
+/**
+ * Fee estimation response for multi-token transfers
+ */
+export interface MultiTokenFeeEstimationResponse {
+  fee: { ada: string; lovelace: string };
+  /** Minimum ADA required in the recipient output (based on token policy count) */
+  minAdaRequired: { ada: string; lovelace: string };
+  totalCost: { ada: string; lovelace: string };
+  /** Present when token UTxOs carrying additional tokens are consumed */
+  tokenChangeWarning?: { policiesAffected: number; message: string };
 }
 
 /**
@@ -223,9 +281,9 @@ export type VaultBalanceResponse =
   | VaultBalancePolicyResponse;
 
 /**
- * Request parameters for fee estimation
+ * Request parameters for CNT fee estimation
  */
-export interface FeeEstimationRequest {
+export interface CntFeeEstimationRequest {
   /** Recipient Cardano address */
   recipientAddress?: string;
   /** Recipient vault account ID (for vault-to-vault transfers) */
@@ -245,9 +303,69 @@ export interface FeeEstimationRequest {
 }
 
 /**
- * Fee estimation response with detailed breakdown
+ * Request parameters for native ADA fee estimation
  */
-export interface FeeEstimationResponse {
+export interface AdaFeeEstimationRequest {
+  index?: number;
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+  recipientIndex?: number;
+  /** Amount to estimate fee for, in lovelace (must be >= 1,000,000) */
+  lovelaceAmount: number;
+  /** If true, fee is considered included in lovelaceAmount (gross amount mode) */
+  grossAmount?: boolean;
+}
+
+/**
+ * Fee estimation response for native ADA transfers
+ */
+export interface AdaFeeEstimationResponse {
+  fee: {
+    ada: string;
+    lovelace: string;
+  };
+  /** ADA recipient will actually receive */
+  recipientReceives: {
+    ada: string;
+    lovelace: string;
+  };
+  totalCost: {
+    ada: string;
+    lovelace: string;
+  };
+  /**
+   * Present when the UTXO selection consumed token UTxOs.
+   * All those tokens are returned to the sender in the change output.
+   */
+  tokenChangeWarning?: {
+    policiesAffected: number;
+    message: string;
+  };
+}
+
+/**
+ * Result of a native ADA transfer
+ */
+export interface AdaTransferResult {
+  txHash: string;
+  senderAddress: string;
+  recipientAddress: string;
+  lovelaceAmount: number;
+  fee: {
+    lovelace: string;
+    ada: string;
+  };
+  /**
+   * Policy IDs of tokens that were returned to the sender in the change output.
+   * Present only when token UTxOs were consumed to fund the transfer.
+   */
+  tokensPresentedInChange?: string[];
+}
+
+/**
+ * Fee estimation response for CNT transfers
+ */
+export interface CntFeeEstimationResponse {
   /** Transaction fee details */
   fee: {
     /** Fee in ADA (human-readable) */

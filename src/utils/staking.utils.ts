@@ -23,52 +23,52 @@ import * as CardanoWasm from "@emurgo/cardano-serialization-lib-nodejs";
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
  */
-export function blakeHash(payload: Buffer, digestSize: number = 28): Buffer {
+export const blakeHash = (payload: Buffer, digestSize: number = 28): Buffer => {
   const hash = blake2b(payload, undefined, digestSize);
   return Buffer.from(hash);
-}
+};
 
 /**
  * Calculate transaction hash for signing (32 byte Blake2b hash)
  */
-export function getSigningPayload(serializedTx: Buffer): Buffer {
+export const getSigningPayload = (serializedTx: Buffer): Buffer => {
   return blakeHash(serializedTx, 32);
-}
+};
 
 /**
  * Get stake address HRP (human readable part) based on network
  */
-export function getStakeAddressHrp(mainnet: boolean): string {
+export const getStakeAddressHrp = (mainnet: boolean): string => {
   return mainnet ? "stake" : "stake_test";
-}
+};
 
 /**
  * Get address HRP based on network
  */
-export function getAddressHrp(mainnet: boolean): string {
+export const getAddressHrp = (mainnet: boolean): string => {
   return mainnet ? "addr" : "addr_test";
-}
+};
 
 /**
  * Get stake address bytes prefix based on network
  */
-export function stakeAddressBytesPrefix(mainnet: boolean): Buffer {
+export const stakeAddressBytesPrefix = (mainnet: boolean): Buffer => {
   return Buffer.from([mainnet ? 0xe1 : 0xe0]);
-}
+};
 
 /**
  * Encode stake address from bytes to bech32 format
  */
-export function encodeStakeAddress(decodedAddress: Buffer, mainnet: boolean): string {
+export const encodeStakeAddress = (decodedAddress: Buffer, mainnet: boolean): string => {
   const hrp = getStakeAddressHrp(mainnet);
   const words = bech32.toWords(decodedAddress);
   return bech32.encode(hrp, words);
-}
+};
 
 /**
  * Decode Cardano address from bech32 to bytes
  */
-export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer {
+export const decodeAddress = (encodedAddress: string, mainnet: boolean): Buffer => {
   const expectedHrp = getAddressHrp(mainnet);
 
   if (!encodedAddress.startsWith(`${expectedHrp}1`)) {
@@ -81,12 +81,12 @@ export function decodeAddress(encodedAddress: string, mainnet: boolean): Buffer 
   const decoded = bech32.decode(encodedAddress, 1000);
   const addressBytes = Buffer.from(bech32.fromWords(decoded.words));
   return addressBytes;
-}
+};
 
 /**
  * Extract stake credential (last 28 bytes) from a base address
  */
-export function getCertificateFromBaseAddress(baseAddress: string, mainnet: boolean): Buffer {
+export const getCertificateFromBaseAddress = (baseAddress: string, mainnet: boolean): Buffer => {
   const decoded = decodeAddress(baseAddress, mainnet);
 
   if (decoded.length < CardanoConstants.CARDANO_BASE_ADDRESS_MIN_LENGTH) {
@@ -97,74 +97,74 @@ export function getCertificateFromBaseAddress(baseAddress: string, mainnet: bool
 
   // Extract stake credential (last 28 bytes)
   return decoded.subarray(CardanoConstants.CARDANO_PAYMENT_CREDENTIAL_OFFSET);
-}
+};
 
 /**
  * Get stake address from certificate (credential hash)
  */
-export function getStakeAddressFromCertificate(certificate: Buffer, mainnet: boolean): string {
+export const getStakeAddressFromCertificate = (certificate: Buffer, mainnet: boolean): string => {
   const prefix = stakeAddressBytesPrefix(mainnet);
   const fullAddress = Buffer.concat([prefix, certificate]);
   return encodeStakeAddress(fullAddress, mainnet);
-}
+};
 
 /**
  * Get stake address from base address
  */
-export function getStakeAddressFromBaseAddress(baseAddress: string, mainnet: boolean): string {
+export const getStakeAddressFromBaseAddress = (baseAddress: string, mainnet: boolean): string => {
   const certificate = getCertificateFromBaseAddress(baseAddress, mainnet);
   return getStakeAddressFromCertificate(certificate, mainnet);
-}
+};
 
 /**
  * Convert Buffer to Uint8Array for CBOR encoding
  */
-function toUint8Array(buffer: Buffer): Uint8Array {
+const toUint8Array = (buffer: Buffer): Uint8Array => {
   return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-}
+};
 
 /**
  * Serialize certificate for CBOR encoding
  * Returns [0, certificate] array
  */
-export function serializeCertificate(certificate: Buffer): [number, Uint8Array] {
+export const serializeCertificate = (certificate: Buffer): [number, Uint8Array] => {
   const certBuffer = Buffer.isBuffer(certificate) ? certificate : Buffer.from(certificate, "hex");
 
   return [0, toUint8Array(certBuffer)];
-}
+};
 
 /**
  * Build stake key registration certificate (Conway era)
  * Certificate type: 7 (STAKE_REGISTRATION) - includes deposit amount
  */
-export function buildRegistrationCertificate(credential: Buffer): CardanoCertificate {
+export const buildRegistrationCertificate = (credential: Buffer): CardanoCertificate => {
   const serializedCert = serializeCertificate(credential);
 
   return [
     CertificateType.STAKE_KEY_REGISTRATION, // Type 0 for Shelley
     serializedCert, // [0, credential_buffer]
   ];
-}
+};
 
 /**
  * Build stake key deregistration certificate (Shelley era)
  * Certificate type: 1 (STAKE_DEREGISTRATION)
  */
-export function buildDeregistrationCertificate(credential: Buffer): CardanoCertificate {
+export const buildDeregistrationCertificate = (credential: Buffer): CardanoCertificate => {
   const serializedCert = serializeCertificate(credential);
   return [
     CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 for Shelley
     serializedCert,
   ];
-}
+};
 
 /**
  * Build pool delegation certificate
  */
-export function buildDelegationCertificate(
+export const buildDelegationCertificate = (
   credential: Buffer,
   poolId: string
-): CardanoWasm.Certificate {
+): CardanoWasm.Certificate => {
   const credentialHash = CardanoWasm.Ed25519KeyHash.from_bytes(credential);
   const stakeCredential = CardanoWasm.Credential.from_keyhash(credentialHash);
 
@@ -185,12 +185,12 @@ export function buildDelegationCertificate(
   const stakeDelegation = CardanoWasm.StakeDelegation.new(stakeCredential, poolKeyHash);
 
   return CardanoWasm.Certificate.new_stake_delegation(stakeDelegation);
-}
+};
 
 /**
  * Build vote delegation certificate (Conway era)
  */
-export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInfo): any {
+export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInfo): any => {
   // Stake credential: [0, credential_bytes]
   const stakeCredential = [0, toUint8Array(credential)];
 
@@ -198,12 +198,12 @@ export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInf
 
   switch (drep.kind) {
     case DRepKind.ALWAYS_ABSTAIN:
-      // [2] for ALWAYS_ABSTAIN
-      drepValue = [2];
+      // [1] per Conway ledger spec
+      drepValue = [1];
       break;
     case DRepKind.ALWAYS_NO_CONFIDENCE:
-      // [3] for ALWAYS_NO_CONFIDENCE
-      drepValue = [3];
+      // [2] per Conway ledger spec
+      drepValue = [2];
       break;
     case DRepKind.KEY_HASH:
       if (!drep.keyHash) {
@@ -225,29 +225,29 @@ export function buildVoteDelegationCertificate(credential: Buffer, drep: DRepInf
 
   // Return: [9, [0, credential], drep_value]
   return [9, stakeCredential, drepValue];
-}
+};
 
 /**
  * Serialize withdrawals as a map for CBOR encoding
  */
-export function serializeWithdrawals(
+export const serializeWithdrawals = (
   withdrawals: CardanoRewardWithdrawal[]
-): Map<Uint8Array, number> {
+): Map<Uint8Array, number> => {
   const withdrawalMap = new Map<Uint8Array, number>();
   for (const withdrawal of withdrawals) {
     withdrawalMap.set(toUint8Array(withdrawal.certificate), withdrawal.reward);
   }
   return withdrawalMap;
-}
+};
 
 /**
  * Embed signatures in transaction to create final signed transaction
  * Witnesses are automatically sorted by key hash as required by Cardano
  */
-export function embedSignaturesInTx(
+export const embedSignaturesInTx = (
   deserializedTxPayload: Map<number, any>,
   signatures: CardanoWitness[]
-): Buffer {
+): Buffer => {
   // Sort witnesses by public key hash
   const sortedSignatures = sortWitnesses(signatures);
 
@@ -268,17 +268,23 @@ export function embedSignaturesInTx(
   ];
 
   return Buffer.from(cborEncode(signedTx));
-}
+};
 
 /**
  * Build transaction payload (transaction body) for CBOR encoding
  */
-export function buildPayload(options: BuildPayloadOptions): {
+export const buildPayload = (
+  options: BuildPayloadOptions
+): {
   serialized: Buffer;
   deserialized: Map<number, any>;
-} {
-  const { toAddress, netAmount, txInputs, feeAmount, ttl, certificates, withdrawals, network } =
+} => {
+  const { toAddress, txInputs, ttl, certificates, withdrawals, votingProcedures, network } =
     options;
+
+  // Ensure lovelace amounts are CBOR unsigned integers, not floats.
+  const netAmount = Math.round(options.netAmount);
+  const feeAmount = Math.round(options.feeAmount);
 
   // Build inputs array
   const inputsArr = txInputs.map((input) => {
@@ -331,20 +337,24 @@ export function buildPayload(options: BuildPayloadOptions): {
     deserialized.set(5, withdrawals); // key 5 = withdrawals per Cardano ledger spec
   }
 
+  if (votingProcedures && votingProcedures.size > 0) {
+    deserialized.set(19, votingProcedures); // key 19 = voting_procedures (Conway era)
+  }
+
   const serialized = Buffer.from(cborEncode(deserialized));
 
   return { serialized, deserialized };
-}
+};
 
 /**
  * Calculate TTL (time to live) for transaction
  */
-export function calculateTtl(
+export const calculateTtl = (
   currentSlot: number,
   ttlSecs: number = CardanoAmounts.TX_TTL_SECS
-): number {
+): number => {
   return currentSlot + ttlSecs;
-}
+};
 
 /**
  * Find suitable UTXO for staking operations
@@ -355,7 +365,7 @@ export interface UtxoForStaking {
   nativeAmount: number;
 }
 
-export function findSuitableUtxo(
+export const findSuitableUtxo = (
   utxos: Array<{
     transaction_id: string;
     output_index: number;
@@ -365,7 +375,7 @@ export function findSuitableUtxo(
     };
   }>,
   minAmount: number
-): UtxoForStaking | null {
+): UtxoForStaking | null => {
   for (const utxo of utxos) {
     // Skip UTXOs that contain tokens - only use pure ADA UTXOs for staking
     const hasTokens = utxo.value.assets && Object.keys(utxo.value.assets).length > 0;
@@ -379,14 +389,14 @@ export function findSuitableUtxo(
     }
   }
   return null;
-}
+};
 
 /**
  * Decode DRep ID from bech32 or hex format
  * Bech32 format: drep1... or drep_script1...
  * Hex format: 28-byte hex string
  */
-function decodeDRepId(drepId: string): { keyHash: Buffer; isScript: boolean } {
+const decodeDRepId = (drepId: string): { keyHash: Buffer; isScript: boolean } => {
   // Check if it's bech32 format (starts with drep1 or drep_script1)
   if (drepId.startsWith("drep1") || drepId.startsWith("drep_script1")) {
     const decoded = bech32.decode(drepId, 1000);
@@ -404,13 +414,13 @@ function decodeDRepId(drepId: string): { keyHash: Buffer; isScript: boolean } {
 
   // Otherwise treat as hex
   return { keyHash: Buffer.from(drepId, "hex"), isScript: false };
-}
+};
 
 /**
  * Convert DRep action string to DRepInfo
  * Supports both bech32 (drep1...) and hex formats for custom DReps
  */
-export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepInfo {
+export const drepActionToDRepInfo = (action: DRepAction, drepId?: string): DRepInfo => {
   switch (action) {
     case DRepAction.ALWAYS_ABSTAIN:
       return { kind: DRepKind.ALWAYS_ABSTAIN };
@@ -430,16 +440,78 @@ export function drepActionToDRepInfo(action: DRepAction, drepId?: string): DRepI
     default:
       throw new Error(`Unknown DRep action: ${action}`);
   }
-}
+};
+
+/**
+ * Build voting_procedures map for a DRep governance vote (Conway era, TX body key 19)
+ *
+ * CBOR structure:
+ *   { voter => { gov_action_id => voting_procedure } }
+ *
+ * Where:
+ *   voter           = [1, [0, drep_key_hash_bytes]]   (voter type 1 = DRep, cred type 0 = key)
+ *   gov_action_id   = [tx_hash_bytes, index]
+ *   voting_procedure = [vote, anchor_or_null]         (vote: 0=No, 1=Yes, 2=Abstain)
+ *   anchor          = [url_string, data_hash_bytes]
+ */
+export const buildVotingProcedures = (
+  credential: Buffer,
+  governanceActionId: { txHash: string; index: number },
+  vote: 0 | 1 | 2,
+  anchor?: { url: string; dataHash: string }
+): Map<any, Map<any, any>> => {
+  const voterKey = [1, [0, toUint8Array(credential)]]; // DRep voter, key-hash credential
+
+  const txHashBytes = toUint8Array(Buffer.from(governanceActionId.txHash, "hex"));
+  const govActionKey = [txHashBytes, governanceActionId.index];
+
+  const anchorValue = anchor
+    ? [anchor.url, toUint8Array(Buffer.from(anchor.dataHash, "hex"))]
+    : null;
+  const votingProcedure = [vote, anchorValue];
+
+  const govActionMap = new Map([[govActionKey, votingProcedure]]);
+  return new Map([[voterKey, govActionMap]]);
+};
+
+/**
+ * Build DRep registration certificate (Conway era, cert type 16)
+ * CBOR structure: [16, [0, credential_bytes], coin_deposit, anchor_or_null]
+ * where anchor = [url_string, data_hash_bytes] if provided
+ */
+export const buildDRepRegistrationCertificate = (
+  credential: Buffer,
+  depositLovelace: number,
+  anchor?: { url: string; dataHash: string }
+): any => {
+  const drepCredential = [0, toUint8Array(credential)];
+  const anchorValue = anchor
+    ? [anchor.url, toUint8Array(Buffer.from(anchor.dataHash, "hex"))]
+    : null;
+  return [16, drepCredential, depositLovelace, anchorValue];
+};
+
+/**
+ * Encode a stake credential as a bech32 DRep ID
+ * Key-based DRep: hrp="drep", header=0x22
+ * Script-based DRep: hrp="drep_script", header=0x23
+ */
+export const encodeDRepId = (credential: Buffer, isScript: boolean = false): string => {
+  const header = Buffer.from([isScript ? 0x23 : 0x22]);
+  const fullBytes = Buffer.concat([header, credential]);
+  const words = bech32.toWords(fullBytes);
+  const hrp = isScript ? "drep_script" : "drep";
+  return bech32.encode(hrp, words, 1000);
+};
 
 /**
  * Sort witnesses by public key hash in lexicographic order
  * Cardano requires witnesses to be sorted for transaction validation
  */
-export function sortWitnesses(witnesses: CardanoWitness[]): CardanoWitness[] {
+export const sortWitnesses = (witnesses: CardanoWitness[]): CardanoWitness[] => {
   return witnesses.slice().sort((a, b) => {
     const hashA = blakeHash(a.pubKey, 28);
     const hashB = blakeHash(b.pubKey, 28);
     return hashA.compare(hashB);
   });
-}
+};

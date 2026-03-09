@@ -6,9 +6,17 @@ import {
   validateParams,
   transferRequestSchema,
   feeEstimationRequestSchema,
+  adaTransferRequestSchema,
+  adaFeeEstimationRequestSchema,
+  multiTokenTransferRequestSchema,
+  multiTokenFeeEstimationRequestSchema,
+  consolidateUtxosRequestSchema,
+  registerAsDRepRequestSchema,
+  castVoteRequestSchema,
   vaultAccountIdParamsSchema,
   credentialParamsSchema,
   hashParamsSchema,
+  poolIdParamsSchema,
 } from "./validation.js";
 
 export const configureRouter = (sdkManager: SdkManager): Router => {
@@ -397,7 +405,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get transaction details by hash
    *     description: Retrieves detailed information about a specific transaction using its hash
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: hash
@@ -541,7 +549,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get UTXOs by vault account address
    *     description: Retrieves unspent transaction outputs (UTXOs) for a vault account address. The network (mainnet/preprod) is determined by the server configuration.
-   *     tags: [UTXOs]
+   *     tags: [UTxOs]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -616,6 +624,82 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
 
   /**
    * @swagger
+   * /api/utxos/{vaultAccountId}/all:
+   *   get:
+   *     summary: Get UTXOs for all addresses in a vault account
+   *     description: Retrieves all UTXOs across every address in the vault account, grouped by address. Useful for inspecting the full UTxO set when a vault has multiple addresses.
+   *     tags: [UTxOs]
+   *     parameters:
+   *       - in: path
+   *         name: vaultAccountId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: The vault account ID
+   *     responses:
+   *       200:
+   *         description: UTXOs retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: array
+   *                   description: Addresses sorted by BIP44 index, each with their UTxOs
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       index:
+   *                         type: integer
+   *                         description: BIP44 address index
+   *                       address:
+   *                         type: string
+   *                         description: Bech32 Cardano address
+   *                       utxos:
+   *                         type: array
+   *                         items:
+   *                           type: object
+   *                           properties:
+   *                             transaction_id:
+   *                               type: string
+   *                             output_index:
+   *                               type: integer
+   *                             address:
+   *                               type: string
+   *                             value:
+   *                               type: object
+   *                               properties:
+   *                                 lovelace:
+   *                                   type: integer
+   *                                 assets:
+   *                                   type: object
+   *                             datum_hash:
+   *                               type: string
+   *                               nullable: true
+   *                             script_hash:
+   *                               type: string
+   *                               nullable: true
+   *                             created_at:
+   *                               type: object
+   *                               properties:
+   *                                 slot_no:
+   *                                   type: integer
+   *                                 header_hash:
+   *                                   type: string
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/utxos/:vaultAccountId/all",
+    validateParams(vaultAccountIdParamsSchema),
+    apiController.getVaultUtxos
+  );
+
+  /**
+   * @swagger
    * /api/tx/history/{vaultAccountId}/all:
    *   get:
    *     summary: Get transaction history for all addresses
@@ -623,7 +707,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       Retrieves basic transaction history for all addresses in a vault account with pagination and filtering.
    *       When groupByAddress=false (default): Returns a flat array of transactions sorted by slot number (most recent first), with each transaction including an 'address' field. Duplicates are removed.
    *       When groupByAddress=true: Returns transactions grouped by address in a nested object structure.
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -746,7 +830,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get transaction history
    *     description: Retrieves basic transaction history for a vault account address with pagination and filtering
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -854,7 +938,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       Retrieves detailed transaction history for all addresses in a vault account with full input/output information, pagination, and filtering.
    *       When groupByAddress=false (default): Returns a flat array of transactions sorted by slot number (most recent first), with each transaction including an 'address' field. Duplicates are removed.
    *       When groupByAddress=true: Returns transactions grouped by address in a nested object structure.
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -1035,7 +1119,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *   get:
    *     summary: Get detailed transaction history
    *     description: Retrieves detailed transaction history for a vault account address with full input/output information, pagination, and filtering
-   *     tags: [Transactions]
+   *     tags: [Transaction History]
    *     parameters:
    *       - in: path
    *         name: vaultAccountId
@@ -1193,7 +1277,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       2. **Vault-to-vault transfer**: Specify `recipientVaultAccountId` (and optionally `recipientIndex`) to transfer between vault accounts
    *
    *       **Note**: You must provide exactly one of `recipientAddress` or `recipientVaultAccountId`, not both.
-   *     tags: [Transactions]
+   *     tags: [Transfers]
    *     requestBody:
    *       required: true
    *       content:
@@ -1316,7 +1400,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *
    *       **Gross Amount**: When `grossAmount: true`, the fee is deducted from the amount being sent (recipient receives less).
    *       When `grossAmount: false` (default), the fee is added to the total cost (recipient receives full amount).
-   *     tags: [Transactions]
+   *     tags: [Transfers]
    *     requestBody:
    *       required: true
    *       content:
@@ -1444,6 +1528,460 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
     "/fee-estimate",
     validateRequest(feeEstimationRequestSchema),
     apiController.estimateFee
+  );
+
+  /**
+   * @swagger
+   * /api/transfers/ada:
+   *   post:
+   *     summary: Transfer native ADA
+   *     description: |
+   *       Transfers native ADA from a Fireblocks vault account to a recipient address or vault.
+   *
+   *       **UTXO Selection Strategy:**
+   *       ADA-only UTxOs are consumed first to avoid touching native tokens.
+   *       Multi-asset UTxOs are only selected if ADA-only UTxOs are insufficient.
+   *
+   *       **Token Preservation:**
+   *       When multi-asset UTxOs are consumed, ALL their tokens are returned to the sender
+   *       in the change output (Cardano protocol requirement — tokens cannot be dropped).
+   *       The `tokensPresentedInChange` field in the response lists affected policy IDs.
+   *     tags: [Transfers]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [vaultAccountId, lovelaceAmount]
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Sender Fireblocks vault account ID
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 description: Amount to send in lovelace (1 ADA = 1,000,000 lovelace)
+   *                 example: 5000000
+   *               recipientAddress:
+   *                 type: string
+   *                 description: Recipient bech32 Cardano address (mutually exclusive with recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: Recipient Fireblocks vault account ID (mutually exclusive with recipientAddress)
+   *               recipientIndex:
+   *                 type: integer
+   *                 default: 0
+   *                 description: Address index on the recipient vault account
+   *               index:
+   *                 type: integer
+   *                 default: 0
+   *                 description: Address index on the sender vault account
+   *     responses:
+   *       200:
+   *         description: ADA transfer executed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                   description: Submitted transaction hash
+   *                 senderAddress:
+   *                   type: string
+   *                 recipientAddress:
+   *                   type: string
+   *                 lovelaceAmount:
+   *                   type: integer
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                     ada:
+   *                       type: string
+   *                 tokensPresentedInChange:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                   description: Policy IDs of tokens returned to sender in change (only present when token UTxOs were consumed)
+   *       400:
+   *         description: Validation error or insufficient ADA balance
+   *       404:
+   *         description: Recipient vault account address not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/transfers/ada",
+    validateRequest(adaTransferRequestSchema),
+    apiController.transferAda
+  );
+
+  /**
+   * @swagger
+   * /api/fee-estimate/ada:
+   *   post:
+   *     summary: Estimate fee for a native ADA transfer
+   *     description: |
+   *       Dry-runs the full ADA transaction pipeline (UTXO selection, output construction,
+   *       iterative fee convergence) without signing or submitting. Returns an accurate fee
+   *       breakdown. Use this to display estimated costs to users before they confirm.
+   *
+   *       When selected UTxOs contain native tokens, a `tokenChangeWarning` is included
+   *       in the response to inform the caller that tokens will appear in the change output.
+   *     tags: [Transfers]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [vaultAccountId, lovelaceAmount]
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 example: 5000000
+   *               recipientAddress:
+   *                 type: string
+   *               recipientVaultAccountId:
+   *                 type: string
+   *               recipientIndex:
+   *                 type: integer
+   *                 default: 0
+   *               index:
+   *                 type: integer
+   *                 default: 0
+   *               grossAmount:
+   *                 type: boolean
+   *                 default: false
+   *                 description: If true, fee is deducted from lovelaceAmount (recipient receives less)
+   *     responses:
+   *       200:
+   *         description: Fee estimation successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                       example: "0.174165"
+   *                     lovelace:
+   *                       type: string
+   *                       example: "174165"
+   *                 recipientReceives:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 totalCost:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 tokenChangeWarning:
+   *                   type: object
+   *                   nullable: true
+   *                   description: Present only when token UTxOs are consumed by this transfer
+   *                   properties:
+   *                     policiesAffected:
+   *                       type: integer
+   *                     message:
+   *                       type: string
+   *       400:
+   *         description: Validation error or insufficient ADA balance
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/fee-estimate/ada",
+    validateRequest(adaFeeEstimationRequestSchema),
+    apiController.estimateAdaFee
+  );
+
+  /**
+   * @swagger
+   * /api/transfers/tokens:
+   *   post:
+   *     summary: Transfer multiple Cardano native tokens in a single transaction
+   *     description: |
+   *       Sends one or more CNTs to a recipient in a single Cardano transaction.
+   *       All specified tokens are bundled into one recipient output.
+   *
+   *       If consumed UTxOs carry tokens not listed in `tokens`, those tokens are
+   *       automatically returned to the sender in the change output — no tokens are lost.
+   *
+   *       The `tokensPresentedInChange` field in the response lists any extra policy IDs
+   *       that ended up in the change output.
+   *     tags:
+   *       - Transfers
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - tokens
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID of the sender
+   *               tokens:
+   *                 type: array
+   *                 minItems: 1
+   *                 items:
+   *                   type: object
+   *                   required: [tokenPolicyId, tokenName, amount]
+   *                   properties:
+   *                     tokenPolicyId:
+   *                       type: string
+   *                       description: Token policy ID (hex)
+   *                     tokenName:
+   *                       type: string
+   *                       description: Token name (hex)
+   *                     amount:
+   *                       type: integer
+   *                       description: Amount to transfer in base units
+   *               recipientAddress:
+   *                 type: string
+   *                 description: Recipient bech32 Cardano address (mutually exclusive with recipientVaultAccountId)
+   *               recipientVaultAccountId:
+   *                 type: string
+   *                 description: Recipient Fireblocks vault account ID (mutually exclusive with recipientAddress)
+   *               recipientIndex:
+   *                 type: integer
+   *                 description: Address index on the recipient vault (default 0)
+   *               index:
+   *                 type: integer
+   *                 description: Address index on the sender vault (default 0)
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 description: |
+   *                   Explicit ADA amount (in lovelace) to include in the recipient output alongside the tokens.
+   *                   Defaults to the protocol minimum for the number of token policies. Use this to send
+   *                   ADA together with tokens in a single transaction (e.g. 5000000 = 5 ADA + all listed tokens).
+   *     responses:
+   *       200:
+   *         description: Transfer successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                 senderAddress:
+   *                   type: string
+   *                 recipientAddress:
+   *                   type: string
+   *                 tokens:
+   *                   type: array
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                     ada:
+   *                       type: string
+   *                 tokensPresentedInChange:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                   description: Policy IDs of tokens returned to sender in change (only when extra token UTxOs were consumed)
+   *       400:
+   *         description: Validation error or insufficient balance
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/transfers/tokens",
+    validateRequest(multiTokenTransferRequestSchema),
+    apiController.transferMultipleTokens
+  );
+
+  /**
+   * @swagger
+   * /api/fee-estimate/tokens:
+   *   post:
+   *     summary: Estimate fee for a multi-token transfer
+   *     description: |
+   *       Dry-runs the full multi-token transaction pipeline and returns the fee breakdown.
+   *       Does not sign or submit anything.
+   *
+   *       The `tokenChangeWarning` field is included when the selected UTxOs carry additional
+   *       tokens not listed in `tokens` — those tokens will appear in the change output.
+   *     tags:
+   *       - Transfers
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - tokens
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *               tokens:
+   *                 type: array
+   *                 minItems: 1
+   *                 items:
+   *                   type: object
+   *                   required: [tokenPolicyId, tokenName, amount]
+   *                   properties:
+   *                     tokenPolicyId:
+   *                       type: string
+   *                     tokenName:
+   *                       type: string
+   *                     amount:
+   *                       type: integer
+   *               recipientAddress:
+   *                 type: string
+   *               recipientVaultAccountId:
+   *                 type: string
+   *               lovelaceAmount:
+   *                 type: integer
+   *                 minimum: 1000000
+   *                 description: Explicit ADA amount (in lovelace) to bundle with tokens in the recipient output
+   *               grossAmount:
+   *                 type: boolean
+   *                 description: If true, fee is considered included in the amounts being sent
+   *     responses:
+   *       200:
+   *         description: Fee estimation result
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 minAdaRequired:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 totalCost:
+   *                   type: object
+   *                   properties:
+   *                     ada:
+   *                       type: string
+   *                     lovelace:
+   *                       type: string
+   *                 tokenChangeWarning:
+   *                   type: object
+   *                   description: Present when extra-token UTxOs are consumed
+   *                   properties:
+   *                     policiesAffected:
+   *                       type: integer
+   *                     message:
+   *                       type: string
+   *       400:
+   *         description: Validation error or insufficient balance
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/fee-estimate/tokens",
+    validateRequest(multiTokenFeeEstimationRequestSchema),
+    apiController.estimateMultiTokenFee
+  );
+
+  /**
+   * @swagger
+   * /api/utxos/consolidate:
+   *   post:
+   *     summary: Consolidate all UTxOs at an address into a single UTxO
+   *     description: |
+   *       Sweeps all UTxOs at the specified address index into a single output back to the sender.
+   *       All ADA and all native tokens are preserved — nothing is lost.
+   *
+   *       Useful for combating UTxO fragmentation after many incoming transfers.
+   *       Fails if the address has fewer UTxOs than `minUtxoCount` (default: 2).
+   *     tags:
+   *       - UTxOs
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID
+   *               index:
+   *                 type: integer
+   *                 description: Address index to consolidate (default 0)
+   *               minUtxoCount:
+   *                 type: integer
+   *                 minimum: 2
+   *                 description: Minimum UTxO count required to proceed (default 2)
+   *     responses:
+   *       200:
+   *         description: Consolidation successful
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 txHash:
+   *                   type: string
+   *                 address:
+   *                   type: string
+   *                 utxosCombined:
+   *                   type: integer
+   *                   description: Number of UTxOs merged into the consolidated output
+   *                 lovelace:
+   *                   type: string
+   *                   description: ADA in the consolidated output (after fee)
+   *                 fee:
+   *                   type: object
+   *                   properties:
+   *                     lovelace:
+   *                       type: string
+   *                     ada:
+   *                       type: string
+   *                 tokenPolicies:
+   *                   type: array
+   *                   items:
+   *                     type: string
+   *                   description: Distinct token policy IDs present in the consolidated output
+   *       400:
+   *         description: Fewer UTxOs than minUtxoCount, or validation error
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/utxos/consolidate",
+    validateRequest(consolidateUtxosRequestSchema),
+    apiController.consolidateUtxos
   );
 
   /**
@@ -1899,8 +2437,25 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 example: "always-abstain"
    *               drepId:
    *                 type: string
-   *                 description: DRep ID in hex format (required only if drepAction is 'custom-drep')
-   *                 example: "drep1abc123..."
+   *                 description: DRep ID in bech32 (drep1...) or hex format (required only if drepAction is 'custom-drep')
+   *                 example: "drep1yyv2m4xyz..."
+   *           examples:
+   *             always-abstain:
+   *               summary: Abstain from all governance votes
+   *               value:
+   *                 vaultAccountId: "12"
+   *                 drepAction: "always-abstain"
+   *             always-no-confidence:
+   *               summary: Vote no-confidence on all proposals
+   *               value:
+   *                 vaultAccountId: "12"
+   *                 drepAction: "always-no-confidence"
+   *             custom-drep:
+   *               summary: Delegate to a specific DRep
+   *               value:
+   *                 vaultAccountId: "12"
+   *                 drepAction: "custom-drep"
+   *                 drepId: "drep1yyv2m4xyzabc..."
    *     responses:
    *       200:
    *         description: DRep delegation transaction submitted successfully
@@ -1935,6 +2490,210 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.post("/governance/delegate-drep", apiController.delegateToDRep);
+
+  /**
+   * @swagger
+   * /api/governance/register-drep:
+   *   post:
+   *     summary: Register vault account as a DRep
+   *     description: |
+   *       Submits a Conway-era `reg_drep_cert` certificate to register the vault's stake
+   *       credential as a Delegated Representative (DRep) on Cardano.
+   *
+   *       **Requirements:**
+   *       - The vault must have a pure-ADA UTxO of at least 501 ADA (500 ADA deposit + fee).
+   *       - The stake key does NOT need to be registered first.
+   *
+   *       **Anchor (optional):** Provide a publicly accessible URL to a JSON metadata document
+   *       and the blake2b-256 hex hash of that document. This helps voters identify your DRep.
+   *
+   *       **Deposit:** 500 ADA (500,000,000 lovelace) — refundable upon DRep deregistration.
+   *     tags: [Governance]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID
+   *                 example: "0"
+   *               anchor:
+   *                 type: object
+   *                 description: Optional DRep metadata anchor
+   *                 required:
+   *                   - url
+   *                   - dataHash
+   *                 properties:
+   *                   url:
+   *                     type: string
+   *                     description: Public URL of the DRep metadata JSON document
+   *                     example: "https://example.com/drep-metadata.json"
+   *                   dataHash:
+   *                     type: string
+   *                     description: Blake2b-256 hex hash (64 chars) of the metadata document
+   *                     example: "abcd1234...ef567890"
+   *               depositAmount:
+   *                 type: integer
+   *                 description: Deposit in lovelace (default 500,000,000 = 500 ADA)
+   *                 example: 500000000
+   *               fee:
+   *                 type: integer
+   *                 description: Transaction fee in lovelace (default 1,000,000 = 1 ADA)
+   *                 example: 1000000
+   *     responses:
+   *       200:
+   *         description: DRep registration transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     txHash:
+   *                       type: string
+   *                       description: Transaction hash
+   *                     status:
+   *                       type: string
+   *                       example: "submitted"
+   *                     operation:
+   *                       type: string
+   *                       example: "register-drep"
+   *                     drepId:
+   *                       type: string
+   *                       description: Bech32 DRep ID (drep1...)
+   *                     addressIndex:
+   *                       type: integer
+   *       400:
+   *         description: Validation error
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/governance/register-drep",
+    validateRequest(registerAsDRepRequestSchema),
+    apiController.registerAsDRep
+  );
+
+  /**
+   * @swagger
+   * /api/governance/vote:
+   *   post:
+   *     summary: Cast a governance vote as a DRep
+   *     description: |
+   *       Submits a Conway-era `voting_procedures` transaction allowing a registered DRep
+   *       to vote on a specific governance action (Yes, No, or Abstain).
+   *
+   *       **Requirements:**
+   *       - The vault must be registered as a DRep (via `POST /api/governance/register-drep`).
+   *       - The vault must have a pure-ADA UTxO sufficient to cover the transaction fee (~1 ADA).
+   *
+   *       **Governance Action ID:** A governance action is identified by the transaction hash
+   *       and index of the proposal transaction on-chain.
+   *
+   *       **Anchor (optional):** A URL and blake2b-256 hash of a rationale document explaining
+   *       the vote.
+   *     tags: [Governance]
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - vaultAccountId
+   *               - governanceActionId
+   *               - vote
+   *             properties:
+   *               vaultAccountId:
+   *                 type: string
+   *                 description: Fireblocks vault account ID
+   *                 example: "0"
+   *               governanceActionId:
+   *                 type: object
+   *                 required:
+   *                   - txHash
+   *                   - index
+   *                 properties:
+   *                   txHash:
+   *                     type: string
+   *                     description: Transaction hash (hex, 64 chars) of the governance action proposal
+   *                     example: "abcd1234...ef567890"
+   *                   index:
+   *                     type: integer
+   *                     description: Index of the governance action in that transaction
+   *                     example: 0
+   *               vote:
+   *                 type: string
+   *                 enum: [yes, no, abstain]
+   *                 description: Vote choice
+   *                 example: "yes"
+   *               anchor:
+   *                 type: object
+   *                 description: Optional vote rationale anchor
+   *                 required:
+   *                   - url
+   *                   - dataHash
+   *                 properties:
+   *                   url:
+   *                     type: string
+   *                     description: Public URL of the vote rationale document
+   *                   dataHash:
+   *                     type: string
+   *                     description: Blake2b-256 hex hash (64 chars) of the rationale document
+   *               fee:
+   *                 type: integer
+   *                 description: Transaction fee in lovelace (default 1,000,000 = 1 ADA)
+   *                 example: 1000000
+   *     responses:
+   *       200:
+   *         description: Vote transaction submitted successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     txHash:
+   *                       type: string
+   *                     status:
+   *                       type: string
+   *                       example: "submitted"
+   *                     operation:
+   *                       type: string
+   *                       example: "cast-vote"
+   *                     vote:
+   *                       type: string
+   *                       example: "yes"
+   *                     governanceActionId:
+   *                       type: object
+   *                       properties:
+   *                         txHash:
+   *                           type: string
+   *                         index:
+   *                           type: integer
+   *       400:
+   *         description: Validation error
+   *       500:
+   *         description: Internal server error
+   */
+  router.post(
+    "/governance/vote",
+    validateRequest(castVoteRequestSchema),
+    apiController.castGovernanceVote
+  );
 
   /**
    * NETWORK
@@ -1978,5 +2737,301 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *         description: Internal server error
    */
   router.get("/epochs", apiController.getCurrentEpoch);
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}:
+   *   get:
+   *     summary: Get staking pool information
+   *     description: |
+   *       Returns live metrics for a Cardano staking pool including saturation, stake,
+   *       delegator count, margin cost, and fixed cost.
+   *       Use this after delegation to display pool stats to the user.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool information retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     live_saturation:
+   *                       type: number
+   *                       description: Live saturation ratio (1.0 = fully saturated, >1.0 = oversaturated)
+   *                     live_stake:
+   *                       type: string
+   *                     active_stake:
+   *                       type: string
+   *                     live_delegators:
+   *                       type: integer
+   *                     margin_cost:
+   *                       type: number
+   *                       description: Pool margin as a fraction (e.g. 0.03 = 3%)
+   *                     fixed_cost:
+   *                       type: string
+   *                       description: Fixed fee per epoch in lovelace
+   *                     declared_pledge:
+   *                       type: string
+   *                     live_pledge:
+   *                       type: string
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get("/pools/:poolId", validateParams(poolIdParamsSchema), apiController.getPoolInfo);
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/metadata:
+   *   get:
+   *     summary: Get pool metadata
+   *     description: Returns pool off-chain metadata including name, ticker, description, and homepage URL.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool metadata retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     name:
+   *                       type: string
+   *                       nullable: true
+   *                     ticker:
+   *                       type: string
+   *                       nullable: true
+   *                     description:
+   *                       type: string
+   *                       nullable: true
+   *                     homepage:
+   *                       type: string
+   *                       nullable: true
+   *                     extended:
+   *                       type: string
+   *                       nullable: true
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/metadata",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolMetadata
+  );
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/delegators:
+   *   get:
+   *     summary: Get pool delegator summary
+   *     description: Returns the total delegator count and total active stake for a pool.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool delegator summary retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     delegator_count:
+   *                       type: integer
+   *                     active_stake:
+   *                       type: string
+   *                       description: Total active stake in lovelace
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/delegators",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolDelegators
+  );
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/delegators/list:
+   *   get:
+   *     summary: Get paginated list of pool delegators
+   *     description: Returns individual delegator entries for a pool with pagination support.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 100
+   *         description: Maximum number of delegators to return
+   *       - in: query
+   *         name: offset
+   *         schema:
+   *           type: integer
+   *           default: 0
+   *         description: Pagination offset
+   *     responses:
+   *       200:
+   *         description: Pool delegators list retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     delegators:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           stake_address:
+   *                             type: string
+   *                           amount:
+   *                             type: string
+   *                           active_epoch_no:
+   *                             type: integer
+   *                 pagination:
+   *                   type: object
+   *                   properties:
+   *                     limit:
+   *                       type: integer
+   *                     offset:
+   *                       type: integer
+   *                     total:
+   *                       type: integer
+   *                     hasMore:
+   *                       type: boolean
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/delegators/list",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolDelegatorsList
+  );
+
+  /**
+   * @swagger
+   * /api/pools/{poolId}/blocks:
+   *   get:
+   *     summary: Get pool block production statistics
+   *     description: Returns block production stats for a pool including total blocks minted and current epoch blocks.
+   *     tags:
+   *       - Pools
+   *     parameters:
+   *       - in: path
+   *         name: poolId
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Pool ID in bech32 format (pool1...) or hex
+   *     responses:
+   *       200:
+   *         description: Pool block stats retrieved successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 success:
+   *                   type: boolean
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     pool_id:
+   *                       type: string
+   *                     blocks_minted:
+   *                       type: integer
+   *                       description: Total blocks minted by the pool
+   *                     blocks_epoch:
+   *                       type: integer
+   *                       description: Blocks minted in the current epoch
+   *                     current_epoch:
+   *                       type: integer
+   *       400:
+   *         description: Invalid pool ID
+   *       404:
+   *         description: Pool not found
+   *       500:
+   *         description: Internal server error
+   */
+  router.get(
+    "/pools/:poolId/blocks",
+    validateParams(poolIdParamsSchema),
+    apiController.getPoolBlocks
+  );
+
   return router;
 };

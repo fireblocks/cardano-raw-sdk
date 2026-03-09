@@ -66,6 +66,13 @@ export const vaultAccountIdParamsSchema = z.object({
 });
 
 /**
+ * Schema for pool ID in URL params
+ */
+export const poolIdParamsSchema = z.object({
+  poolId: z.string().min(1, "poolId is required"),
+});
+
+/**
  * Schema for credential params
  */
 export const credentialParamsSchema = z.object({
@@ -162,4 +169,154 @@ export const feeEstimationRequestSchema = z
     }
   );
 
-export type FeeEstimationRequest = z.infer<typeof feeEstimationRequestSchema>;
+export type CntFeeEstimationRequest = z.infer<typeof feeEstimationRequestSchema>;
+
+const adaRecipientRefinement = (data: {
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+}) => {
+  const hasAddress = data.recipientAddress !== undefined;
+  const hasVaultId = data.recipientVaultAccountId !== undefined;
+  return (hasAddress && !hasVaultId) || (!hasAddress && hasVaultId);
+};
+
+const adaRecipientRefinementMessage =
+  "Exactly one recipient must be specified: recipientAddress OR recipientVaultAccountId (not both, not neither)";
+
+export const adaTransferRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    lovelaceAmount: z
+      .number()
+      .int("lovelaceAmount must be an integer")
+      .min(1_000_000, "lovelaceAmount must be at least 1,000,000 lovelace (1 ADA)"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+  })
+  .refine(adaRecipientRefinement, { message: adaRecipientRefinementMessage });
+
+export type AdaTransferRequest = z.infer<typeof adaTransferRequestSchema>;
+
+export const adaFeeEstimationRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    lovelaceAmount: z
+      .number()
+      .int("lovelaceAmount must be an integer")
+      .min(1_000_000, "lovelaceAmount must be at least 1,000,000 lovelace (1 ADA)"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+    grossAmount: z.boolean().optional(),
+  })
+  .refine(adaRecipientRefinement, { message: adaRecipientRefinementMessage });
+
+export type AdaFeeEstimationRequest = z.infer<typeof adaFeeEstimationRequestSchema>;
+
+const tokenSpecSchema = z.object({
+  tokenPolicyId: z.string().min(1, "tokenPolicyId is required"),
+  tokenName: z.string().min(1, "tokenName is required"),
+  amount: z.number().int().positive("token amount must be a positive integer"),
+});
+
+const multiTokenRecipientRefinement = (data: {
+  recipientAddress?: string;
+  recipientVaultAccountId?: string;
+}) => {
+  const hasAddress = data.recipientAddress !== undefined;
+  const hasVaultId = data.recipientVaultAccountId !== undefined;
+  return (hasAddress && !hasVaultId) || (!hasAddress && hasVaultId);
+};
+
+const multiTokenRecipientMessage =
+  "Exactly one recipient must be specified: recipientAddress OR recipientVaultAccountId (not both, not neither)";
+
+export const multiTokenTransferRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    tokens: z.array(tokenSpecSchema).min(1, "At least one token must be specified"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+    lovelaceAmount: z
+      .number()
+      .int("lovelaceAmount must be an integer")
+      .min(1_000_000, "lovelaceAmount must be at least 1,000,000 lovelace (1 ADA)")
+      .optional(),
+  })
+  .refine(multiTokenRecipientRefinement, { message: multiTokenRecipientMessage });
+
+export type MultiTokenTransferRequest = z.infer<typeof multiTokenTransferRequestSchema>;
+
+export const multiTokenFeeEstimationRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    tokens: z.array(tokenSpecSchema).min(1, "At least one token must be specified"),
+    recipientAddress: z.string().optional(),
+    recipientVaultAccountId: z.string().optional(),
+    recipientIndex: z.number().int().nonnegative().optional(),
+    index: z.number().int().nonnegative().optional(),
+    lovelaceAmount: z
+      .number()
+      .int("lovelaceAmount must be an integer")
+      .min(1_000_000, "lovelaceAmount must be at least 1,000,000 lovelace (1 ADA)")
+      .optional(),
+    grossAmount: z.boolean().optional(),
+  })
+  .refine(multiTokenRecipientRefinement, { message: multiTokenRecipientMessage });
+
+export type MultiTokenFeeEstimationRequest = z.infer<typeof multiTokenFeeEstimationRequestSchema>;
+
+export const consolidateUtxosRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  index: z.number().int().nonnegative().optional(),
+  minUtxoCount: z.number().int().min(2, "minUtxoCount must be at least 2").optional(),
+});
+
+export type ConsolidateUtxosRequest = z.infer<typeof consolidateUtxosRequestSchema>;
+
+export const registerAsDRepRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  anchor: z
+    .object({
+      url: z
+        .string()
+        .min(1, "anchor.url is required")
+        .regex(/^https?:\/\/.+/, "anchor.url must be a valid HTTP/HTTPS URL"),
+      dataHash: z
+        .string()
+        .length(64, "anchor.dataHash must be a 64-character hex string (blake2b-256)"),
+    })
+    .optional(),
+  depositAmount: z.number().int().positive().optional(),
+  fee: z.number().int().positive().optional(),
+});
+
+export type RegisterAsDRepRequest = z.infer<typeof registerAsDRepRequestSchema>;
+
+const anchorSchema = z.object({
+  url: z
+    .string()
+    .min(1, "anchor.url is required")
+    .regex(/^https?:\/\/.+/, "anchor.url must be a valid HTTP/HTTPS URL"),
+  dataHash: z
+    .string()
+    .length(64, "anchor.dataHash must be a 64-character hex string (blake2b-256)"),
+});
+
+export const castVoteRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  governanceActionId: z.object({
+    txHash: z.string().length(64, "governanceActionId.txHash must be a 64-character hex string"),
+    index: z.number().int().nonnegative("governanceActionId.index must be a non-negative integer"),
+  }),
+  vote: z.enum(["yes", "no", "abstain"], { message: 'vote must be "yes", "no", or "abstain"' }),
+  anchor: anchorSchema.optional(),
+  fee: z.number().int().positive().optional(),
+});
+
+export type CastVoteRequest = z.infer<typeof castVoteRequestSchema>;

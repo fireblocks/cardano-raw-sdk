@@ -33,3 +33,4 @@ yarn.lock
 .vscode/*
 
 .claude
+CLAUDE.md

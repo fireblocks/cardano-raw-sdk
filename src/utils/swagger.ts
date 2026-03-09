@@ -33,6 +33,41 @@ export const getSwaggerSpec = (): ReturnType<typeof swaggerJsdoc> => {
             description: "Local server",
           },
         ],
+        tags: [
+          { name: "Health", description: "Service health checks" },
+          {
+            name: "Balance",
+            description: "Query ADA and token balances by address, stake key, or credential",
+          },
+          {
+            name: "Transfers",
+            description: "Send ADA or native tokens and estimate transaction fees",
+          },
+          {
+            name: "Transaction History",
+            description: "Retrieve past transaction records and details",
+          },
+          {
+            name: "UTxOs",
+            description: "Query unspent outputs and consolidate wallet fragmentation",
+          },
+          { name: "Assets", description: "Look up native asset metadata" },
+          {
+            name: "Staking",
+            description: "Register, delegate, deregister, and withdraw staking rewards",
+          },
+          {
+            name: "Governance",
+            description:
+              "Conway-era DRep registration, vote delegation, and casting governance votes",
+          },
+          {
+            name: "Pools",
+            description: "Query stake pool metrics, metadata, delegators, and block stats",
+          },
+          { name: "Network", description: "Current epoch and network state" },
+          { name: "Webhooks", description: "Verify and enrich Fireblocks webhook payloads" },
+        ],
       },
       apis: ["./dist/api/router.js", "./dist/api/controllers/*.js", "./dist/routes/*.js"],
     };

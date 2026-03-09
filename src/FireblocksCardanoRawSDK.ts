@@ -8,12 +8,19 @@ import {
 
 import {
   Logger,
-  buildTransactionWithCalculatedFee,
+  buildAdaTransactionWithCalculatedFee,
+  fetchAndSelectUtxosForAda,
+  fetchAndSelectUtxosForMultiToken,
+  buildCntTransactionWithCalculatedFee,
+  buildMultiTokenTransactionWithCalculatedFee,
+  buildConsolidationTransactionWithCalculatedFee,
+  countDistinctPolicies,
   WITNESS_COUNT_PAYMENT_KEY_ONLY,
   calculateTransactionFee,
   calculateTtl,
   createTransactionInputs,
-  fetchAndSelectUtxos,
+  fetchUtxos,
+  fetchAndSelectUtxosForCnt,
   submitTransaction,
   decodeAssetName,
   formatWithDecimals,
@@ -24,17 +31,20 @@ import {
   BalanceResponse,
   GroupedBalanceResponse,
   DetailedTxHistoryResponse,
-  transferOpts,
+  CntTransferOpts,
   TransactionHistoryResponse,
   GroupedTransactionHistoryResponse,
   GroupedDetailedTxHistoryResponse,
   TransactionHistoryItem,
   DetailedTransaction,
+  LastUpdated,
+  TransactionPagination,
   TransactionDetailsResponse,
   WebhookPayloadData,
   SupportedAssets,
   Networks,
   UtxoIagonResponse,
+  UtxoData,
   GroupByOptions,
   VaultBalanceResponse,
   VaultBalanceTokenResponse,
@@ -50,15 +60,34 @@ import {
   DeregisterStakingOptions,
   WithdrawRewardsOptions,
   DRepDelegationOptions,
+  RegisterAsDRepOptions,
+  RegisterAsDRepResult,
+  CastVoteOptions,
+  CastVoteResult,
   RewardsData,
   WebhookEventTypes,
   StakeAccountInfoResponse,
   HealthStatusResponse,
   CurrentEpochResponse,
   AssetInfoResponse,
+  PoolInfoResponse,
+  PoolMetadataResponse,
+  PoolDelegatorsResponse,
+  PoolDelegatorsListResponse,
+  PoolBlocksResponse,
   TokenMetadata,
-  FeeEstimationRequest,
-  FeeEstimationResponse,
+  CntFeeEstimationRequest,
+  CntFeeEstimationResponse,
+  AdaTransferOpts,
+  AdaFeeEstimationRequest,
+  AdaFeeEstimationResponse,
+  AdaTransferResult,
+  MultiTokenTransferOpts,
+  MultiTokenTransferResult,
+  MultiTokenFeeEstimationRequest,
+  MultiTokenFeeEstimationResponse,
+  ConsolidateUtxosOpts,
+  ConsolidateUtxosResult,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -386,6 +415,182 @@ export class FireblocksCardanoRawSDK {
   }
 
   /**
+   * Resolves recipient address from either a direct address or a vault account ID.
+   * Validates that exactly one recipient option is provided.
+   */
+  private async resolveRecipientAddress(
+    recipientAddress: string | undefined,
+    recipientVaultAccountId: string | undefined,
+    recipientIndex: number = 0
+  ): Promise<string> {
+    if (!recipientAddress && !recipientVaultAccountId) {
+      throw new SdkApiError(
+        "Either recipientAddress or recipientVaultAccountId must be provided",
+        400,
+        "ValidationError",
+        { providedOptions: { recipientAddress, recipientVaultAccountId } },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+    if (recipientAddress && recipientVaultAccountId) {
+      throw new SdkApiError(
+        "Cannot specify both recipientAddress and recipientVaultAccountId",
+        400,
+        "ValidationError",
+        { providedOptions: { recipientAddress, recipientVaultAccountId } },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+    if (recipientVaultAccountId) {
+      const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
+        recipientVaultAccountId,
+        this.assetId,
+        recipientIndex
+      );
+      if (!recipientAddressData.address) {
+        throw new SdkApiError(
+          `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
+          404,
+          "AddressNotFound",
+          { recipientVaultAccountId, recipientIndex },
+          "FireblocksCardanoRawSDK"
+        );
+      }
+      return recipientAddressData.address;
+    }
+    return recipientAddress!;
+  }
+
+  /**
+   * Fetches current network slot and returns TTL for transaction building.
+   */
+  private async fetchCurrentTtl(): Promise<number> {
+    const epochResponse = await this.iagonApiService.getCurrentEpoch();
+    this.logger.info(`Current slot: ${epochResponse.data.tip.slot}, calculating TTL`);
+    return calculateTtl(epochResponse.data.tip.slot);
+  }
+
+  /**
+   * Logs an error and re-throws it, wrapping non-Error values in a typed Error.
+   */
+  private logAndRethrow(context: string, error: unknown): never {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    this.logger.error(`${context} failed: ${errorMessage}`);
+    if (error instanceof Error) throw error;
+    throw new Error(`${context}Failed: ${errorMessage}`);
+  }
+
+  /**
+   * Fetches transaction history across all vault addresses.
+   * Shared by getAllTransactionHistory() and getAllDetailedTxHistory().
+   */
+  private async fetchAllVaultHistory<T extends { tx_hash: string; slot_no: number }>(
+    fetchFn: (params: {
+      address: string;
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+    }) => Promise<{ success: boolean; data?: T[]; last_updated?: LastUpdated }>,
+    options: { limit?: number; offset?: number; fromSlot?: number; groupByAddress?: boolean }
+  ): Promise<{
+    success: boolean;
+    data: T[] | Record<string, T[]>;
+    pagination: TransactionPagination;
+    last_updated: LastUpdated;
+  }> {
+    const emptyLastUpdated: LastUpdated = { slot_no: 0, block_hash: "", block_time: "" };
+    const emptyPagination: TransactionPagination = {
+      limit: 0,
+      offset: 0,
+      total: 0,
+      hasMore: false,
+    };
+
+    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      this.assetId
+    );
+
+    if (!addressesResponse || addressesResponse.length === 0) {
+      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
+      return {
+        success: true,
+        data: options.groupByAddress ? {} : [],
+        pagination: emptyPagination,
+        last_updated: emptyLastUpdated,
+      };
+    }
+
+    const validAddresses = addressesResponse.filter((addr) => addr.address);
+    const allHistories = await Promise.all(
+      validAddresses.map((addr) => fetchFn({ address: addr.address!, ...options }))
+    );
+
+    const mostRecentUpdate = allHistories.reduce((latest, current) => {
+      if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
+        return current.last_updated || latest;
+      }
+      return latest;
+    }, allHistories[0]?.last_updated || emptyLastUpdated);
+
+    if (options.groupByAddress) {
+      const groupedData: Record<string, T[]> = {};
+      let totalTransactions = 0;
+
+      validAddresses.forEach((addr, index) => {
+        const transactions = allHistories[index].data || [];
+        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+        groupedData[addr.address!] = transactions;
+        totalTransactions += transactions.length;
+      });
+
+      const paginationLimit = options.limit || totalTransactions;
+      const paginationOffset = options.offset || 0;
+
+      return {
+        success: true,
+        data: groupedData,
+        pagination: {
+          limit: paginationLimit,
+          offset: paginationOffset,
+          total: totalTransactions,
+          hasMore: paginationOffset + paginationLimit < totalTransactions,
+        },
+        last_updated: mostRecentUpdate,
+      };
+    }
+
+    // Flat mode: merge, add address field, sort, deduplicate, paginate
+    const flatData: T[] = [];
+    validAddresses.forEach((addr, index) => {
+      const transactions = allHistories[index].data || [];
+      transactions.forEach((tx) => flatData.push({ ...tx, address: addr.address }));
+    });
+
+    flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
+
+    const uniqueTransactions = flatData.filter(
+      (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
+    );
+
+    const totalTransactions = uniqueTransactions.length;
+    const paginationLimit = options.limit || totalTransactions;
+    const paginationOffset = options.offset || 0;
+
+    return {
+      success: true,
+      data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
+      pagination: {
+        limit: paginationLimit,
+        offset: paginationOffset,
+        total: totalTransactions,
+        hasMore: paginationOffset + paginationLimit < totalTransactions,
+      },
+      last_updated: mostRecentUpdate,
+    };
+  }
+
+  /**
    * Get transaction details by hash
    */
   public getTransactionDetails = async (
@@ -405,6 +610,37 @@ export class FireblocksCardanoRawSDK {
     );
 
     return await this.iagonApiService.getUtxosByAddress(address);
+  };
+
+  /**
+   * Get UTXOs for all addresses in a vault account, grouped by address.
+   */
+  public getUtxosByVaultAccountId = async (): Promise<
+    Array<{ index: number; address: string; utxos: UtxoData[] }>
+  > => {
+    const allAddresses = await this.fireblocksService.getVaultAccountAddresses(
+      this.vaultAccountId,
+      this.assetId
+    );
+
+    const addresses = allAddresses.filter((addr) => addr.address && addr.addressFormat === "BASE");
+
+    this.logger.info(
+      `Getting UTxOs for all ${addresses.length} BASE addresses in vault ${this.vaultAccountId}`
+    );
+
+    const results = await Promise.all(
+      addresses.map(async (addr) => {
+        const response = await this.iagonApiService.getUtxosByAddress(addr.address!);
+        return {
+          index: addr.bip44AddressIndex ?? 0,
+          address: addr.address!,
+          utxos: response.data ?? [],
+        };
+      })
+    );
+
+    return results.sort((a, b) => a.index - b.index);
   };
 
   /**
@@ -461,117 +697,10 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Getting transaction history for all addresses in vault ${this.vaultAccountId}`
     );
-
-    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
-      this.vaultAccountId,
-      this.assetId
-    );
-
-    if (!addressesResponse || addressesResponse.length === 0) {
-      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
-
-      if (options.groupByAddress) {
-        return {
-          success: true,
-          data: {},
-          pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
-          last_updated: { slot_no: 0, block_hash: "", block_time: "" },
-        };
-      }
-
-      return {
-        success: true,
-        data: [],
-        pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
-        last_updated: { slot_no: 0, block_hash: "", block_time: "" },
-      };
-    }
-
-    // Filter out addresses without address field and fetch history for each
-    const validAddresses = addressesResponse.filter((addr) => addr.address);
-    const allHistories = await Promise.all(
-      validAddresses.map((addr) =>
-        this.iagonApiService.getTransactionHistory({ address: addr.address!, ...options })
-      )
-    );
-
-    // Get the most recent last_updated from all histories
-    const mostRecentUpdate = allHistories.reduce(
-      (latest, current) => {
-        if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
-          return current.last_updated || latest;
-        }
-        return latest;
-      },
-      allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" }
-    );
-
-    if (options.groupByAddress) {
-      // Group transactions by address
-      const groupedData: Record<string, TransactionHistoryItem[]> = {};
-      let totalTransactions = 0;
-
-      validAddresses.forEach((addr, index) => {
-        const history = allHistories[index];
-        const transactions = history.data || [];
-        // Sort each address's transactions by slot number (descending - most recent first)
-        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
-        groupedData[addr.address!] = transactions;
-        totalTransactions += transactions.length;
-      });
-
-      const paginationLimit = options.limit || totalTransactions;
-      const paginationOffset = options.offset || 0;
-
-      return {
-        success: true,
-        data: groupedData,
-        pagination: {
-          limit: paginationLimit,
-          offset: paginationOffset,
-          total: totalTransactions,
-          hasMore: paginationOffset + paginationLimit < totalTransactions,
-        },
-        last_updated: mostRecentUpdate,
-      };
-    } else {
-      // Flat array with address field on each transaction
-      const flatData: TransactionHistoryItem[] = [];
-
-      validAddresses.forEach((addr, index) => {
-        const history = allHistories[index];
-        const transactions = history.data || [];
-
-        // Add address field to each transaction
-        transactions.forEach((tx) => {
-          flatData.push({ ...tx, address: addr.address });
-        });
-      });
-
-      // Sort by slot number (descending - most recent first)
-      flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
-
-      // Deduplicate by tx_hash (same transaction may appear in multiple address histories)
-      const uniqueTransactions = flatData.filter(
-        (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
-      );
-
-      const totalTransactions = uniqueTransactions.length;
-      const paginationLimit = options.limit || totalTransactions;
-      const paginationOffset = options.offset || 0;
-
-      return {
-        success: true,
-        data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
-        pagination: {
-          limit: paginationLimit,
-          offset: paginationOffset,
-          total: totalTransactions,
-          hasMore: paginationOffset + paginationLimit < totalTransactions,
-        },
-        last_updated: mostRecentUpdate,
-      };
-    }
+    return this.fetchAllVaultHistory<TransactionHistoryItem>(
+      (params) => this.iagonApiService.getTransactionHistory(params),
+      options
+    ) as Promise<TransactionHistoryResponse | GroupedTransactionHistoryResponse>;
   };
 
   /**
@@ -589,117 +718,10 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(
       `Getting detailed transaction history for all addresses in vault ${this.vaultAccountId}`
     );
-
-    const addressesResponse = await this.fireblocksService.getVaultAccountAddresses(
-      this.vaultAccountId,
-      this.assetId
-    );
-
-    if (!addressesResponse || addressesResponse.length === 0) {
-      this.logger.warn(`No addresses found for vault account ${this.vaultAccountId}`);
-
-      if (options.groupByAddress) {
-        return {
-          success: true,
-          data: {},
-          pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
-          last_updated: { slot_no: 0, block_hash: "", block_time: "" },
-        };
-      }
-
-      return {
-        success: true,
-        data: [],
-        pagination: { limit: 0, offset: 0, total: 0, hasMore: false },
-        last_updated: { slot_no: 0, block_hash: "", block_time: "" },
-      };
-    }
-
-    // Filter out addresses without address field and fetch detailed history for each
-    const validAddresses = addressesResponse.filter((addr) => addr.address);
-    const allHistories = await Promise.all(
-      validAddresses.map((addr) =>
-        this.iagonApiService.getDetailedTxHistory({ address: addr.address!, ...options })
-      )
-    );
-
-    // Get the most recent last_updated from all histories
-    const mostRecentUpdate = allHistories.reduce(
-      (latest, current) => {
-        if (!latest || (current.last_updated?.slot_no || 0) > (latest.slot_no || 0)) {
-          return current.last_updated || latest;
-        }
-        return latest;
-      },
-      allHistories[0]?.last_updated || { slot_no: 0, block_hash: "", block_time: "" }
-    );
-
-    if (options.groupByAddress) {
-      // Group transactions by address
-      const groupedData: Record<string, DetailedTransaction[]> = {};
-      let totalTransactions = 0;
-
-      validAddresses.forEach((addr, index) => {
-        const history = allHistories[index];
-        const transactions = history.data || [];
-        // Sort each address's transactions by slot number (descending - most recent first)
-        transactions.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
-        groupedData[addr.address!] = transactions;
-        totalTransactions += transactions.length;
-      });
-
-      const paginationLimit = options.limit || totalTransactions;
-      const paginationOffset = options.offset || 0;
-
-      return {
-        success: true,
-        data: groupedData,
-        pagination: {
-          limit: paginationLimit,
-          offset: paginationOffset,
-          total: totalTransactions,
-          hasMore: paginationOffset + paginationLimit < totalTransactions,
-        },
-        last_updated: mostRecentUpdate,
-      };
-    } else {
-      // Flat array with address field on each transaction
-      const flatData: DetailedTransaction[] = [];
-
-      validAddresses.forEach((addr, index) => {
-        const history = allHistories[index];
-        const transactions = history.data || [];
-
-        // Add address field to each transaction
-        transactions.forEach((tx) => {
-          flatData.push({ ...tx, address: addr.address });
-        });
-      });
-
-      // Sort by slot number (descending - most recent first)
-      flatData.sort((a, b) => (b.slot_no || 0) - (a.slot_no || 0));
-
-      // Deduplicate by tx_hash (same transaction may appear in multiple address histories)
-      const uniqueTransactions = flatData.filter(
-        (tx, index, self) => index === self.findIndex((t) => t.tx_hash === tx.tx_hash)
-      );
-
-      const totalTransactions = uniqueTransactions.length;
-      const paginationLimit = options.limit || totalTransactions;
-      const paginationOffset = options.offset || 0;
-
-      return {
-        success: true,
-        data: uniqueTransactions.slice(paginationOffset, paginationOffset + paginationLimit),
-        pagination: {
-          limit: paginationLimit,
-          offset: paginationOffset,
-          total: totalTransactions,
-          hasMore: paginationOffset + paginationLimit < totalTransactions,
-        },
-        last_updated: mostRecentUpdate,
-      };
-    }
+    return this.fetchAllVaultHistory<DetailedTransaction>(
+      (params) => this.iagonApiService.getDetailedTxHistory(params),
+      options
+    ) as Promise<DetailedTxHistoryResponse | GroupedDetailedTxHistoryResponse>;
   };
 
   /**
@@ -713,7 +735,7 @@ export class FireblocksCardanoRawSDK {
     requiredTokenAmount: number;
     transactionFee: number;
   }) {
-    const utxoResult = await fetchAndSelectUtxos({
+    const utxoResult = await fetchAndSelectUtxosForCnt({
       iagonApiService: this.iagonApiService,
       ...params,
     });
@@ -787,51 +809,6 @@ export class FireblocksCardanoRawSDK {
       minRecipientLovelace,
       minChangeLovelace,
     };
-  }
-
-  /**
-   * Builds the Cardano transaction body with dynamically calculated fees and minimums
-   * Fee and minimum lovelace values are calculated based on actual transaction size
-   * and number of policies to prevent rejection for wallets with many tokens (dust attack protection)
-   */
-  private async buildTransactionBody(params: {
-    selectedUtxos: any[];
-    recipientAddress: string;
-    senderAddress: string;
-    tokenPolicyId: string;
-    tokenName: string;
-    requiredTokenAmount: number;
-    minRecipientLovelace: number; // Calculated dynamically based on policies
-    transactionFee?: number; // Optional - will be calculated dynamically if not provided
-  }): Promise<TransactionBody> {
-    const txInputs = createTransactionInputs(params.selectedUtxos);
-    const recipientAddrObj = Address.from_bech32(params.recipientAddress);
-    const senderAddrObj = Address.from_bech32(params.senderAddress);
-
-    // Get current slot from network for proper TTL calculation
-    // Cardano slots are counted from Shelley genesis, not epoch 0
-    const epochResponse = await this.iagonApiService.getCurrentEpoch();
-    const currentSlot = epochResponse.data.tip.slot;
-    this.logger.info(`Current slot: ${currentSlot}, calculating TTL`);
-    const ttl = calculateTtl(currentSlot);
-
-    // Use dynamic fee calculation
-    const { txBody } = buildTransactionWithCalculatedFee(
-      {
-        requiredLovelace: params.minRecipientLovelace,
-        recipientAddress: recipientAddrObj,
-        senderAddress: senderAddrObj,
-        tokenPolicyId: params.tokenPolicyId,
-        tokenName: params.tokenName,
-        transferAmount: params.requiredTokenAmount,
-        selectedUtxos: params.selectedUtxos,
-      },
-      txInputs,
-      ttl,
-      WITNESS_COUNT_PAYMENT_KEY_ONLY
-    );
-
-    return txBody;
   }
 
   /**
@@ -947,7 +924,7 @@ export class FireblocksCardanoRawSDK {
     tokenName: string;
     requiredTokenAmount: number;
   }): Promise<{
-    txBody: any;
+    txBody: TransactionBody;
     senderAddress: string;
     resolvedRecipientAddress: string;
     minRecipientLovelace: number;
@@ -961,26 +938,6 @@ export class FireblocksCardanoRawSDK {
       tokenName,
       requiredTokenAmount,
     } = params;
-
-    // Validate that exactly one recipient option is provided
-    if (!recipientAddress && !recipientVaultAccountId) {
-      throw new SdkApiError(
-        "Either recipientAddress or recipientVaultAccountId must be provided",
-        400,
-        "ValidationError",
-        { providedOptions: { recipientAddress, recipientVaultAccountId } },
-        "FireblocksCardanoRawSDK"
-      );
-    }
-    if (recipientAddress && recipientVaultAccountId) {
-      throw new SdkApiError(
-        "Cannot specify both recipientAddress and recipientVaultAccountId",
-        400,
-        "ValidationError",
-        { providedOptions: { recipientAddress, recipientVaultAccountId } },
-        "FireblocksCardanoRawSDK"
-      );
-    }
 
     // Block native ADA transfers
     const isNativeAdaTransfer =
@@ -1007,32 +964,14 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    // Resolve recipient address
-    let resolvedRecipientAddress: string;
-    if (recipientVaultAccountId) {
-      const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
-        recipientVaultAccountId,
-        this.assetId,
-        recipientIndex
-      );
-      if (!recipientAddressData.address) {
-        throw new SdkApiError(
-          `No address found for recipient vault account ${recipientVaultAccountId} at index ${recipientIndex}`,
-          404,
-          "AddressNotFound",
-          { recipientVaultAccountId, recipientIndex },
-          "FireblocksCardanoRawSDK"
-        );
-      }
-      resolvedRecipientAddress = recipientAddressData.address;
-    } else {
-      resolvedRecipientAddress = recipientAddress!;
-    }
+    const resolvedRecipientAddress = await this.resolveRecipientAddress(
+      recipientAddress,
+      recipientVaultAccountId,
+      recipientIndex
+    );
 
-    // Fetch sender address
     const senderAddress = await this.getAddressByIndex(this.assetId, index);
 
-    // Select and validate UTXOs with conservative fee estimate
     const { selectedUtxos, minRecipientLovelace } = await this.selectAndValidateUtxos({
       address: senderAddress,
       tokenPolicyId,
@@ -1041,23 +980,25 @@ export class FireblocksCardanoRawSDK {
       transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
     });
 
-    // Build transaction body to calculate actual fee
-    const txBody = await this.buildTransactionBody({
-      selectedUtxos,
-      recipientAddress: resolvedRecipientAddress,
-      senderAddress,
-      tokenPolicyId,
-      tokenName,
-      requiredTokenAmount,
-      minRecipientLovelace,
-    });
+    const txInputs = createTransactionInputs(selectedUtxos);
+    const ttl = await this.fetchCurrentTtl();
 
-    return {
-      txBody,
-      senderAddress,
-      resolvedRecipientAddress,
-      minRecipientLovelace,
-    };
+    const { txBody } = buildCntTransactionWithCalculatedFee(
+      {
+        requiredLovelace: minRecipientLovelace,
+        recipientAddress: Address.from_bech32(resolvedRecipientAddress),
+        senderAddress: Address.from_bech32(senderAddress),
+        tokenPolicyId,
+        tokenName,
+        transferAmount: requiredTokenAmount,
+        selectedUtxos,
+      },
+      txInputs,
+      ttl,
+      WITNESS_COUNT_PAYMENT_KEY_ONLY
+    );
+
+    return { txBody, senderAddress, resolvedRecipientAddress, minRecipientLovelace };
   }
 
   /**
@@ -1068,8 +1009,8 @@ export class FireblocksCardanoRawSDK {
    * @throws SdkApiError if validation fails or insufficient balance
    */
   public estimateTransactionFee = async (
-    request: FeeEstimationRequest
-  ): Promise<FeeEstimationResponse> => {
+    request: CntFeeEstimationRequest
+  ): Promise<CntFeeEstimationResponse> => {
     const { requiredTokenAmount, grossAmount = false } = request;
 
     try {
@@ -1130,19 +1071,12 @@ export class FireblocksCardanoRawSDK {
         },
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Fee estimation failed: ${errorMessage}`);
-
-      if (error instanceof Error) {
-        throw error;
-      }
-
-      throw new Error(`FeeEstimationFailed: ${errorMessage}`);
+      this.logAndRethrow("FeeEstimation", error);
     }
   };
 
   public transfer = async (
-    options: transferOpts
+    options: CntTransferOpts
   ): Promise<{
     txHash: string;
     senderAddress: string;
@@ -1200,15 +1134,549 @@ export class FireblocksCardanoRawSDK {
         },
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      this.logger.error(`Transfer failed: ${errorMessage}`);
+      this.logAndRethrow("Transfer", error);
+    }
+  };
 
-      // Re-throw the original error to preserve error codes and details
-      if (error instanceof Error) {
-        throw error;
+  /**
+   * Shared preparation logic for native ADA transfers.
+   * Validates inputs, selects UTxOs (preferring ADA-only), and builds the transaction body.
+   * Called by both transferAda() and estimateAdaTransactionFee().
+   */
+  private async prepareAdaTransaction(params: AdaTransferOpts): Promise<{
+    txBody: TransactionBody;
+    senderAddress: string;
+    resolvedRecipientAddress: string;
+    fee: number;
+    changeTokenAssets: Record<string, number>;
+  }> {
+    const {
+      index = 0,
+      recipientAddress,
+      recipientVaultAccountId,
+      recipientIndex = 0,
+      lovelaceAmount,
+    } = params;
+
+    // Validate amount
+    if (!Number.isInteger(lovelaceAmount) || lovelaceAmount <= 0) {
+      throw new SdkApiError(
+        "lovelaceAmount must be a positive integer",
+        400,
+        "ValidationError",
+        { lovelaceAmount },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+    if (lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+      throw new SdkApiError(
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        400,
+        "BelowMinimumUtxo",
+        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    const resolvedRecipientAddress = await this.resolveRecipientAddress(
+      recipientAddress,
+      recipientVaultAccountId,
+      recipientIndex
+    );
+
+    const senderAddress = await this.getAddressByIndex(this.assetId, index);
+
+    // Select UTxOs — prefer ADA-only, fall back to multi-asset if needed
+    const { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace } =
+      await fetchAndSelectUtxosForAda({
+        iagonApiService: this.iagonApiService,
+        address: senderAddress,
+        lovelaceAmount,
+        transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+      });
+
+    // Conservative balance check before building
+    const minimumRequired = lovelaceAmount + CardanoAmounts.ESTIMATED_MAX_FEE + minChangeLovelace;
+    if (accumulatedAda < minimumRequired) {
+      const required = formatWithDecimals(minimumRequired, CardanoConstants.ADA_DECIMALS);
+      const have = formatWithDecimals(accumulatedAda, CardanoConstants.ADA_DECIMALS);
+      const short = formatWithDecimals(
+        minimumRequired - accumulatedAda,
+        CardanoConstants.ADA_DECIMALS
+      );
+      throw new SdkApiError(
+        `Insufficient ADA: need ${required.value} ADA, have ${have.value} ADA (short ${short.value} ADA)`,
+        400,
+        "InsufficientBalance",
+        {
+          requiredLovelace: minimumRequired,
+          accumulatedLovelace: accumulatedAda,
+          breakdown: {
+            lovelaceAmount,
+            estimatedFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+            minChangeLovelace,
+          },
+        },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    const numTokenPolicies = countDistinctPolicies(changeTokenAssets);
+    if (numTokenPolicies > 0) {
+      this.logger.warn(
+        `ADA transfer: selected UTxOs contain tokens (${numTokenPolicies} policies). All tokens will be returned to sender in change output.`
+      );
+    }
+
+    // Build transaction with converging fee
+    const txInputs = createTransactionInputs(selectedUtxos);
+    const ttl = await this.fetchCurrentTtl();
+
+    const { txBody, fee } = buildAdaTransactionWithCalculatedFee(
+      {
+        lovelaceAmount,
+        recipientAddress: Address.from_bech32(resolvedRecipientAddress),
+        senderAddress: Address.from_bech32(senderAddress),
+        selectedUtxos,
+      },
+      txInputs,
+      ttl,
+      WITNESS_COUNT_PAYMENT_KEY_ONLY
+    );
+
+    return { txBody, senderAddress, resolvedRecipientAddress, fee, changeTokenAssets };
+  }
+
+  /**
+   * Estimates the fee for a native ADA transfer without signing or submitting.
+   *
+   * @param request - AdaFeeEstimationRequest
+   * @returns AdaFeeEstimationResponse with fee breakdown; includes tokenChangeWarning when token UTxOs are consumed
+   */
+  public estimateAdaTransactionFee = async (
+    request: AdaFeeEstimationRequest
+  ): Promise<AdaFeeEstimationResponse> => {
+    const { lovelaceAmount, grossAmount = false } = request;
+
+    try {
+      this.logger.info(
+        `Estimating ADA transaction fee for ${lovelaceAmount} lovelace (grossAmount: ${grossAmount})`
+      );
+
+      const { fee, changeTokenAssets } = await this.prepareAdaTransaction(request);
+
+      const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
+
+      const recipientReceivesLovelace = grossAmount ? lovelaceAmount - fee : lovelaceAmount;
+      const totalCostLovelace = grossAmount ? lovelaceAmount : lovelaceAmount + fee;
+
+      const recipientFormatted = formatWithDecimals(
+        recipientReceivesLovelace,
+        CardanoConstants.ADA_DECIMALS
+      );
+      const totalCostFormatted = formatWithDecimals(
+        totalCostLovelace,
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      const response: AdaFeeEstimationResponse = {
+        fee: { ada: feeFormatted.value, lovelace: fee.toString() },
+        recipientReceives: {
+          ada: recipientFormatted.value,
+          lovelace: recipientReceivesLovelace.toString(),
+        },
+        totalCost: { ada: totalCostFormatted.value, lovelace: totalCostLovelace.toString() },
+      };
+
+      const numPolicies = countDistinctPolicies(changeTokenAssets);
+      if (numPolicies > 0) {
+        response.tokenChangeWarning = {
+          policiesAffected: numPolicies,
+          message: `This transfer will consume UTxOs containing native tokens (${numPolicies} distinct token ${numPolicies === 1 ? "policy" : "policies"}). All tokens will be returned to your address in the change output.`,
+        };
       }
 
-      throw new Error(`TransferFailed: ${errorMessage}`);
+      return response;
+    } catch (error) {
+      this.logAndRethrow("AdaFeeEstimation", error);
+    }
+  };
+
+  /**
+   * Transfers native ADA (lovelace) to a recipient address or vault.
+   *
+   * UTxO selection prefers ADA-only UTxOs. If multi-asset UTxOs must be spent,
+   * all their tokens are returned to the sender in the change output — no tokens are lost.
+   *
+   * @param options - AdaTransferOpts (lovelaceAmount + recipient)
+   * @returns AdaTransferResult including txHash, fee, and optional tokensPresentedInChange
+   */
+  public transferAda = async (options: AdaTransferOpts): Promise<AdaTransferResult> => {
+    try {
+      const {
+        index = 0,
+        recipientAddress,
+        recipientVaultAccountId,
+        recipientIndex = 0,
+        lovelaceAmount,
+      } = options;
+
+      this.logger.info(
+        `Initiating ADA transfer: ${lovelaceAmount} lovelace to ${recipientAddress ?? `vault ${recipientVaultAccountId}`}`
+      );
+
+      const senderAddress = await this.getAddressByIndex(this.assetId, index);
+      const resolvedRecipientAddress = await this.resolveRecipientAddress(
+        recipientAddress,
+        recipientVaultAccountId,
+        recipientIndex
+      );
+
+      const amount = formatWithDecimals(lovelaceAmount, CardanoConstants.ADA_DECIMALS).value;
+
+      const { txHash, networkFee } = await this.fireblocksService.createTransfer({
+        assetId: this.assetId,
+        sourceVaultAccountId: this.vaultAccountId,
+        amount,
+        recipientAddress: recipientVaultAccountId ? undefined : resolvedRecipientAddress,
+        recipientVaultAccountId,
+      });
+
+      // networkFee is returned as a decimal ADA string (e.g. "0.178701") — convert to lovelace
+      const networkFeeLovelace = networkFee
+        ? Math.round(parseFloat(networkFee) * Math.pow(10, CardanoConstants.ADA_DECIMALS))
+        : undefined;
+      const feeFormatted = networkFeeLovelace
+        ? formatWithDecimals(networkFeeLovelace, CardanoConstants.ADA_DECIMALS)
+        : { value: "unknown" };
+
+      this.logger.info(`ADA transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`);
+
+      return {
+        txHash,
+        senderAddress,
+        recipientAddress: resolvedRecipientAddress,
+        lovelaceAmount,
+        fee: {
+          lovelace: networkFeeLovelace?.toString() ?? "unknown",
+          ada: feeFormatted.value,
+        },
+      };
+    } catch (error) {
+      this.logAndRethrow("AdaTransfer", error);
+    }
+  };
+
+  // ─── Multi-token transfer ────────────────────────────────────────────────────
+
+  /**
+   * Shared preparation logic for multi-token transfers.
+   * Validates inputs, selects UTxOs, and builds the transaction body.
+   */
+  private async prepareMultiTokenTransaction(params: MultiTokenTransferOpts): Promise<{
+    txBody: TransactionBody;
+    senderAddress: string;
+    resolvedRecipientAddress: string;
+    fee: number;
+    changeTokenAssets: Record<string, number>;
+    minRecipientLovelace: number;
+  }> {
+    const {
+      index = 0,
+      recipientAddress,
+      recipientVaultAccountId,
+      recipientIndex = 0,
+      tokens,
+      lovelaceAmount,
+    } = params;
+
+    if (lovelaceAmount !== undefined && lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+      throw new SdkApiError(
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        400,
+        "BelowMinimumUtxo",
+        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    if (!tokens || tokens.length === 0) {
+      throw new SdkApiError(
+        "At least one token must be specified in the tokens array",
+        400,
+        "ValidationError",
+        { tokens },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+    for (const t of tokens) {
+      if (!Number.isInteger(t.amount) || t.amount <= 0) {
+        throw new SdkApiError(
+          `Token amount must be a positive integer (got ${t.amount} for ${t.tokenPolicyId}.${t.tokenName})`,
+          400,
+          "ValidationError",
+          { token: t },
+          "FireblocksCardanoRawSDK"
+        );
+      }
+    }
+
+    const resolvedRecipientAddress = await this.resolveRecipientAddress(
+      recipientAddress,
+      recipientVaultAccountId,
+      recipientIndex
+    );
+
+    const senderAddress = await this.getAddressByIndex(this.assetId, index);
+
+    const { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace } =
+      await fetchAndSelectUtxosForMultiToken({
+        iagonApiService: this.iagonApiService,
+        address: senderAddress,
+        tokens,
+        transactionFee: CardanoAmounts.ESTIMATED_MAX_FEE,
+        lovelaceAmount,
+      });
+
+    // Conservative balance check before building
+    const recipientPolicies = new Set(tokens.map((t) => t.tokenPolicyId)).size;
+    const estimatedMinRecipient =
+      lovelaceAmount ??
+      CardanoAmounts.MIN_UTXO_BASE_LOVELACE +
+        recipientPolicies * CardanoAmounts.MIN_UTXO_PER_POLICY_LOVELACE;
+    const minimumRequired =
+      estimatedMinRecipient + CardanoAmounts.ESTIMATED_MAX_FEE + minChangeLovelace;
+    if (accumulatedAda < minimumRequired) {
+      const required = formatWithDecimals(minimumRequired, CardanoConstants.ADA_DECIMALS);
+      const have = formatWithDecimals(accumulatedAda, CardanoConstants.ADA_DECIMALS);
+      throw new SdkApiError(
+        `Insufficient ADA: need ${required.value} ADA (fee + min outputs), have ${have.value} ADA`,
+        400,
+        "InsufficientBalance",
+        { requiredLovelace: minimumRequired, accumulatedLovelace: accumulatedAda },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    const numTokenPolicies = countDistinctPolicies(changeTokenAssets);
+    if (numTokenPolicies > tokens.length) {
+      this.logger.warn(
+        `Multi-token transfer: selected UTxOs contain additional tokens (${numTokenPolicies} total policies). Extra tokens returned to sender in change.`
+      );
+    }
+
+    const txInputs = createTransactionInputs(selectedUtxos);
+    const ttl = await this.fetchCurrentTtl();
+
+    const { txBody, fee } = buildMultiTokenTransactionWithCalculatedFee(
+      {
+        tokens,
+        recipientAddress: Address.from_bech32(resolvedRecipientAddress),
+        senderAddress: Address.from_bech32(senderAddress),
+        selectedUtxos,
+        minRecipientLovelace: lovelaceAmount,
+      },
+      txInputs,
+      ttl,
+      WITNESS_COUNT_PAYMENT_KEY_ONLY
+    );
+
+    return {
+      txBody,
+      senderAddress,
+      resolvedRecipientAddress,
+      fee,
+      changeTokenAssets,
+      minRecipientLovelace: estimatedMinRecipient,
+    };
+  }
+
+  /**
+   * Estimates the fee for a multi-token transfer without signing or submitting.
+   *
+   * @param request - MultiTokenFeeEstimationRequest
+   * @returns MultiTokenFeeEstimationResponse with fee, minAdaRequired, totalCost,
+   *          and optional tokenChangeWarning when extra-token UTxOs are consumed
+   */
+  public estimateMultiTokenTransactionFee = async (
+    request: MultiTokenFeeEstimationRequest
+  ): Promise<MultiTokenFeeEstimationResponse> => {
+    const { grossAmount = false } = request;
+
+    try {
+      this.logger.info(`Estimating multi-token fee for ${request.tokens.length} token type(s)`);
+
+      const { txBody, minRecipientLovelace, changeTokenAssets } =
+        await this.prepareMultiTokenTransaction(request);
+
+      const feeLovelace = parseInt(txBody.fee().to_str());
+      const feeFormatted = formatWithDecimals(feeLovelace, CardanoConstants.ADA_DECIMALS);
+      const minAdaFormatted = formatWithDecimals(
+        minRecipientLovelace,
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      const totalCostLovelace = grossAmount
+        ? minRecipientLovelace
+        : minRecipientLovelace + feeLovelace;
+      const totalCostFormatted = formatWithDecimals(
+        totalCostLovelace,
+        CardanoConstants.ADA_DECIMALS
+      );
+
+      const response: MultiTokenFeeEstimationResponse = {
+        fee: { ada: feeFormatted.value, lovelace: feeLovelace.toString() },
+        minAdaRequired: { ada: minAdaFormatted.value, lovelace: minRecipientLovelace.toString() },
+        totalCost: { ada: totalCostFormatted.value, lovelace: totalCostLovelace.toString() },
+      };
+
+      const numPolicies = countDistinctPolicies(changeTokenAssets);
+      if (numPolicies > request.tokens.length) {
+        response.tokenChangeWarning = {
+          policiesAffected: numPolicies - request.tokens.length,
+          message: `Selected UTxOs carry additional tokens not included in this transfer. They will be returned to your address in the change output.`,
+        };
+      }
+
+      return response;
+    } catch (error) {
+      this.logAndRethrow("MultiTokenFeeEstimation", error);
+    }
+  };
+
+  /**
+   * Transfers multiple CNTs to a recipient in a single Cardano transaction.
+   *
+   * All specified tokens are bundled into one recipient output. Any tokens present
+   * in consumed UTxOs but not listed in `tokens` are returned to the sender in the
+   * change output — no tokens are lost.
+   *
+   * @param options - MultiTokenTransferOpts
+   * @returns MultiTokenTransferResult with txHash, fee, and optional tokensPresentedInChange
+   */
+  public transferMultipleTokens = async (
+    options: MultiTokenTransferOpts
+  ): Promise<MultiTokenTransferResult> => {
+    try {
+      this.logger.info(
+        `Initiating multi-token transfer: ${options.tokens.length} token type(s) to ${options.recipientAddress ?? `vault ${options.recipientVaultAccountId}`}`
+      );
+
+      const { txBody, senderAddress, resolvedRecipientAddress, fee, changeTokenAssets } =
+        await this.prepareMultiTokenTransaction(options);
+
+      const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
+      this.logger.info(
+        `Multi-token transaction prepared, recipient: ${resolvedRecipientAddress}, fee: ${feeFormatted.value} ADA`
+      );
+
+      const signedTransaction = await this.signTransaction(txBody);
+      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+
+      this.logger.info(
+        `Multi-token transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`
+      );
+
+      const result: MultiTokenTransferResult = {
+        txHash,
+        senderAddress,
+        recipientAddress: resolvedRecipientAddress,
+        tokens: options.tokens,
+        fee: { lovelace: fee.toString(), ada: feeFormatted.value },
+      };
+
+      const sentPolicies = new Set(options.tokens.map((t) => t.tokenPolicyId));
+      const extraPolicies = [
+        ...new Set(Object.keys(changeTokenAssets).map((u) => u.split(".")[0])),
+      ].filter((p) => !sentPolicies.has(p));
+
+      if (extraPolicies.length > 0) {
+        result.tokensPresentedInChange = extraPolicies;
+        this.logger.warn(
+          `Multi-token transfer consumed UTxOs with additional tokens. Extra policies in change: ${extraPolicies.join(", ")}`
+        );
+      }
+
+      return result;
+    } catch (error) {
+      this.logAndRethrow("MultiTokenTransfer", error);
+    }
+  };
+
+  // ─── UTxO consolidation ───────────────────────────────────────────────────────
+
+  /**
+   * Consolidates all UTxOs at the given address index into a single UTxO.
+   *
+   * All ADA and all native tokens are merged into one output back to the sender.
+   * Useful for addressing UTxO fragmentation after many incoming transfers.
+   *
+   * @param opts - ConsolidateUtxosOpts (optional — defaults: index=0, minUtxoCount=2)
+   * @returns ConsolidateUtxosResult with txHash, fee, UTxO count merged, and token policies
+   * @throws SdkApiError (400) if the address has fewer UTxOs than minUtxoCount
+   */
+  public consolidateUtxos = async (
+    opts: ConsolidateUtxosOpts = {}
+  ): Promise<ConsolidateUtxosResult> => {
+    const { index = 0, minUtxoCount = 2 } = opts;
+
+    try {
+      const senderAddress = await this.getAddressByIndex(this.assetId, index);
+      this.logger.info(`Consolidating UTxOs at address index ${index}: ${senderAddress}`);
+
+      const utxos = await fetchUtxos(this.iagonApiService, senderAddress);
+
+      if (utxos.length < minUtxoCount) {
+        throw new SdkApiError(
+          `Address has ${utxos.length} UTxO(s), which is below the required minimum of ${minUtxoCount} for consolidation`,
+          400,
+          "InsufficientUtxos",
+          { utxoCount: utxos.length, minUtxoCount, address: senderAddress },
+          "FireblocksCardanoRawSDK"
+        );
+      }
+
+      const txInputs = createTransactionInputs(utxos);
+      const ttl = await this.fetchCurrentTtl();
+
+      const { outputs, fee, txBody } = buildConsolidationTransactionWithCalculatedFee(
+        { senderAddress: Address.from_bech32(senderAddress), selectedUtxos: utxos },
+        txInputs,
+        ttl,
+        WITNESS_COUNT_PAYMENT_KEY_ONLY
+      );
+
+      const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
+      this.logger.info(
+        `Consolidation prepared: ${utxos.length} UTxOs → 1, fee: ${feeFormatted.value} ADA`
+      );
+
+      const signedTransaction = await this.signTransaction(txBody);
+      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      this.logger.info(`UTxO consolidation successful: ${txHash}`);
+
+      // Extract metadata from the single consolidated output
+      const consolidatedOutput = outputs[0];
+      const outputLovelace = consolidatedOutput.amount().coin().to_str();
+      const multiAsset = consolidatedOutput.amount().multiasset();
+      const tokenPolicies: string[] = [];
+      if (multiAsset) {
+        const keys = multiAsset.keys();
+        for (let i = 0; i < keys.len(); i++) {
+          tokenPolicies.push(Buffer.from(keys.get(i).to_bytes()).toString("hex"));
+        }
+      }
+
+      return {
+        txHash,
+        address: senderAddress,
+        utxosCombined: utxos.length,
+        lovelace: outputLovelace,
+        fee: { lovelace: fee.toString(), ada: feeFormatted.value },
+        tokenPolicies,
+      };
+    } catch (error) {
+      this.logAndRethrow("Consolidation", error);
     }
   };
 
@@ -1800,7 +2268,7 @@ export class FireblocksCardanoRawSDK {
     let totalLovelace = BigInt(0);
 
     for (const result of results) {
-      if (!!!result.balance || !result.balance.success) continue;
+      if (!result.balance || !result.balance.success) continue;
 
       const balance = result.balance.data;
       if (!balance) continue;
@@ -2107,6 +2575,66 @@ export class FireblocksCardanoRawSDK {
    * console.log(`DRep delegation TX: ${result.txHash}`);
    * ```
    */
+  /**
+   * Register the vault account as a DRep (Delegated Representative) on Cardano
+   *
+   * Submits a Conway-era `reg_drep_cert` certificate to register the vault's stake
+   * credential as a DRep. This costs a 500 ADA deposit (refundable on deregistration).
+   * An optional anchor can point to publicly accessible DRep metadata.
+   *
+   * @param options - DRep registration options
+   * @returns Transaction result with hash, status, and the bech32 DRep ID
+   *
+   * @example
+   * ```typescript
+   * // Register without metadata anchor
+   * const result = await sdk.registerAsDRep({ vaultAccountId: "0" });
+   *
+   * // Register with a metadata anchor
+   * const result = await sdk.registerAsDRep({
+   *   vaultAccountId: "0",
+   *   anchor: {
+   *     url: "https://example.com/drep-metadata.json",
+   *     dataHash: "abc123...", // blake2b-256 hex hash of the JSON file
+   *   },
+   * });
+   * console.log(`DRep registration TX: ${result.txHash}, DRep ID: ${result.drepId}`);
+   * ```
+   */
+  public registerAsDRep = async (options: RegisterAsDRepOptions): Promise<RegisterAsDRepResult> => {
+    this.logger.info(`Registering vault account ${options.vaultAccountId} as a DRep`);
+    return await this.stakingService.registerAsDRep(options);
+  };
+
+  /**
+   * Cast a governance vote as a DRep (Conway era)
+   *
+   * Submits a `voting_procedures` transaction allowing a registered DRep to vote
+   * Yes, No, or Abstain on a governance action.
+   *
+   * @param options - Vote options including governance action ID and vote choice
+   * @returns Transaction result with hash, status, and the vote cast
+   *
+   * @example
+   * ```typescript
+   * const result = await sdk.castGovernanceVote({
+   *   vaultAccountId: "0",
+   *   governanceActionId: {
+   *     txHash: "abc123...", // TX hash of the governance action proposal
+   *     index: 0,
+   *   },
+   *   vote: "yes",
+   * });
+   * console.log(`Vote TX: ${result.txHash}`);
+   * ```
+   */
+  public castGovernanceVote = async (options: CastVoteOptions): Promise<CastVoteResult> => {
+    this.logger.info(
+      `Casting vote "${options.vote}" on governance action ${options.governanceActionId.txHash}#${options.governanceActionId.index}`
+    );
+    return await this.stakingService.castVote(options);
+  };
+
   public delegateToDRep = async (
     options: DRepDelegationOptions
   ): Promise<StakingTransactionResult> => {
@@ -2134,7 +2662,7 @@ export class FireblocksCardanoRawSDK {
    * ```typescript
    * const stakeAddress = await sdk.getStakeAddress("0");
    * console.log(`Stake address: ${stakeAddress}`);
-   * // Output: stake1u9r76ypf5fskppa0cmttas05cgcswrttn6jrq4yd7jpdnvc7gt0yc
+   * // Output: stake1u9r76...
    * ```
    */
   public getStakeAddress = async (vaultAccountId: string): Promise<string> => {
@@ -2186,9 +2714,65 @@ export class FireblocksCardanoRawSDK {
   }
 
   /**
+   * Get staking pool information by pool ID
+   *
+   * Returns live metrics including saturation, stake, delegator count, margin, and fixed cost.
+   *
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   * @returns Pool information including saturation and financial metrics
+   */
+  public async getPoolInfo(poolId: string): Promise<PoolInfoResponse> {
+    this.logger.info(`Getting pool info for ${poolId}`);
+    return await this.iagonApiService.getPoolInfo(poolId);
+  }
+
+  /**
+   * Get pool metadata (name, ticker, description, homepage)
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   */
+  public async getPoolMetadata(poolId: string): Promise<PoolMetadataResponse> {
+    this.logger.info(`Getting pool metadata for ${poolId}`);
+    return await this.iagonApiService.getPoolMetadata(poolId);
+  }
+
+  /**
+   * Get aggregate pool delegator count and total active stake
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   */
+  public async getPoolDelegators(poolId: string): Promise<PoolDelegatorsResponse> {
+    this.logger.info(`Getting pool delegators for ${poolId}`);
+    return await this.iagonApiService.getPoolDelegators(poolId);
+  }
+
+  /**
+   * Get paginated list of individual pool delegators
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   * @param limit - Maximum number of results (default: 100)
+   * @param offset - Pagination offset (default: 0)
+   */
+  public async getPoolDelegatorsList(
+    poolId: string,
+    limit?: number,
+    offset?: number
+  ): Promise<PoolDelegatorsListResponse> {
+    this.logger.info(`Getting pool delegators list for ${poolId}`);
+    return await this.iagonApiService.getPoolDelegatorsList(poolId, limit, offset);
+  }
+
+  /**
+   * Get pool block production statistics
+   * @param poolId - Pool ID in bech32 format (pool1...) or hex
+   */
+  public async getPoolBlocks(poolId: string): Promise<PoolBlocksResponse> {
+    this.logger.info(`Getting pool blocks for ${poolId}`);
+    return await this.iagonApiService.getPoolBlocks(poolId);
+  }
+
+  /**
    * Clear asset info cache
    * @param policyId - Optional: Clear cache for specific policy ID only
-   * @param assetName - Optional: Clear cache for specific asset only (requires policyId)
+   * @param assetName - Op
+   * tional: Clear cache for specific asset only (requires policyId)
    * @example
    * ```typescript
    * // Clear entire cache
