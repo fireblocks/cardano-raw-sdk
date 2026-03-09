@@ -279,17 +279,12 @@ export const buildPayload = (
   serialized: Buffer;
   deserialized: Map<number, any>;
 } => {
-  const {
-    toAddress,
-    netAmount,
-    txInputs,
-    feeAmount,
-    ttl,
-    certificates,
-    withdrawals,
-    votingProcedures,
-    network,
-  } = options;
+  const { toAddress, txInputs, ttl, certificates, withdrawals, votingProcedures, network } =
+    options;
+
+  // Ensure lovelace amounts are CBOR unsigned integers, not floats.
+  const netAmount = Math.round(options.netAmount);
+  const feeAmount = Math.round(options.feeAmount);
 
   // Build inputs array
   const inputsArr = txInputs.map((input) => {
