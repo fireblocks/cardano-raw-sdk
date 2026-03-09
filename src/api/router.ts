@@ -2437,8 +2437,25 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *                 example: "always-abstain"
    *               drepId:
    *                 type: string
-   *                 description: DRep ID in hex format (required only if drepAction is 'custom-drep')
-   *                 example: "drep1abc123..."
+   *                 description: DRep ID in bech32 (drep1...) or hex format (required only if drepAction is 'custom-drep')
+   *                 example: "drep1yyv2m4xyz..."
+   *           examples:
+   *             always-abstain:
+   *               summary: Abstain from all governance votes
+   *               value:
+   *                 vaultAccountId: "12"
+   *                 drepAction: "always-abstain"
+   *             always-no-confidence:
+   *               summary: Vote no-confidence on all proposals
+   *               value:
+   *                 vaultAccountId: "12"
+   *                 drepAction: "always-no-confidence"
+   *             custom-drep:
+   *               summary: Delegate to a specific DRep
+   *               value:
+   *                 vaultAccountId: "12"
+   *                 drepAction: "custom-drep"
+   *                 drepId: "drep1yyv2m4xyzabc..."
    *     responses:
    *       200:
    *         description: DRep delegation transaction submitted successfully
