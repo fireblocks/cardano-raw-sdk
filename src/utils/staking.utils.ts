@@ -198,12 +198,12 @@ export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInf
 
   switch (drep.kind) {
     case DRepKind.ALWAYS_ABSTAIN:
-      // [2] for ALWAYS_ABSTAIN
-      drepValue = [2];
+      // [1] per Conway ledger spec
+      drepValue = [1];
       break;
     case DRepKind.ALWAYS_NO_CONFIDENCE:
-      // [3] for ALWAYS_NO_CONFIDENCE
-      drepValue = [3];
+      // [2] per Conway ledger spec
+      drepValue = [2];
       break;
     case DRepKind.KEY_HASH:
       if (!drep.keyHash) {
