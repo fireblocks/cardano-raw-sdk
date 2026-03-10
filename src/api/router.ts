@@ -11,6 +11,7 @@ import {
   multiTokenTransferRequestSchema,
   multiTokenFeeEstimationRequestSchema,
   consolidateUtxosRequestSchema,
+  delegateToDRepRequestSchema,
   registerAsDRepRequestSchema,
   castVoteRequestSchema,
   vaultAccountIdParamsSchema,
@@ -2489,7 +2490,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/governance/delegate-drep", apiController.delegateToDRep);
+  router.post(
+    "/governance/delegate-drep",
+    validateRequest(delegateToDRepRequestSchema),
+    apiController.delegateToDRep
+  );
 
   /**
    * @swagger

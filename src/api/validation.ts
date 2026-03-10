@@ -279,6 +279,22 @@ export const consolidateUtxosRequestSchema = z.object({
 
 export type ConsolidateUtxosRequest = z.infer<typeof consolidateUtxosRequestSchema>;
 
+export const delegateToDRepRequestSchema = z
+  .object({
+    vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+    drepAction: z.enum(["always-abstain", "always-no-confidence", "custom-drep"], {
+      message: 'drepAction must be "always-abstain", "always-no-confidence", or "custom-drep"',
+    }),
+    drepId: z.string().min(1).optional(),
+    fee: z.number().int().positive().optional(),
+  })
+  .refine((data) => data.drepAction !== "custom-drep" || !!data.drepId, {
+    message: "drepId is required when drepAction is custom-drep",
+    path: ["drepId"],
+  });
+
+export type DelegateToDRepRequest = z.infer<typeof delegateToDRepRequestSchema>;
+
 export const registerAsDRepRequestSchema = z.object({
   vaultAccountId: z.string().min(1, "vaultAccountId is required"),
   anchor: z

@@ -10,6 +10,8 @@ export enum CardanoConstants {
   CARDANO_BASE_ADDRESS_MIN_LENGTH = 57, // 1 byte header + 28 bytes payment + 28 bytes stake
   CARDANO_PAYMENT_CREDENTIAL_OFFSET = 29, // 1 byte header + 28 bytes payment hash
   ADA_DECIMALS = 6, // 1 ADA = 1,000,000 lovelace
+  MIN_FEE_A = 44, // Cardano protocol parameter: minFeeA — lovelace per transaction byte
+  MIN_FEE_B = 155_381, // Cardano protocol parameter: minFeeB — constant lovelace term in the fee formulaCardano protocol parameter: minFeeB — constant factor in fee calculation
   /**
    * Bytes per Ed25519 signature witness in the CBOR-encoded transaction
    */
@@ -18,6 +20,11 @@ export enum CardanoConstants {
    * Maximum iterations for the transaction-fee convergence loop
    */
   TX_FEE_MAX_ITERATIONS = 5,
+  /**
+   * TTL for in-memory UTxO locks (ms). Locks expire automatically to prevent
+   * permanent blocking if a request crashes before calling release().
+   */
+  UTXO_LOCK_TTL_MS = 120_000,
 }
 
 export enum CardanoAmounts {

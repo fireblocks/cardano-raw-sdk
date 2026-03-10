@@ -49,6 +49,7 @@ export interface fetchAndSelectUtxosForCntParams {
   requiredTokenAmount: number;
   transactionFee: number;
   tokenName: string;
+  lock?: boolean;
 }
 
 export interface fetchAndSelectUtxosForAdaParams {
@@ -58,6 +59,7 @@ export interface fetchAndSelectUtxosForAdaParams {
   lovelaceAmount: number;
   /** Conservative fee upper bound for initial UTXO selection */
   transactionFee: number;
+  lock?: boolean;
 }
 
 export interface fetchAndSelectUtxosForMultiTokenParams {
@@ -67,6 +69,7 @@ export interface fetchAndSelectUtxosForMultiTokenParams {
   transactionFee: number;
   /** Optional explicit lovelace to send with tokens — used to set the ADA selection target */
   lovelaceAmount?: number;
+  lock?: boolean;
 }
 
 /**
