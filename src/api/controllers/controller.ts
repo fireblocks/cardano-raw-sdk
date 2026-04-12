@@ -65,8 +65,7 @@ export class ApiController {
         });
       }
 
-      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
-      const result = await sdk.checkIagonHealth();
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.checkIagonHealth());
 
       this.logger.info(`Iagon health check successful`);
       res.status(200).json(result);
@@ -82,12 +81,9 @@ export class ApiController {
     const includeMetadata = req.query.includeMetadata === "true";
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getBalanceByAddress({
-        index,
-        groupByPolicy,
-        includeMetadata,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getBalanceByAddress({ index, groupByPolicy, includeMetadata })
+      );
 
       res.status(200).json(result);
     } catch (error: any) {
@@ -101,8 +97,9 @@ export class ApiController {
     const includeMetadata = req.query.includeMetadata === "true";
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getVaultBalance({ groupBy, includeMetadata });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getVaultBalance({ groupBy, includeMetadata })
+      );
 
       res.status(200).json(result);
     } catch (error: any) {
@@ -119,12 +116,9 @@ export class ApiController {
     const includeMetadata = req.query.includeMetadata === "true";
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getBalanceByCredential({
-        credential,
-        groupByPolicy,
-        includeMetadata,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getBalanceByCredential({ credential, groupByPolicy, includeMetadata })
+      );
 
       res.status(200).json(result);
     } catch (error: any) {
@@ -138,11 +132,9 @@ export class ApiController {
     const includeMetadata = req.query.includeMetadata === "true";
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getBalanceByStakeKey({
-        groupByPolicy,
-        includeMetadata,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getBalanceByStakeKey({ groupByPolicy, includeMetadata })
+      );
 
       res.status(200).json(result);
     } catch (error: any) {
@@ -153,8 +145,7 @@ export class ApiController {
   public getTransactionDetails = async (req: Request, res: Response) => {
     const { hash } = req.params as { hash: string };
     try {
-      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId as hash is global
-      const result = await sdk.getTransactionDetails(hash);
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getTransactionDetails(hash));
       this.logger.info(`Transaction details retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -176,8 +167,9 @@ export class ApiController {
         });
       }
 
-      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
-      const result = await sdk.getAssetInfo(policyId, assetName);
+      const result = await this.sdkManager.withSdk("0", (sdk) =>
+        sdk.getAssetInfo(policyId, assetName)
+      );
 
       this.logger.info(`Asset info retrieved successfully for ${policyId}.${assetName}`);
       res.status(200).json(result);
@@ -191,8 +183,9 @@ export class ApiController {
     const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getUtxosByAddress(index);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getUtxosByAddress(index)
+      );
       this.logger.info(`UTXOs retrieved successfully for vault ${vaultAccountId}`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -203,8 +196,9 @@ export class ApiController {
   public getVaultUtxos = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getUtxosByVaultAccountId();
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getUtxosByVaultAccountId()
+      );
       this.logger.info(`Vault UTxOs retrieved for vault ${vaultAccountId}`);
       res.status(200).json({ success: true, data: result });
     } catch (error: any) {
@@ -230,8 +224,9 @@ export class ApiController {
   public getTransactionHistory = async (req: Request, res: Response) => {
     const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getTransactionHistory(index, options);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getTransactionHistory(index, options)
+      );
       this.logger.info(`Transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -242,8 +237,9 @@ export class ApiController {
   public getDetailedTxHistory = async (req: Request, res: Response) => {
     const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getDetailedTxHistory(index, options);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getDetailedTxHistory(index, options)
+      );
       this.logger.info(`Detailed transactions history retrieved successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -261,8 +257,9 @@ export class ApiController {
     };
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getAllTransactionHistory(options);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getAllTransactionHistory(options)
+      );
       this.logger.info(
         `All transactions history retrieved successfully for vault ${vaultAccountId}`
       );
@@ -282,8 +279,9 @@ export class ApiController {
     };
 
     try {
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getAllDetailedTxHistory(options);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getAllDetailedTxHistory(options)
+      );
       this.logger.info(
         `All detailed transactions history retrieved successfully for vault ${vaultAccountId}`
       );
@@ -296,8 +294,7 @@ export class ApiController {
   public transfer = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.transfer(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) => sdk.transfer(req.body));
       this.logger.info(`Transfer executed successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -308,8 +305,9 @@ export class ApiController {
   public estimateFee = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.estimateTransactionFee(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.estimateTransactionFee(req.body)
+      );
       this.logger.info(`Fee estimation completed successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -320,8 +318,9 @@ export class ApiController {
   public transferAda = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.transferAda(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.transferAda(req.body)
+      );
       this.logger.info(`ADA transfer executed successfully: ${result.txHash}`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -332,8 +331,9 @@ export class ApiController {
   public estimateAdaFee = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.estimateAdaTransactionFee(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.estimateAdaTransactionFee(req.body)
+      );
       this.logger.info(`ADA fee estimation completed successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -344,8 +344,9 @@ export class ApiController {
   public transferMultipleTokens = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.transferMultipleTokens(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.transferMultipleTokens(req.body)
+      );
       this.logger.info(`Multi-token transfer executed successfully: ${result.txHash}`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -356,8 +357,9 @@ export class ApiController {
   public estimateMultiTokenFee = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.estimateMultiTokenTransactionFee(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.estimateMultiTokenTransactionFee(req.body)
+      );
       this.logger.info(`Multi-token fee estimation completed successfully`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -368,8 +370,9 @@ export class ApiController {
   public consolidateUtxos = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.body;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.consolidateUtxos(req.body);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.consolidateUtxos(req.body)
+      );
       this.logger.info(`UTxO consolidation executed successfully: ${result.txHash}`);
       res.status(200).json(result);
     } catch (error: any) {
@@ -399,25 +402,27 @@ export class ApiController {
         (config.FIREBLOCKS.basePath as BasePath) || BasePath.US
       );
 
-      // Get SDK instance
       const vaultAccountId = payload.data.destination.id;
       const sdk = await this.sdkManager.getSdk(vaultAccountId);
+      try {
+        // Step 1: Verify webhook signature
+        const isValid = await sdk.verifyWebhook(rawBody, headers, environment);
+        if (!isValid) {
+          this.logger.error("Webhook signature verification failed");
+          return res.status(401).json({
+            success: false,
+            error: "Webhook signature verification failed",
+          });
+        }
 
-      // Step 1: Verify webhook signature
-      const isValid = await sdk.verifyWebhook(rawBody, headers, environment);
-      if (!isValid) {
-        this.logger.error("Webhook signature verification failed");
-        return res.status(401).json({
-          success: false,
-          error: "Webhook signature verification failed",
-        });
+        // Step 2: Enrich webhook payload
+        const result = await sdk.enrichWebhookPayload(payload);
+
+        this.logger.info("Webhook verified and enriched successfully");
+        res.status(200).json(result);
+      } finally {
+        this.sdkManager.releaseSdk(vaultAccountId);
       }
-
-      // Step 2: Enrich webhook payload
-      const result = await sdk.enrichWebhookPayload(payload);
-
-      this.logger.info("Webhook verified and enriched successfully");
-      res.status(200).json(result);
     } catch (error: any) {
       this.handleError(error, res, "enrichWebhookPayload");
     }
@@ -445,13 +450,9 @@ export class ApiController {
       const depositAmount = CardanoAmounts.DEPOSIT_AMOUNT;
       const fee = CardanoAmounts.STAKING_TX_FEE;
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.registerStakingCredential({
-        vaultAccountId,
-        index,
-        depositAmount,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.registerStakingCredential({ vaultAccountId, index, depositAmount, fee })
+      );
 
       this.logger.info(`Staking registration successful for vault ${vaultAccountId}`);
       res.status(200).json({
@@ -479,11 +480,9 @@ export class ApiController {
       }
 
       const fee = CardanoAmounts.STAKING_TX_FEE;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.deregisterStakingCredential({
-        vaultAccountId,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.deregisterStakingCredential({ vaultAccountId, fee })
+      );
 
       this.logger.info(`Staking deregistration successful for vault ${vaultAccountId}`);
       res.status(200).json({
@@ -519,12 +518,9 @@ export class ApiController {
 
       const fee = CardanoAmounts.STAKING_TX_FEE;
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.delegateToPool({
-        vaultAccountId,
-        poolId,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.delegateToPool({ vaultAccountId, poolId, fee })
+      );
 
       this.logger.info(`Pool delegation successful for vault ${vaultAccountId} to pool ${poolId}`);
       res.status(200).json({
@@ -553,12 +549,9 @@ export class ApiController {
 
       const fee = CardanoAmounts.STAKING_TX_FEE;
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.withdrawRewards({
-        vaultAccountId,
-        limit,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.withdrawRewards({ vaultAccountId, limit, fee })
+      );
 
       this.logger.info(`Reward withdrawal successful for vault ${vaultAccountId}`);
       res.status(200).json({
@@ -581,8 +574,9 @@ export class ApiController {
         });
       }
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.getStakeAccountInfo(vaultAccountId);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getStakeAccountInfo(vaultAccountId)
+      );
 
       this.logger.info(`Staking account info retrieved successfully for vault ${vaultAccountId}`);
       res.status(200).json({
@@ -596,8 +590,7 @@ export class ApiController {
 
   public getCurrentEpoch = async (req: Request, res: Response) => {
     try {
-      const sdk = await this.sdkManager.getSdk("0"); // Using a default vaultAccountId
-      const result = await sdk.getCurrentEpoch();
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getCurrentEpoch());
 
       this.logger.info(`Current epoch retrieved successfully`);
       res.status(200).json(result);
@@ -621,8 +614,9 @@ export class ApiController {
         });
       }
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.queryStakingRewards(vaultAccountId);
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.queryStakingRewards(vaultAccountId)
+      );
 
       this.logger.info(`Staking rewards queried successfully for vault ${vaultAccountId}`);
       res.status(200).json({
@@ -642,14 +636,9 @@ export class ApiController {
     try {
       const { vaultAccountId, governanceActionId, vote, anchor, fee } = req.body;
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.castGovernanceVote({
-        vaultAccountId,
-        governanceActionId,
-        vote,
-        anchor,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.castGovernanceVote({ vaultAccountId, governanceActionId, vote, anchor, fee })
+      );
 
       this.logger.info(
         `Governance vote "${vote}" submitted for vault ${vaultAccountId}: ${result.txHash}`
@@ -669,13 +658,9 @@ export class ApiController {
       const { vaultAccountId, drepAction, drepId } = req.body;
       const fee = CardanoAmounts.GOVERNANCE_TX_FEE;
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.delegateToDRep({
-        vaultAccountId,
-        drepAction,
-        drepId,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.delegateToDRep({ vaultAccountId, drepAction, drepId, fee })
+      );
 
       this.logger.info(`DRep delegation successful for vault ${vaultAccountId}`);
       res.status(200).json({
@@ -695,13 +680,9 @@ export class ApiController {
     try {
       const { vaultAccountId, anchor, depositAmount, fee } = req.body;
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const result = await sdk.registerAsDRep({
-        vaultAccountId,
-        anchor,
-        depositAmount,
-        fee,
-      });
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.registerAsDRep({ vaultAccountId, anchor, depositAmount, fee })
+      );
 
       this.logger.info(`DRep registration submitted for vault ${vaultAccountId}: ${result.txHash}`);
       res.status(200).json({ success: true, data: result });
@@ -711,14 +692,13 @@ export class ApiController {
   };
 
   /**
-   * Get stake address for a vault account
-   * GET /api/staking/stake-address/:vaultAccountId
+   * Get pool information
+   * GET /api/pool/info/:poolId
    */
   public getPoolInfo = async (req: Request, res: Response) => {
     try {
       const { poolId } = req.params as { poolId: string };
-      const sdk = await this.sdkManager.getSdk("0");
-      const result = await sdk.getPoolInfo(poolId);
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolInfo(poolId));
 
       this.logger.info(`Pool info retrieved for ${poolId}`);
       res.status(200).json(result);
@@ -730,8 +710,7 @@ export class ApiController {
   public getPoolMetadata = async (req: Request, res: Response) => {
     try {
       const { poolId } = req.params as { poolId: string };
-      const sdk = await this.sdkManager.getSdk("0");
-      const result = await sdk.getPoolMetadata(poolId);
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolMetadata(poolId));
 
       this.logger.info(`Pool metadata retrieved for ${poolId}`);
       res.status(200).json(result);
@@ -743,8 +722,7 @@ export class ApiController {
   public getPoolDelegators = async (req: Request, res: Response) => {
     try {
       const { poolId } = req.params as { poolId: string };
-      const sdk = await this.sdkManager.getSdk("0");
-      const result = await sdk.getPoolDelegators(poolId);
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolDelegators(poolId));
 
       this.logger.info(`Pool delegators retrieved for ${poolId}`);
       res.status(200).json(result);
@@ -758,8 +736,9 @@ export class ApiController {
       const { poolId } = req.params as { poolId: string };
       const limit = req.query.limit ? Number(req.query.limit) : undefined;
       const offset = req.query.offset ? Number(req.query.offset) : undefined;
-      const sdk = await this.sdkManager.getSdk("0");
-      const result = await sdk.getPoolDelegatorsList(poolId, limit, offset);
+      const result = await this.sdkManager.withSdk("0", (sdk) =>
+        sdk.getPoolDelegatorsList(poolId, limit, offset)
+      );
 
       this.logger.info(`Pool delegators list retrieved for ${poolId}`);
       res.status(200).json(result);
@@ -771,8 +750,7 @@ export class ApiController {
   public getPoolBlocks = async (req: Request, res: Response) => {
     try {
       const { poolId } = req.params as { poolId: string };
-      const sdk = await this.sdkManager.getSdk("0");
-      const result = await sdk.getPoolBlocks(poolId);
+      const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolBlocks(poolId));
 
       this.logger.info(`Pool blocks retrieved for ${poolId}`);
       res.status(200).json(result);
@@ -781,6 +759,10 @@ export class ApiController {
     }
   };
 
+  /**
+   * Get stake address for a vault account
+   * GET /api/staking/stake-address/:vaultAccountId
+   */
   public getStakeAddress = async (req: Request, res: Response) => {
     try {
       const { vaultAccountId } = req.params as { vaultAccountId: string };
@@ -792,8 +774,9 @@ export class ApiController {
         });
       }
 
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      const stakeAddress = await sdk.getStakeAddress(vaultAccountId);
+      const stakeAddress = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.getStakeAddress(vaultAccountId)
+      );
 
       this.logger.info(
         `Stake address retrieved successfully for vault ${vaultAccountId}: ${stakeAddress}`
@@ -812,36 +795,9 @@ export class ApiController {
   /**
    * Handles errors that occur during API operations.
    *
-   * This private method provides centralized error handling, distinguishing between
-   * SdkApiError instances (which have structured error information) and generic
-   * errors. It logs the error details and sends an appropriate HTTP response.
-   *
    * @param error - The error that occurred
    * @param res - Express response object
    * @param endpoint - The name of the endpoint where the error occurred (for logging)
-   * @returns void
-   *
-   * @remarks
-   * For SdkApiError instances, returns a structured JSON response with statusCode,
-   * errorType, service, message, and additional error info.
-   * For generic errors, returns a 500 status with a simple error message.
-   */
-  /**
-   * Handles errors that occur during API operations.
-   *
-   * This private method provides centralized error handling, distinguishing between
-   * ApiError instances (which have structured error information) and generic
-   * errors. It logs the error details and sends an appropriate HTTP response.
-   *
-   * @param error - The error that occurred
-   * @param res - Express response object
-   * @param endpoint - The name of the endpoint where the error occurred (for logging)
-   * @returns void
-   *
-   * @remarks
-   * For ApiError instances, returns a structured JSON response with statusCode,
-   * errorType, service, message, and additional error info.
-   * For generic errors, returns a 500 status with a simple error message.
    */
   private handleError(error: unknown, res: Response, endpoint: string): void {
     if (error instanceof SdkApiError) {
