@@ -9,7 +9,7 @@ export enum CardanoConstants {
   CARDANO_PAYMENT_CREDENTIAL_OFFSET = 29, // 1 byte header + 28 bytes payment hash
   ADA_DECIMALS = 6, // 1 ADA = 1,000,000 lovelace
   MIN_FEE_A = 44, // Cardano protocol parameter: minFeeA - lovelace per transaction byte
-  MIN_FEE_B = 155_381, // Cardano protocol parameter: minFeeB - constant lovelace term in the fee formulaCardano protocol parameter: minFeeB - constant factor in fee calculation
+  MIN_FEE_B = 155_381, // Cardano protocol parameter: minFeeB - constant lovelace term in the fee formula
   /**
    * Bytes per Ed25519 signature witness in the CBOR-encoded transaction
    */
@@ -34,7 +34,7 @@ export enum CardanoConstants {
    * Base minimum lovelace for any UTxO (Cardano protocol parameter).
    * Minimum ADA required for ADA-only or single-policy UTxOs.
    * Kept here (not in CardanoAmounts) to avoid a duplicate-value clash with
-   * CardanoAmounts.GOVERNANCE_TX_FEE — both happen to be 1 ADA today but are
+   * CardanoAmounts.GOVERNANCE_TX_FEE - both happen to be 1 ADA today but are
    * independent protocol constants that must be updated separately if either changes.
    */
   MIN_UTXO_BASE_LOVELACE = 1_000_000,
