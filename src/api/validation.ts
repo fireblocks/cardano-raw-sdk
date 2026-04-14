@@ -336,3 +336,35 @@ export const castVoteRequestSchema = z.object({
 });
 
 export type CastVoteRequest = z.infer<typeof castVoteRequestSchema>;
+
+// ======================
+// Staking Schemas
+// ======================
+
+export const registerStakingRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  index: z.number().int().nonnegative().optional(),
+});
+
+export type RegisterStakingRequest = z.infer<typeof registerStakingRequestSchema>;
+
+export const deregisterStakingRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+});
+
+export type DeregisterStakingRequest = z.infer<typeof deregisterStakingRequestSchema>;
+
+export const delegateToPoolRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  poolId: z.string().min(1, "poolId is required"),
+  fee: z.number().int().positive().optional(),
+});
+
+export type DelegateToPoolRequest = z.infer<typeof delegateToPoolRequestSchema>;
+
+export const withdrawRewardsRequestSchema = z.object({
+  vaultAccountId: z.string().min(1, "vaultAccountId is required"),
+  limit: z.number().int().positive().optional(),
+});
+
+export type WithdrawRewardsRequest = z.infer<typeof withdrawRewardsRequestSchema>;

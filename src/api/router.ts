@@ -14,6 +14,10 @@ import {
   delegateToDRepRequestSchema,
   registerAsDRepRequestSchema,
   castVoteRequestSchema,
+  registerStakingRequestSchema,
+  deregisterStakingRequestSchema,
+  delegateToPoolRequestSchema,
+  withdrawRewardsRequestSchema,
   vaultAccountIdParamsSchema,
   credentialParamsSchema,
   hashParamsSchema,
@@ -1545,7 +1549,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *
    *       **Token Preservation:**
    *       When multi-asset UTxOs are consumed, ALL their tokens are returned to the sender
-   *       in the change output (Cardano protocol requirement — tokens cannot be dropped).
+   *       in the change output (Cardano protocol requirement - tokens cannot be dropped).
    *       The `tokensPresentedInChange` field in the response lists affected policy IDs.
    *     tags: [Transfers]
    *     requestBody:
@@ -1722,7 +1726,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       All specified tokens are bundled into one recipient output.
    *
    *       If consumed UTxOs carry tokens not listed in `tokens`, those tokens are
-   *       automatically returned to the sender in the change output — no tokens are lost.
+   *       automatically returned to the sender in the change output - no tokens are lost.
    *
    *       The `tokensPresentedInChange` field in the response lists any extra policy IDs
    *       that ended up in the change output.
@@ -1825,7 +1829,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       Does not sign or submit anything.
    *
    *       The `tokenChangeWarning` field is included when the selected UTxOs carry additional
-   *       tokens not listed in `tokens` — those tokens will appear in the change output.
+   *       tokens not listed in `tokens` - those tokens will appear in the change output.
    *     tags:
    *       - Transfers
    *     requestBody:
@@ -1919,7 +1923,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *     summary: Consolidate all UTxOs at an address into a single UTxO
    *     description: |
    *       Sweeps all UTxOs at the specified address index into a single output back to the sender.
-   *       All ADA and all native tokens are preserved — nothing is lost.
+   *       All ADA and all native tokens are preserved - nothing is lost.
    *
    *       Useful for combating UTxO fragmentation after many incoming transfers.
    *       Fails if the address has fewer UTxOs than `minUtxoCount` (default: 2).
@@ -2265,7 +2269,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/staking/register", apiController.registerStaking);
+  router.post(
+    "/staking/register",
+    validateRequest(registerStakingRequestSchema),
+    apiController.registerStaking
+  );
 
   /**
    * @swagger
@@ -2307,7 +2315,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/staking/deregister", apiController.deregisterStaking);
+  router.post(
+    "/staking/deregister",
+    validateRequest(deregisterStakingRequestSchema),
+    apiController.deregisterStaking
+  );
 
   /**
    * @swagger
@@ -2352,7 +2364,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/staking/delegate", apiController.delegateToPool);
+  router.post(
+    "/staking/delegate",
+    validateRequest(delegateToPoolRequestSchema),
+    apiController.delegateToPool
+  );
 
   /**
    * @swagger
@@ -2396,7 +2412,11 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       500:
    *         description: Internal server error
    */
-  router.post("/staking/withdraw-rewards", apiController.withdrawRewards);
+  router.post(
+    "/staking/withdraw-rewards",
+    validateRequest(withdrawRewardsRequestSchema),
+    apiController.withdrawRewards
+  );
 
   /**
    * @swagger
@@ -2512,7 +2532,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
    *       **Anchor (optional):** Provide a publicly accessible URL to a JSON metadata document
    *       and the blake2b-256 hex hash of that document. This helps voters identify your DRep.
    *
-   *       **Deposit:** 500 ADA (500,000,000 lovelace) — refundable upon DRep deregistration.
+   *       **Deposit:** 500 ADA (500,000,000 lovelace) - refundable upon DRep deregistration.
    *     tags: [Governance]
    *     requestBody:
    *       required: true
