@@ -30,7 +30,7 @@ const startServer = () => {
       verify: (req, _res, buf, _encoding) => {
         // Preserve raw body for webhook signature verification
         const r = req as Request & { url?: string; rawBody?: Buffer };
-        if (r.url === "/api/webhook") {
+        if (r.url?.split("?")[0] === "/api/webhook") {
           r.rawBody = buf;
         }
       },
