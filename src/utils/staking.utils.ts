@@ -21,7 +21,7 @@ import { CardanoAmounts, CardanoConstants } from "../index.js";
 import * as CardanoWasm from "@emurgo/cardano-serialization-lib-nodejs";
 
 /** Raw CBOR array - used for hand-built Cardano transaction structures */
-type CborArray = unknown[];
+export type CborArray = unknown[];
 
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
