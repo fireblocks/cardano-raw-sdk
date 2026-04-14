@@ -384,7 +384,14 @@ export class ApiController {
     try {
       // Extract raw body (Buffer) for signature verification
       // rawBody is attached by express.json verify callback
-      const rawBody = (req as Request & { rawBody?: Buffer }).rawBody as Buffer;
+      const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+      if (!rawBody) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Missing raw request body - webhook endpoint requires Content-Type: application/json",
+        });
+      }
 
       // Body is already parsed by express.json
       const payload = req.body;
