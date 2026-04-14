@@ -89,7 +89,7 @@ export class Logger {
   /**
    * Log a debug message
    * @param message Log message
-   * @param ...args Additional arguments
+   * @param args Additional arguments
    */
   debug(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.DEBUG) {
@@ -104,7 +104,7 @@ export class Logger {
   /**
    * Log an info message
    * @param message Log message
-   * @param ...args Additional arguments
+   * @param args Additional arguments
    */
   info(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.INFO) {
@@ -116,7 +116,7 @@ export class Logger {
   /**
    * Log a warning message
    * @param message Log message
-   * @param ...args Additional arguments
+   * @param args Additional arguments
    */
   warn(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.WARN) {
@@ -131,7 +131,7 @@ export class Logger {
   /**
    * Log an error message
    * @param message Log message
-   * @param ...args Additional arguments
+   * @param args Additional arguments
    */
   error(message: string, ...args: unknown[]): void {
     if (Logger.level <= LogLevel.ERROR) {

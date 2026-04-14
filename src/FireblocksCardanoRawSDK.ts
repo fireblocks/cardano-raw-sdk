@@ -1746,7 +1746,6 @@ export class FireblocksCardanoRawSDK {
   /**
    * Retrieves the wallet addresses associated with a specific Fireblocks vault account.
    *
-   * @param vaultAccountId - The unique identifier of the vault account to fetch addresses for.
    * @returns A promise that resolves to an array of VaultWalletAddress objects.
    * @throws Error if the retrieval fails.
    */
