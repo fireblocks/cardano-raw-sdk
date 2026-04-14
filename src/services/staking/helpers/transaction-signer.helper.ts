@@ -5,7 +5,13 @@
 
 import { Logger, ErrorHandler } from "../../../utils/index.js";
 import { SdkApiError, CardanoWitness } from "../../../types/index.js";
-import { TransactionRequest, TransactionOperation, TransferPeerPathType } from "@fireblocks/ts-sdk";
+import {
+  TransactionRequest,
+  TransactionOperation,
+  TransferPeerPathType,
+  SignedMessageSignature,
+  SignedMessageAlgorithmEnum,
+} from "@fireblocks/ts-sdk";
 import { FireblocksService } from "../../index.js";
 import {
   INetworkConfiguration,
@@ -46,7 +52,7 @@ export class TransactionSigner implements ITransactionSigner {
       this.logPublicKeys(paymentPubKey, stakePubKey);
 
       return this.mapResponseToWitnesses(transactionResponse.data);
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "sending transaction for signing");
     }
   }
@@ -71,7 +77,17 @@ export class TransactionSigner implements ITransactionSigner {
     };
   }
 
-  private validateTransactionData(txData: any): void {
+  private validateTransactionData(
+    txData:
+      | Array<{
+          signature: SignedMessageSignature;
+          content?: string;
+          publicKey?: string;
+          algorithm?: SignedMessageAlgorithmEnum;
+        }>
+      | null
+      | undefined
+  ): void {
     if (!txData || txData.length !== EXPECTED_SIGNATURE_COUNT) {
       throw new SdkApiError(
         `Expected ${EXPECTED_SIGNATURE_COUNT} signatures, got ${txData?.length ?? 0}`,
@@ -108,7 +124,14 @@ export class TransactionSigner implements ITransactionSigner {
     this.logger.info(`Expected stake key: ${stakePubKey}`);
   }
 
-  private mapResponseToWitnesses(txData: any[]): CardanoWitness[] {
+  private mapResponseToWitnesses(
+    txData: Array<{
+      signature: SignedMessageSignature;
+      content?: string;
+      publicKey?: string;
+      algorithm?: SignedMessageAlgorithmEnum;
+    }>
+  ): CardanoWitness[] {
     const witnesses: CardanoWitness[] = txData.map((sig) => ({
       pubKey: Buffer.from(sig.publicKey!, "hex"),
       signature: Buffer.from(sig.signature!.fullSig!, "hex"),
