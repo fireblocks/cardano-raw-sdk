@@ -27,10 +27,11 @@ const startServer = () => {
   // Configure middlewares with raw body preservation for webhook endpoint
   app.use(
     express.json({
-      verify: (req: any, _res, buf, _encoding) => {
+      verify: (req, _res, buf, _encoding) => {
         // Preserve raw body for webhook signature verification
-        if (req.url === "/api/webhook") {
-          req.rawBody = buf;
+        const r = req as Request & { url?: string; rawBody?: Buffer };
+        if (r.url === "/api/webhook") {
+          r.rawBody = buf;
         }
       },
     })

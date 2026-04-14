@@ -69,7 +69,7 @@ export class ApiController {
 
       this.logger.info(`Iagon health check successful`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getIagonHealth");
     }
   };
@@ -86,7 +86,7 @@ export class ApiController {
       );
 
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getBalanceByAddress");
     }
   };
@@ -102,7 +102,7 @@ export class ApiController {
       );
 
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getVaultBalance");
     }
   };
@@ -121,7 +121,7 @@ export class ApiController {
       );
 
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getBalanceByCredential");
     }
   };
@@ -137,7 +137,7 @@ export class ApiController {
       );
 
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getBalanceByStakeKey");
     }
   };
@@ -148,7 +148,7 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getTransactionDetails(hash));
       this.logger.info(`Transaction details retrieved successfully`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getTransactionDetails");
     }
   };
@@ -173,7 +173,7 @@ export class ApiController {
 
       this.logger.info(`Asset info retrieved successfully for ${policyId}.${assetName}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getAssetInfo");
     }
   };
@@ -188,7 +188,7 @@ export class ApiController {
       );
       this.logger.info(`UTXOs retrieved successfully for vault ${vaultAccountId}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getUtxosByAddress");
     }
   };
@@ -201,7 +201,7 @@ export class ApiController {
       );
       this.logger.info(`Vault UTxOs retrieved for vault ${vaultAccountId}`);
       res.status(200).json({ success: true, data: result });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getVaultUtxos");
     }
   };
@@ -229,7 +229,7 @@ export class ApiController {
       );
       this.logger.info(`Transactions history retrieved successfully`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getTransactionHistory");
     }
   };
@@ -242,7 +242,7 @@ export class ApiController {
       );
       this.logger.info(`Detailed transactions history retrieved successfully`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getDetailedTxHistory");
     }
   };
@@ -264,7 +264,7 @@ export class ApiController {
         `All transactions history retrieved successfully for vault ${vaultAccountId}`
       );
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getAllTransactionHistory");
     }
   };
@@ -286,7 +286,7 @@ export class ApiController {
         `All detailed transactions history retrieved successfully for vault ${vaultAccountId}`
       );
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getAllDetailedTxHistory");
     }
   };
@@ -296,8 +296,8 @@ export class ApiController {
       const { vaultAccountId } = req.body;
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) => sdk.transfer(req.body));
       this.logger.info(`Transfer executed successfully`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "transfer");
     }
   };
@@ -309,8 +309,8 @@ export class ApiController {
         sdk.estimateTransactionFee(req.body)
       );
       this.logger.info(`Fee estimation completed successfully`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "estimateFee");
     }
   };
@@ -322,8 +322,8 @@ export class ApiController {
         sdk.transferAda(req.body)
       );
       this.logger.info(`ADA transfer executed successfully: ${result.txHash}`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "transferAda");
     }
   };
@@ -335,8 +335,8 @@ export class ApiController {
         sdk.estimateAdaTransactionFee(req.body)
       );
       this.logger.info(`ADA fee estimation completed successfully`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "estimateAdaFee");
     }
   };
@@ -348,8 +348,8 @@ export class ApiController {
         sdk.transferMultipleTokens(req.body)
       );
       this.logger.info(`Multi-token transfer executed successfully: ${result.txHash}`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "transferMultipleTokens");
     }
   };
@@ -361,8 +361,8 @@ export class ApiController {
         sdk.estimateMultiTokenTransactionFee(req.body)
       );
       this.logger.info(`Multi-token fee estimation completed successfully`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "estimateMultiTokenFee");
     }
   };
@@ -374,8 +374,8 @@ export class ApiController {
         sdk.consolidateUtxos(req.body)
       );
       this.logger.info(`UTxO consolidation executed successfully: ${result.txHash}`);
-      res.status(200).json(result);
-    } catch (error: any) {
+      res.status(200).json({ success: true, data: result });
+    } catch (error: unknown) {
       this.handleError(error, res, "consolidateUtxos");
     }
   };
@@ -384,7 +384,7 @@ export class ApiController {
     try {
       // Extract raw body (Buffer) for signature verification
       // rawBody is attached by express.json verify callback
-      const rawBody = (req as any).rawBody as Buffer;
+      const rawBody = (req as Request & { rawBody?: Buffer }).rawBody as Buffer;
 
       // Body is already parsed by express.json
       const payload = req.body;
@@ -419,11 +419,11 @@ export class ApiController {
         const result = await sdk.enrichWebhookPayload(payload);
 
         this.logger.info("Webhook verified and enriched successfully");
-        res.status(200).json(result);
+        res.status(200).json({ success: true, data: result });
       } finally {
         this.sdkManager.releaseSdk(vaultAccountId);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "enrichWebhookPayload");
     }
   };
@@ -459,7 +459,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "registerStaking");
     }
   };
@@ -489,7 +489,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "deregisterStaking");
     }
   };
@@ -527,7 +527,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "delegateToPool");
     }
   };
@@ -558,7 +558,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "withdrawRewards");
     }
   };
@@ -583,7 +583,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getStakeAccountInfo");
     }
   };
@@ -594,7 +594,7 @@ export class ApiController {
 
       this.logger.info(`Current epoch retrieved successfully`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getCurrentEpoch");
     }
   };
@@ -623,7 +623,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "queryStakingRewards");
     }
   };
@@ -644,7 +644,7 @@ export class ApiController {
         `Governance vote "${vote}" submitted for vault ${vaultAccountId}: ${result.txHash}`
       );
       res.status(200).json({ success: true, data: result });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "castGovernanceVote");
     }
   };
@@ -667,7 +667,7 @@ export class ApiController {
         success: true,
         data: result,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "delegateToDRep");
     }
   };
@@ -686,7 +686,7 @@ export class ApiController {
 
       this.logger.info(`DRep registration submitted for vault ${vaultAccountId}: ${result.txHash}`);
       res.status(200).json({ success: true, data: result });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "registerAsDRep");
     }
   };
@@ -702,7 +702,7 @@ export class ApiController {
 
       this.logger.info(`Pool info retrieved for ${poolId}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getPoolInfo");
     }
   };
@@ -714,7 +714,7 @@ export class ApiController {
 
       this.logger.info(`Pool metadata retrieved for ${poolId}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getPoolMetadata");
     }
   };
@@ -726,7 +726,7 @@ export class ApiController {
 
       this.logger.info(`Pool delegators retrieved for ${poolId}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getPoolDelegators");
     }
   };
@@ -742,7 +742,7 @@ export class ApiController {
 
       this.logger.info(`Pool delegators list retrieved for ${poolId}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getPoolDelegatorsList");
     }
   };
@@ -754,7 +754,7 @@ export class ApiController {
 
       this.logger.info(`Pool blocks retrieved for ${poolId}`);
       res.status(200).json(result);
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getPoolBlocks");
     }
   };
@@ -787,7 +787,7 @@ export class ApiController {
           stakeAddress,
         },
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       this.handleError(error, res, "getStakeAddress");
     }
   };

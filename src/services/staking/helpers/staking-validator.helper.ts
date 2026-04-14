@@ -58,7 +58,7 @@ export class StakingValidator implements IStakingValidator {
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
       const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
       return accountInfo.data.active;
-    } catch (error) {
+    } catch {
       this.logger.info("Stake key not yet registered");
       return false;
     }

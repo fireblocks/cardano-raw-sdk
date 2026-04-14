@@ -179,7 +179,7 @@ export class StakingService {
         stakeAddress,
         addressIndex: addressWithUtxo.addressIndex,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "registering staking credential");
     }
   }
@@ -195,7 +195,7 @@ export class StakingService {
     try {
       await this.validator.validateDelegationPrerequisites(vaultAccountId, poolId);
 
-      const minAmount = CardanoAmounts.MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const minAmount = CardanoAmounts.MIN_UTXO_BASE_LOVELACE + fee;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minAmount
@@ -228,7 +228,7 @@ export class StakingService {
         status: "submitted",
         operation: StakingOperation.DELEGATE,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "delegating to stake pool");
     }
   }
@@ -255,7 +255,7 @@ export class StakingService {
         };
       }
 
-      const minInputAmount = CardanoAmounts.MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const minInputAmount = CardanoAmounts.MIN_UTXO_BASE_LOVELACE + fee;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minInputAmount
@@ -268,7 +268,7 @@ export class StakingService {
         status: "submitted",
         operation: StakingOperation.DEREGISTER,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "deregistering staking credential");
     }
   }
@@ -287,7 +287,7 @@ export class StakingService {
 
       this.logger.info(`Withdrawing rewards for vault account ${vaultAccountId}`);
 
-      const minInputAmount = CardanoAmounts.MIN_UTXO_VALUE_ADA_ONLY + fee;
+      const minInputAmount = CardanoAmounts.MIN_UTXO_BASE_LOVELACE + fee;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minInputAmount
@@ -336,7 +336,7 @@ export class StakingService {
 
       try {
         submitResponse = await buildAndSubmitWithdrawal(rewardAmount);
-      } catch (firstError: any) {
+      } catch (firstError: unknown) {
         // The Cardano ledger requires withdrawals to consume the full reward balance.
         // If the API returned a stale value the node rejects the tx. Re-query once and
         // retry so the corrected amount matches the on-chain balance.
@@ -372,7 +372,7 @@ export class StakingService {
         operation: StakingOperation.WITHDRAW_REWARDS,
         rewardAmount: finalRewardAmount,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "withdrawing staking rewards");
     }
   }
@@ -427,7 +427,7 @@ export class StakingService {
         status: "submitted",
         operation: StakingOperation.VOTE_DELEGATE,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "delegating to DRep");
     }
   }
@@ -488,7 +488,7 @@ export class StakingService {
         drepId,
         addressIndex: addressWithUtxo.addressIndex,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "registering as DRep");
     }
   }
@@ -552,7 +552,7 @@ export class StakingService {
         vote,
         governanceActionId,
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "casting governance vote");
     }
   }
@@ -572,7 +572,7 @@ export class StakingService {
       this.logger.info(`Querying staking rewards for vault account ${vaultAccountId}`);
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
       return await this.rewardsService.queryRewards(stakeAddress);
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "querying staking rewards");
     }
   }
@@ -585,7 +585,7 @@ export class StakingService {
       this.logger.info(`Getting delegation history for vault account ${vaultAccountId}`);
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
       return await this.iagonApiService.getDelegationHistory(stakeAddress, 0, limit);
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "getting delegation history");
     }
   }
@@ -598,7 +598,7 @@ export class StakingService {
       this.logger.info(`Getting registration history for vault account ${vaultAccountId}`);
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
       return await this.iagonApiService.getRegistrationHistory(stakeAddress, limit);
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "getting registration history");
     }
   }
@@ -611,7 +611,7 @@ export class StakingService {
       this.logger.info(`Getting stake account info for vault account ${vaultAccountId}`);
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
       return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, "getting stake account info");
     }
   }
@@ -646,9 +646,9 @@ export class StakingService {
     addressWithUtxo: AddressWithUtxo;
     netAmount: number;
     fee: number;
-    certificates?: Array<any>;
+    certificates?: Array<unknown>;
     withdrawals?: Map<Uint8Array, number>;
-    votingProcedures?: Map<any, any>;
+    votingProcedures?: Map<unknown, unknown>;
     operation: string;
     skipValidation?: boolean;
     skipTtl?: boolean; // Skip TTL for Conway-era governance transactions
@@ -771,7 +771,7 @@ export class StakingService {
 
     try {
       return await buildAndSubmitDeregistration(rewardAmount);
-    } catch (firstError: any) {
+    } catch (firstError: unknown) {
       if (!this.isIncompleteWithdrawalsError(firstError) || rewardAmount === 0) {
         throw firstError;
       }
@@ -800,9 +800,9 @@ export class StakingService {
     addressInfo: AddressWithUtxo;
     netAmount: number;
     fee: number;
-    certificates?: Array<any>;
+    certificates?: Array<unknown>;
     withdrawals?: Map<Uint8Array, number>;
-    votingProcedures?: Map<any, any>;
+    votingProcedures?: Map<unknown, unknown>;
     operation: string;
     skipValidation?: boolean;
     skipTtl?: boolean;
@@ -866,8 +866,8 @@ export class StakingService {
    * withdrawal amount in the transaction does not match the on-chain reward balance.
    * This happens when the API returns a stale reward value.
    */
-  private isIncompleteWithdrawalsError(error: any): boolean {
-    const msg: string = (error?.message ?? "").toLowerCase();
+  private isIncompleteWithdrawalsError(error: unknown): boolean {
+    const msg: string = (error instanceof Error ? error.message : "").toLowerCase();
     return (
       msg.includes("incomplete") ||
       msg.includes("rewards in full") ||

@@ -20,7 +20,7 @@
  * // Returns: { username: 'john', password: '[REDACTED]', apiKey: '[REDACTED]' }
  * ```
  */
-export const sanitizeForLogging = (data: any, customSensitiveKeys: string[] = []): any => {
+export const sanitizeForLogging = (data: unknown, customSensitiveKeys: string[] = []): unknown => {
   // Common patterns for sensitive field names
   const defaultSensitivePatterns = [
     /password/i,
@@ -75,7 +75,7 @@ export const sanitizeForLogging = (data: any, customSensitiveKeys: string[] = []
   }
 
   // Handle objects
-  const sanitized: any = {};
+  const sanitized: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(data)) {
     if (isSensitiveKey(key)) {
       sanitized[key] = "[REDACTED]";

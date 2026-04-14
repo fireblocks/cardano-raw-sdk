@@ -1,4 +1,3 @@
-import { Certificate } from "@emurgo/cardano-serialization-lib-nodejs";
 import { DRepAction, DRepKind, Networks, StakingOperation } from "./index.js";
 
 export interface CardanoWitness {
@@ -136,7 +135,7 @@ export interface StakeAddressInfo {
   poolId: string | null;
 }
 
-export type CardanoCertificate = [number, [number, Uint8Array], ...any[]];
+export type CardanoCertificate = [number, [number, Uint8Array], ...unknown[]];
 
 /**
  * Options for casting a governance vote as a DRep (Conway era)
@@ -179,9 +178,9 @@ export interface BuildPayloadOptions {
   txInputs: Array<{ txHash: Buffer; indexInTx: number }>;
   feeAmount: number;
   ttl?: number; // Optional for Conway-era governance transactions
-  certificates?: Certificate[];
+  certificates?: Array<unknown>;
   withdrawals?: Map<Uint8Array, number>;
   /** Conway-era voting procedures (key 19 in the TX body) */
-  votingProcedures?: Map<any, any>;
+  votingProcedures?: Map<unknown, unknown>;
   network: Networks;
 }

@@ -11,6 +11,7 @@ import {
   IStakeAddressResolver,
   AddressInfo,
 } from "../types/staking.interfaces.js";
+import { VaultWalletAddress } from "@fireblocks/ts-sdk";
 
 export class StakeAddressResolver implements IStakeAddressResolver {
   constructor(
@@ -48,7 +49,7 @@ export class StakeAddressResolver implements IStakeAddressResolver {
     };
   }
 
-  private findBaseAddress(addresses: any[], addressIndex?: number) {
+  private findBaseAddress(addresses: VaultWalletAddress[], addressIndex?: number) {
     if (addressIndex !== undefined) {
       return addresses.find(
         (addr) => addr.addressFormat === "BASE" && addr.bip44AddressIndex === addressIndex
