@@ -20,6 +20,9 @@ import {
 import { CardanoAmounts, CardanoConstants } from "../index.js";
 import * as CardanoWasm from "@emurgo/cardano-serialization-lib-nodejs";
 
+/** Raw CBOR array - used for hand-built Cardano transaction structures */
+type CborArray = unknown[];
+
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
  */
@@ -134,26 +137,30 @@ export const serializeCertificate = (certificate: Buffer): [number, Uint8Array] 
 };
 
 /**
- * Build stake key registration certificate (Conway era)
- * Certificate type: 7 (STAKE_REGISTRATION) - includes deposit amount
+ * Build stake key registration certificate (Shelley era)
+ * Certificate type: 0 (STAKE_KEY_REGISTRATION) - no deposit field
+ * Note: Conway-era registration (type 7, with deposit) is not used here;
+ * Shelley-era certs remain valid on the Conway ledger.
  */
 export const buildRegistrationCertificate = (credential: Buffer): CardanoCertificate => {
   const serializedCert = serializeCertificate(credential);
 
   return [
-    CertificateType.STAKE_KEY_REGISTRATION, // Type 0 for Shelley
+    CertificateType.STAKE_KEY_REGISTRATION, // Type 0 (Shelley)
     serializedCert, // [0, credential_buffer]
   ];
 };
 
 /**
  * Build stake key deregistration certificate (Shelley era)
- * Certificate type: 1 (STAKE_DEREGISTRATION)
+ * Certificate type: 1 (STAKE_KEY_DEREGISTRATION) - no refund field
+ * Note: Conway-era deregistration (type 8, with refund) is not used here;
+ * Shelley-era certs remain valid on the Conway ledger.
  */
 export const buildDeregistrationCertificate = (credential: Buffer): CardanoCertificate => {
   const serializedCert = serializeCertificate(credential);
   return [
-    CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 for Shelley
+    CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 (Shelley)
     serializedCert,
   ];
 };
@@ -167,6 +174,7 @@ export const buildDelegationCertificate = (
 ): CardanoWasm.Certificate => {
   const credentialHash = CardanoWasm.Ed25519KeyHash.from_bytes(credential);
   const stakeCredential = CardanoWasm.Credential.from_keyhash(credentialHash);
+  credentialHash.free();
 
   // Handle both bech32 (pool1...) and hex formats
   let poolIdHex: string;
@@ -183,41 +191,42 @@ export const buildDelegationCertificate = (
 
   const poolKeyHash = CardanoWasm.Ed25519KeyHash.from_hex(poolIdHex);
   const stakeDelegation = CardanoWasm.StakeDelegation.new(stakeCredential, poolKeyHash);
+  stakeCredential.free();
+  poolKeyHash.free();
 
-  return CardanoWasm.Certificate.new_stake_delegation(stakeDelegation);
+  const cert = CardanoWasm.Certificate.new_stake_delegation(stakeDelegation);
+  stakeDelegation.free();
+  return cert;
 };
 
 /**
  * Build vote delegation certificate (Conway era)
  */
-export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInfo): any => {
+export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInfo): CborArray => {
   // Stake credential: [0, credential_bytes]
   const stakeCredential = [0, toUint8Array(credential)];
 
-  let drepValue: Array<any>;
+  let drepValue: CborArray;
 
   switch (drep.kind) {
     case DRepKind.ALWAYS_ABSTAIN:
-      // [1] per Conway ledger spec
-      drepValue = [1];
-      break;
     case DRepKind.ALWAYS_NO_CONFIDENCE:
-      // [2] per Conway ledger spec
-      drepValue = [2];
+      // Singleton DRep types: CBOR index is the enum value itself (2 or 3)
+      drepValue = [drep.kind];
       break;
     case DRepKind.KEY_HASH:
       if (!drep.keyHash) {
         throw new Error("KEY_HASH DRep requires keyHash");
       }
-      // [0, key_hash]
-      drepValue = [0, toUint8Array(drep.keyHash)];
+      // [kind, key_hash] - kind = 0
+      drepValue = [drep.kind, toUint8Array(drep.keyHash)];
       break;
     case DRepKind.SCRIPT_HASH:
       if (!drep.keyHash) {
         throw new Error("SCRIPT_HASH DRep requires keyHash");
       }
-      // [1, script_hash]
-      drepValue = [1, toUint8Array(drep.keyHash)];
+      // [kind, script_hash] - kind = 1
+      drepValue = [drep.kind, toUint8Array(drep.keyHash)];
       break;
     default:
       throw new Error(`Unknown DRep kind: ${drep.kind}`);
@@ -245,7 +254,7 @@ export const serializeWithdrawals = (
  * Witnesses are automatically sorted by key hash as required by Cardano
  */
 export const embedSignaturesInTx = (
-  deserializedTxPayload: Map<number, any>,
+  deserializedTxPayload: Map<number, unknown>,
   signatures: CardanoWitness[]
 ): Buffer => {
   // Sort witnesses by public key hash
@@ -277,7 +286,7 @@ export const buildPayload = (
   options: BuildPayloadOptions
 ): {
   serialized: Buffer;
-  deserialized: Map<number, any>;
+  deserialized: Map<number, unknown>;
 } => {
   const { toAddress, txInputs, ttl, certificates, withdrawals, votingProcedures, network } =
     options;
@@ -304,7 +313,7 @@ export const buildPayload = (
   const outputsArr = [[toUint8Array(addressBuffer), netAmount]];
 
   // Build transaction body using Map for integer keys
-  const deserialized = new Map<number, any>();
+  const deserialized = new Map<number, unknown>();
 
   deserialized.set(0, inputsArr); // inputs
   deserialized.set(1, outputsArr); // outputs
@@ -317,14 +326,19 @@ export const buildPayload = (
 
   // Optional fields - add in numerical order
   if (certificates && certificates.length > 0) {
-    const certsArr = certificates.map((cert: any) => {
+    const certsArr = certificates.map((cert: unknown) => {
       // If it's already an array (manual certificate), use it directly
       if (Array.isArray(cert)) {
         return cert;
       }
       // If it's a CSL Certificate object, decode it
-      if (typeof cert.to_bytes === "function") {
-        const certBytes = cert.to_bytes();
+      if (
+        cert !== null &&
+        typeof cert === "object" &&
+        "to_bytes" in cert &&
+        typeof (cert as { to_bytes: unknown }).to_bytes === "function"
+      ) {
+        const certBytes = (cert as { to_bytes: () => Uint8Array }).to_bytes();
         return decode(certBytes);
       }
       // Otherwise return as-is
@@ -371,7 +385,7 @@ export const findSuitableUtxo = (
     output_index: number;
     value: {
       lovelace: number;
-      assets?: any;
+      assets?: Record<string, number>;
     };
   }>,
   minAmount: number
@@ -396,11 +410,34 @@ export const findSuitableUtxo = (
  * Bech32 format: drep1... or drep_script1...
  * Hex format: 28-byte hex string
  */
+const DREP_CREDENTIAL_BYTES = 28; // Conway spec: DRep credentials are 28-byte hashes
+const ANCHOR_DATA_HASH_BYTES = 32; // Conway spec: anchor data hash is blake2b-256 = 32 bytes
+const ANCHOR_DATA_HASH_HEX_LEN = ANCHOR_DATA_HASH_BYTES * 2; // 64 hex chars
+
+/**
+ * Validate an anchor data hash per the Conway spec.
+ * Must be exactly 32 bytes (64 hex characters).
+ */
+const validateAnchorDataHash = (dataHash: string): void => {
+  if (!/^[0-9a-fA-F]{64}$/.test(dataHash)) {
+    throw new Error(
+      `Invalid anchor dataHash: must be exactly ${ANCHOR_DATA_HASH_HEX_LEN} hex characters (got "${dataHash.length}" chars)`
+    );
+  }
+};
+
 const decodeDRepId = (drepId: string): { keyHash: Buffer; isScript: boolean } => {
   // Check if it's bech32 format (starts with drep1 or drep_script1)
   if (drepId.startsWith("drep1") || drepId.startsWith("drep_script1")) {
     const decoded = bech32.decode(drepId, 1000);
     const fullBytes = Buffer.from(bech32.fromWords(decoded.words));
+
+    // Expected: 1 header byte + 28 credential bytes = 29 bytes total
+    if (fullBytes.length !== DREP_CREDENTIAL_BYTES + 1) {
+      throw new Error(
+        `Invalid DRep ID: bech32 payload must be ${DREP_CREDENTIAL_BYTES + 1} bytes, got ${fullBytes.length}`
+      );
+    }
 
     // First byte is the header indicating the type
     const header = fullBytes[0];
@@ -412,7 +449,13 @@ const decodeDRepId = (drepId: string): { keyHash: Buffer; isScript: boolean } =>
     return { keyHash, isScript };
   }
 
-  // Otherwise treat as hex
+  // Hex format: must be exactly 56 hex characters (28 bytes)
+  if (!/^[0-9a-fA-F]{56}$/.test(drepId)) {
+    throw new Error(
+      `Invalid DRep ID: hex format must be exactly ${DREP_CREDENTIAL_BYTES * 2} hex characters (${DREP_CREDENTIAL_BYTES} bytes), got length ${drepId.length}`
+    );
+  }
+
   return { keyHash: Buffer.from(drepId, "hex"), isScript: false };
 };
 
@@ -426,7 +469,7 @@ export const drepActionToDRepInfo = (action: DRepAction, drepId?: string): DRepI
       return { kind: DRepKind.ALWAYS_ABSTAIN };
     case DRepAction.ALWAYS_NO_CONFIDENCE:
       return { kind: DRepKind.ALWAYS_NO_CONFIDENCE };
-    case DRepAction.CUSTOM_DREP:
+    case DRepAction.CUSTOM_DREP: {
       if (!drepId) {
         throw new Error("custom-drep requires drepId");
       }
@@ -437,6 +480,7 @@ export const drepActionToDRepInfo = (action: DRepAction, drepId?: string): DRepI
         kind: isScript ? DRepKind.SCRIPT_HASH : DRepKind.KEY_HASH,
         keyHash,
       };
+    }
     default:
       throw new Error(`Unknown DRep action: ${action}`);
   }
@@ -459,12 +503,13 @@ export const buildVotingProcedures = (
   governanceActionId: { txHash: string; index: number },
   vote: 0 | 1 | 2,
   anchor?: { url: string; dataHash: string }
-): Map<any, Map<any, any>> => {
+): Map<CborArray, Map<CborArray, CborArray>> => {
   const voterKey = [1, [0, toUint8Array(credential)]]; // DRep voter, key-hash credential
 
   const txHashBytes = toUint8Array(Buffer.from(governanceActionId.txHash, "hex"));
   const govActionKey = [txHashBytes, governanceActionId.index];
 
+  if (anchor) validateAnchorDataHash(anchor.dataHash);
   const anchorValue = anchor
     ? [anchor.url, toUint8Array(Buffer.from(anchor.dataHash, "hex"))]
     : null;
@@ -483,7 +528,8 @@ export const buildDRepRegistrationCertificate = (
   credential: Buffer,
   depositLovelace: number,
   anchor?: { url: string; dataHash: string }
-): any => {
+): CborArray => {
+  if (anchor) validateAnchorDataHash(anchor.dataHash);
   const drepCredential = [0, toUint8Array(credential)];
   const anchorValue = anchor
     ? [anchor.url, toUint8Array(Buffer.from(anchor.dataHash, "hex"))]
