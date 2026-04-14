@@ -2,19 +2,13 @@
  * Staking-related Iagon API types
  */
 
-import { RewardType } from "../index.js";
+import { RewardType, LastUpdated } from "../index.js";
 
-type Pagination = {
+export type Pagination = {
   limit: number;
   offset: number;
   total: number;
   hasMore: boolean;
-};
-
-type LastUpdated = {
-  slot_no: number;
-  block_hash: string;
-  block_time: string;
 };
 
 export interface StakeAccountReward {
