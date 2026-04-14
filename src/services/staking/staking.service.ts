@@ -66,7 +66,7 @@ import {
   RegistrationVerifier,
 } from "./helpers/index.js";
 
-import { CardanoAmounts } from "../../constants.js";
+import { CardanoAmounts, CardanoConstants } from "../../constants.js";
 
 /**
  * Main Staking Service
@@ -195,7 +195,7 @@ export class StakingService {
     try {
       await this.validator.validateDelegationPrerequisites(vaultAccountId, poolId);
 
-      const minAmount = CardanoAmounts.MIN_UTXO_BASE_LOVELACE + fee;
+      const minAmount = CardanoConstants.MIN_UTXO_BASE_LOVELACE + fee;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minAmount
@@ -255,7 +255,7 @@ export class StakingService {
         };
       }
 
-      const minInputAmount = CardanoAmounts.MIN_UTXO_BASE_LOVELACE + fee;
+      const minInputAmount = CardanoConstants.MIN_UTXO_BASE_LOVELACE + fee;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minInputAmount
@@ -287,7 +287,7 @@ export class StakingService {
 
       this.logger.info(`Withdrawing rewards for vault account ${vaultAccountId}`);
 
-      const minInputAmount = CardanoAmounts.MIN_UTXO_BASE_LOVELACE + fee;
+      const minInputAmount = CardanoConstants.MIN_UTXO_BASE_LOVELACE + fee;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minInputAmount

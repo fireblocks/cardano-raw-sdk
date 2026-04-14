@@ -30,6 +30,14 @@ export enum CardanoConstants {
    * address to make future transactions exceed the size limit.
    */
   MAX_TX_INPUTS = 100,
+  /**
+   * Base minimum lovelace for any UTxO (Cardano protocol parameter).
+   * Minimum ADA required for ADA-only or single-policy UTxOs.
+   * Kept here (not in CardanoAmounts) to avoid a duplicate-value clash with
+   * CardanoAmounts.GOVERNANCE_TX_FEE — both happen to be 1 ADA today but are
+   * independent protocol constants that must be updated separately if either changes.
+   */
+  MIN_UTXO_BASE_LOVELACE = 1_000_000,
 }
 
 export enum CardanoAmounts {
@@ -56,14 +64,6 @@ export enum CardanoAmounts {
    * Set to 0.5 ADA (500,000 lovelace) as a safe upper bound
    */
   ESTIMATED_MAX_FEE = 500_000,
-  /**
-   * Base minimum lovelace for any UTXO (Cardano protocol parameter)
-   * This is the minimum for ADA-only or single-policy UTXOs.
-   * Coincidentally the same numeric value as GOVERNANCE_TX_FEE - these are
-   * independent protocol constants that happen to share the value 1 ADA.
-   */
-  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
-  MIN_UTXO_BASE_LOVELACE = 1_000_000,
   /**
    * Additional lovelace required per token policy (Cardano protocol parameter)
    * Each distinct policy in a UTXO adds ~0.15 ADA to the minimum requirement

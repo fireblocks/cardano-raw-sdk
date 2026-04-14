@@ -890,10 +890,10 @@ export class FireblocksCardanoRawSDK {
     witnesses.free();
 
     const signedTx = Transaction.new(txBody, witnessSet);
-    witnessSet.free();
 
     // Verify the fee is sufficient using Cardano's min_fee calculation
     const minRequiredFee = calculateTransactionFee(signedTx);
+    witnessSet.free();
     const allocatedFee = parseInt(txBody.fee().to_str());
 
     if (minRequiredFee > allocatedFee) {
@@ -1196,12 +1196,12 @@ export class FireblocksCardanoRawSDK {
         "FireblocksCardanoRawSDK"
       );
     }
-    if (lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+    if (lovelaceAmount < CardanoConstants.MIN_UTXO_BASE_LOVELACE) {
       throw new SdkApiError(
-        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
         400,
         "BelowMinimumUtxo",
-        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        { lovelaceAmount, minimum: CardanoConstants.MIN_UTXO_BASE_LOVELACE },
         "FireblocksCardanoRawSDK"
       );
     }
@@ -1425,12 +1425,12 @@ export class FireblocksCardanoRawSDK {
       lovelaceAmount,
     } = params;
 
-    if (lovelaceAmount !== undefined && lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+    if (lovelaceAmount !== undefined && lovelaceAmount < CardanoConstants.MIN_UTXO_BASE_LOVELACE) {
       throw new SdkApiError(
-        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
         400,
         "BelowMinimumUtxo",
-        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        { lovelaceAmount, minimum: CardanoConstants.MIN_UTXO_BASE_LOVELACE },
         "FireblocksCardanoRawSDK"
       );
     }
@@ -1478,7 +1478,7 @@ export class FireblocksCardanoRawSDK {
     const recipientPolicies = new Set(tokens.map((t) => t.tokenPolicyId)).size;
     const estimatedMinRecipient =
       lovelaceAmount ??
-      CardanoAmounts.MIN_UTXO_BASE_LOVELACE +
+      CardanoConstants.MIN_UTXO_BASE_LOVELACE +
         recipientPolicies * CardanoAmounts.MIN_UTXO_PER_POLICY_LOVELACE;
     const minimumRequired =
       estimatedMinRecipient + CardanoAmounts.ESTIMATED_MAX_FEE + minChangeLovelace;
@@ -1803,7 +1803,10 @@ export class FireblocksCardanoRawSDK {
       this.logger.info("JWKS webhook signature verification successful");
       return true;
     } catch (error: unknown) {
-      this.logger.error("JWKS verification failed:", error instanceof Error ? error.message : String(error));
+      this.logger.error(
+        "JWKS verification failed:",
+        error instanceof Error ? error.message : String(error)
+      );
       return false;
     }
   }
@@ -1843,7 +1846,10 @@ export class FireblocksCardanoRawSDK {
 
       return isValid;
     } catch (error: unknown) {
-      this.logger.error("Legacy signature verification failed:", error instanceof Error ? error.message : String(error));
+      this.logger.error(
+        "Legacy signature verification failed:",
+        error instanceof Error ? error.message : String(error)
+      );
       return false;
     }
   }
@@ -1909,7 +1915,9 @@ export class FireblocksCardanoRawSDK {
    * @param payload - The webhook payload to enrich
    * @returns The enriched webhook payload with cardanoTokensData if applicable
    */
-  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<WebhookPayloadData> => {
+  public enrichWebhookPayload = async (
+    payload: WebhookPayloadData
+  ): Promise<WebhookPayloadData> => {
     if (
       payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
       payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
@@ -2026,7 +2034,9 @@ export class FireblocksCardanoRawSDK {
 
         return { assetId, metadata };
       } catch (error: unknown) {
-        this.logger.warn(`Failed to fetch metadata for ${assetId}: ${error instanceof Error ? error.message : String(error)}`);
+        this.logger.warn(
+          `Failed to fetch metadata for ${assetId}: ${error instanceof Error ? error.message : String(error)}`
+        );
         return null;
       }
     });
@@ -2561,9 +2571,7 @@ export class FireblocksCardanoRawSDK {
     return await this.stakingService.withdrawRewards({ vaultAccountId, limit, fee });
   };
 
-  public getStakeAccountInfo = async (
-    vaultAccountId: string
-  ): Promise<StakeAccountInfo> => {
+  public getStakeAccountInfo = async (vaultAccountId: string): Promise<StakeAccountInfo> => {
     this.logger.info(`Getting staking account info for vault account ${vaultAccountId}`);
 
     const stakeAddress = await this.stakingService.getStakeAddress(vaultAccountId);
