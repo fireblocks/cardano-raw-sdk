@@ -29,6 +29,9 @@ export const formatWithDecimals = (
   decimals: number
 ): { value: string; raw: string } => {
   const amount = typeof rawAmount === "bigint" ? rawAmount : BigInt(Math.trunc(Number(rawAmount)));
+  if (amount < 0n) {
+    throw new Error(`formatWithDecimals: negative amount is not supported (got ${amount})`);
+  }
   const divisor = BigInt(10 ** decimals);
   const whole = amount / divisor;
   const remainder = amount % divisor;
@@ -47,7 +50,16 @@ export const formatWithDecimals = (
  * Uses string splitting to avoid floating-point precision loss.
  */
 export const parseAdaStringToLovelace = (ada: string): number => {
+  if (!/^\d+(\.\d+)?$/.test(ada)) {
+    throw new Error(
+      `Invalid ADA string: "${ada}" — expected a non-negative decimal number (e.g. "1.5")`
+    );
+  }
   const [wholePart = "0", fracPart = ""] = ada.split(".");
   const paddedFrac = fracPart.padEnd(6, "0").slice(0, 6);
-  return parseInt(wholePart, 10) * 1_000_000 + parseInt(paddedFrac || "0", 10);
+  const result = parseInt(wholePart, 10) * 1_000_000 + parseInt(paddedFrac || "0", 10);
+  if (!Number.isFinite(result)) {
+    throw new Error(`ADA string out of range: "${ada}"`);
+  }
+  return result;
 };
