@@ -357,7 +357,6 @@ export type DeregisterStakingRequest = z.infer<typeof deregisterStakingRequestSc
 export const delegateToPoolRequestSchema = z.object({
   vaultAccountId: z.string().min(1, "vaultAccountId is required"),
   poolId: z.string().min(1, "poolId is required"),
-  fee: z.number().int().positive().optional(),
 });
 
 export type DelegateToPoolRequest = z.infer<typeof delegateToPoolRequestSchema>;
