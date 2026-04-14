@@ -79,10 +79,10 @@ _coinsPerByte.free();
  */
 export const calculateMinLovelaceForUtxo = (numPolicies: number): number => {
   if (numPolicies === 0) {
-    return CardanoAmounts.MIN_UTXO_BASE_LOVELACE;
+    return CardanoConstants.MIN_UTXO_BASE_LOVELACE;
   }
   return (
-    CardanoAmounts.MIN_UTXO_BASE_LOVELACE +
+    CardanoConstants.MIN_UTXO_BASE_LOVELACE +
     numPolicies * CardanoAmounts.MIN_UTXO_PER_POLICY_LOVELACE
   );
 };
@@ -205,6 +205,14 @@ export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCn
         accumulatedAda += adaAmount;
         if (accumulatedAda >= adaTarget) break;
       }
+    }
+
+    // If the input cap was hit and ADA is still insufficient, surface a clear error.
+    if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS && accumulatedAda < adaTarget) {
+      throw new Error(
+        `Input cap (${CardanoConstants.MAX_TX_INPUTS} UTxOs) reached but only ${accumulatedAda} of ${adaTarget} lovelace accumulated. ` +
+          `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`
+      );
     }
 
     const release = lock ? utxoLocks.lock(selectedUtxos) : () => {};
@@ -624,8 +632,9 @@ const buildValidatedOutput = (
   lovelaceBigNum.free();
   if (multiAsset) value.set_multiasset(multiAsset);
   const output = TransactionOutput.new(address, value);
-  value.free();
+  // Defer value.free() until after min_ada_for_output
   const minAdaBigNum = min_ada_for_output(output, DATA_COST);
+  value.free();
   const minLovelace = parseInt(minAdaBigNum.to_str());
   minAdaBigNum.free();
   if (lovelace < minLovelace) {
@@ -728,7 +737,7 @@ export const fetchAndSelectUtxosForAda = async (
 
   // Phase 1: exhaust ADA-only UTxOs first
   // Target includes 1 ADA minimum for a pure-ADA change output
-  const phase1Target = lovelaceAmount + transactionFee + CardanoAmounts.MIN_UTXO_BASE_LOVELACE;
+  const phase1Target = lovelaceAmount + transactionFee + CardanoConstants.MIN_UTXO_BASE_LOVELACE;
   for (const utxo of adaOnlyUtxos) {
     if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS) {
       logger.warn(
@@ -763,6 +772,15 @@ export const fetchAndSelectUtxosForAda = async (
   const changeTokenAssets = collectAllAssets(selectedUtxos);
   const numChangePolicies = countDistinctPolicies(changeTokenAssets);
   const minChangeLovelace = calculateMinLovelaceForUtxo(numChangePolicies);
+
+  // give a clear error if hit the input cap and still have insufficient funds.
+  const required = lovelaceAmount + transactionFee + CardanoConstants.MIN_UTXO_BASE_LOVELACE;
+  if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS && accumulatedAda < required) {
+    throw new Error(
+      `Input cap (${CardanoConstants.MAX_TX_INPUTS} UTxOs) reached but only ${accumulatedAda} of ${required} lovelace accumulated. ` +
+        `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`
+    );
+  }
 
   logger.info(
     `ADA UTXO selection: ${selectedUtxos.length} selected (${adaOnlyUtxos.length} ADA-only available), ` +
@@ -967,6 +985,15 @@ export const fetchAndSelectUtxosForMultiToken = async (
   const numChangePolicies = countDistinctPolicies(changeTokenAssets);
   const minChangeLovelace = calculateMinLovelaceForUtxo(numChangePolicies);
 
+  // If the input cap was hit and ADA is still insufficient, surface a clear error.
+  const adaRequired = minRecipient + transactionFee + minChangeLovelace;
+  if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS && accumulatedAda < adaRequired) {
+    throw new Error(
+      `Input cap (${CardanoConstants.MAX_TX_INPUTS} UTxOs) reached but only ${accumulatedAda} of ${adaRequired} lovelace accumulated. ` +
+        `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`
+    );
+  }
+
   logger.info(
     `Multi-token UTXO selection: ${selectedUtxos.length} selected, ` +
       `${accumulatedAda} lovelace accumulated, ` +
@@ -1011,8 +1038,8 @@ export const createMultiTokenTransactionOutputs = (
   tempLovelaceBN.free();
   tempValue.set_multiasset(recipientMultiAsset);
   const tempOutput = TransactionOutput.new(recipientAddress, tempValue);
-  tempValue.free();
   const minRecipientBN = min_ada_for_output(tempOutput, DATA_COST);
+  tempValue.free(); // deferred until after min_ada calculation
   const actualMinRecipient = parseInt(minRecipientBN.to_str());
   minRecipientBN.free();
   tempOutput.free();
@@ -1095,10 +1122,10 @@ export const createConsolidationOutput = (
   const totalInputLovelace = selectedUtxos.reduce((sum, u) => sum + u.value.lovelace, 0);
   const outputLovelace = totalInputLovelace - fee;
 
-  if (outputLovelace < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+  if (outputLovelace < CardanoConstants.MIN_UTXO_BASE_LOVELACE) {
     throw new Error(
       `Insufficient ADA for consolidation: fee (${fee} lovelace) leaves only ` +
-        `${outputLovelace} lovelace, below the ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace minimum`
+        `${outputLovelace} lovelace, below the ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace minimum`
     );
   }
 
