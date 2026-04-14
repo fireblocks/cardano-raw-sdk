@@ -92,6 +92,9 @@ export class UtxoProvider implements IUtxoProvider {
   }
 
   private formatAda(lovelace: number): string {
-    return (lovelace / 1000000).toFixed(1);
+    const bigLovelace = BigInt(Math.trunc(lovelace));
+    const whole = bigLovelace / 1_000_000n;
+    const frac = bigLovelace % 1_000_000n;
+    return `${whole}.${frac.toString().padStart(6, "0").slice(0, 1)}`;
   }
 }
