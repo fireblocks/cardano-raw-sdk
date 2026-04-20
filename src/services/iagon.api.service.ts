@@ -68,7 +68,7 @@ export class IagonApiService {
 
     // SECURITY: Prevent SSL verification disabling in production
     if (disableSslVerification) {
-      const env = process.env.NODE_ENV || "development";
+      const env = process.env.NODE_ENV || "production";
 
       if (env === "production") {
         throw new Error(

@@ -785,25 +785,25 @@ curl http://localhost:8000/api/pools/pool1.../blocks
 
 ### Environment Variables
 
-Create a `.env` file in the project root (see `.env.example`):
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-# Server Configuration
-PORT=8000
-
-# Fireblocks Configuration (Required)
-FIREBLOCKS_API_USER_KEY=your-api-key
-FIREBLOCKS_API_USER_SECRET_KEY_PATH=/path/to/fireblocks_secret.key
-FIREBLOCKS_BASE_PATH=https://api.fireblocks.io
-
-# Cardano Network Configuration
-CARDANO_NETWORK=mainnet  # Options: mainnet, preprod, preview
-
-# Iagon API Configuration (Required)
-# Required for all balance queries, transaction history, and token transfers
-IAGON_API_KEY=your-iagon-api-key
-
+cp .env.example .env
 ```
+
+| Variable                              | Required | Default                     | Description                                                    |
+| ------------------------------------- | -------- | --------------------------- | -------------------------------------------------------------- |
+| `PORT`                                | No       | `8000`                      | HTTP server port                                               |
+| `NODE_ENV`                            | No       | `production`                | Set to `development` only when using self-signed certs locally |
+| `FIREBLOCKS_API_USER_KEY`             | Yes      | -                           | Fireblocks API key UUID                                        |
+| `FIREBLOCKS_API_USER_SECRET_KEY_PATH` | Yes      | -                           | Absolute path to the Fireblocks RSA secret key file            |
+| `FIREBLOCKS_BASE_PATH`                | No       | `https://api.fireblocks.io` | Fireblocks workspace URL - also controls webhook JWKS region   |
+| `IAGON_API_KEY`                       | Yes      | -                           | Iagon API key for blockchain data queries                      |
+| `CARDANO_NETWORK`                     | No       | `mainnet`                   | `mainnet` or `preprod`                                         |
+
+**Fireblocks base path options:**
+
+- US (default): `https://api.fireblocks.io`
 
 ### Fireblocks Secret Key
 
