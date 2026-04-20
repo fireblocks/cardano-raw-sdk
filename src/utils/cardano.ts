@@ -390,20 +390,40 @@ export const createTransactionOutputs = (
 
   // --- Recipient output ---
   // Compute min-ADA for the recipient, adjusting up if the protocol requires more than requested.
-  const recipientMultiAsset = buildMultiAssetFromGrouped({
-    [tokenPolicyId]: { [tokenName]: transferAmount },
-  })!;
-  const tempLovelaceBN = BigNum.from_str(requiredLovelace.toString());
-  const tempRecipientValue = Value.new(tempLovelaceBN);
-  tempLovelaceBN.free();
-  tempRecipientValue.set_multiasset(recipientMultiAsset);
-  const tempRecipientOutput = TransactionOutput.new(recipientAddress, tempRecipientValue);
-  tempRecipientValue.free();
-  const minRecipientBN = min_ada_for_output(tempRecipientOutput, DATA_COST);
-  const actualMinRecipient = parseInt(minRecipientBN.to_str());
-  minRecipientBN.free();
-  tempRecipientOutput.free();
-  const recipientLovelace = Math.max(requiredLovelace, actualMinRecipient);
+  let recipientMultiAsset: MultiAsset | null = null;
+  let tempLovelaceBN: BigNum | null = null;
+  let tempRecipientValue: Value | null = null;
+  let tempRecipientOutput: TransactionOutput | null = null;
+  let minRecipientBN: BigNum | null = null;
+  let recipientLovelace: number;
+
+  try {
+    recipientMultiAsset = buildMultiAssetFromGrouped({
+      [tokenPolicyId]: { [tokenName]: transferAmount },
+    })!;
+    tempLovelaceBN = BigNum.from_str(requiredLovelace.toString());
+    tempRecipientValue = Value.new(tempLovelaceBN);
+    tempLovelaceBN.free();
+    tempLovelaceBN = null;
+    tempRecipientValue.set_multiasset(recipientMultiAsset);
+    tempRecipientOutput = TransactionOutput.new(recipientAddress, tempRecipientValue);
+    tempRecipientValue.free();
+    tempRecipientValue = null;
+    minRecipientBN = min_ada_for_output(tempRecipientOutput, DATA_COST);
+    const actualMinRecipient = parseInt(minRecipientBN.to_str());
+    minRecipientBN.free();
+    minRecipientBN = null;
+    tempRecipientOutput.free();
+    tempRecipientOutput = null;
+    recipientLovelace = Math.max(requiredLovelace, actualMinRecipient);
+  } finally {
+    // Clean up WASM objects in case of error
+    if (recipientMultiAsset) recipientMultiAsset.free();
+    if (tempLovelaceBN) tempLovelaceBN.free();
+    if (tempRecipientValue) tempRecipientValue.free();
+    if (tempRecipientOutput) tempRecipientOutput.free();
+    if (minRecipientBN) minRecipientBN.free();
+  }
 
   if (recipientLovelace > requiredLovelace) {
     logger.info(`Adjusting recipient min ADA: ${requiredLovelace} → ${recipientLovelace}`);

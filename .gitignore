@@ -34,3 +34,6 @@ yarn.lock
 
 .claude
 CLAUDE.md
+*.md
+!README.md
+*.pdf

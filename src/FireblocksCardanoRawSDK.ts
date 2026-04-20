@@ -1033,16 +1033,21 @@ export class FireblocksCardanoRawSDK {
   ): Promise<CntFeeEstimationResponse> => {
     const { requiredTokenAmount, grossAmount = false } = request;
 
+    let txBody: TransactionBody | null = null;
     try {
       this.logger.info(
         `Estimating transaction fee for ${requiredTokenAmount} ${request.tokenName} (grossAmount: ${grossAmount})`
       );
 
       // Prepare transaction (reuses validation and building logic)
-      const { txBody, minRecipientLovelace } = await this.prepareTransaction(request);
+      const prepareResult = await this.prepareTransaction(request);
+      txBody = prepareResult.txBody;
+      const minRecipientLovelace = prepareResult.minRecipientLovelace;
 
       // Extract fee from transaction body
-      const feeLovelace = BigInt(txBody.fee().to_str());
+      const fee = txBody.fee();
+      const feeLovelace = BigInt(fee.to_str());
+      fee.free();
       const feeFormatted = formatWithDecimals(Number(feeLovelace), CardanoConstants.ADA_DECIMALS);
 
       // Calculate minimum ADA required in output
@@ -1092,6 +1097,9 @@ export class FireblocksCardanoRawSDK {
       };
     } catch (error) {
       this.logAndRethrow("FeeEstimation", error);
+    } finally {
+      // Always free WASM objects to prevent memory leaks
+      if (txBody) txBody.free();
     }
   };
 
@@ -1290,12 +1298,16 @@ export class FireblocksCardanoRawSDK {
   ): Promise<AdaFeeEstimationResponse> => {
     const { lovelaceAmount, grossAmount = false } = request;
 
+    let txBody: TransactionBody | null = null;
     try {
       this.logger.info(
         `Estimating ADA transaction fee for ${lovelaceAmount} lovelace (grossAmount: ${grossAmount})`
       );
 
-      const { fee, changeTokenAssets } = await this.prepareAdaTransaction(request);
+      const prepareResult = await this.prepareAdaTransaction(request);
+      txBody = prepareResult.txBody;
+      const fee = prepareResult.fee;
+      const changeTokenAssets = prepareResult.changeTokenAssets;
 
       const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
 
@@ -1331,6 +1343,9 @@ export class FireblocksCardanoRawSDK {
       return response;
     } catch (error) {
       this.logAndRethrow("AdaFeeEstimation", error);
+    } finally {
+      // Always free WASM objects to prevent memory leaks
+      if (txBody) txBody.free();
     }
   };
 
@@ -1544,13 +1559,18 @@ export class FireblocksCardanoRawSDK {
   ): Promise<MultiTokenFeeEstimationResponse> => {
     const { grossAmount = false } = request;
 
+    let txBody: TransactionBody | null = null;
     try {
       this.logger.info(`Estimating multi-token fee for ${request.tokens.length} token type(s)`);
 
-      const { txBody, minRecipientLovelace, changeTokenAssets } =
-        await this.prepareMultiTokenTransaction(request);
+      const prepareResult = await this.prepareMultiTokenTransaction(request);
+      txBody = prepareResult.txBody;
+      const minRecipientLovelace = prepareResult.minRecipientLovelace;
+      const changeTokenAssets = prepareResult.changeTokenAssets;
 
-      const feeLovelace = parseInt(txBody.fee().to_str());
+      const fee = txBody.fee();
+      const feeLovelace = parseInt(fee.to_str());
+      fee.free();
       const feeFormatted = formatWithDecimals(feeLovelace, CardanoConstants.ADA_DECIMALS);
       const minAdaFormatted = formatWithDecimals(
         minRecipientLovelace,
@@ -1582,6 +1602,9 @@ export class FireblocksCardanoRawSDK {
       return response;
     } catch (error) {
       this.logAndRethrow("MultiTokenFeeEstimation", error);
+    } finally {
+      // Always free WASM objects to prevent memory leaks
+      if (txBody) txBody.free();
     }
   };
 

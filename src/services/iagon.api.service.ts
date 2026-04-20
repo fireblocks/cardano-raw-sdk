@@ -66,6 +66,23 @@ export class IagonApiService {
       );
     }
 
+    // SECURITY: Prevent SSL verification disabling in production
+    if (disableSslVerification) {
+      const env = process.env.NODE_ENV || "development";
+
+      if (env === "production") {
+        throw new Error(
+          "SSL verification cannot be disabled in production environment. " +
+            "This is a critical security vulnerability that enables man-in-the-middle attacks."
+        );
+      }
+
+      this.logger.warn(
+        "⚠️  SSL VERIFICATION DISABLED - This should ONLY be used in development with self-signed certificates. " +
+          "NEVER deploy to production with this setting."
+      );
+    }
+
     this.iagonApiKey = apiKey;
     this.network = network;
     this.ASSET_CACHE_TTL = assetCacheTTL;
