@@ -14,10 +14,9 @@ export class RewardsQueryService {
   ) {}
 
   async queryRewards(stakeAddress: string): Promise<RewardsData> {
-    const [accountInfo, rewardsResponse, withdrawalHistory] = await Promise.all([
+    const [accountInfo, rewardsResponse] = await Promise.all([
       this.iagonApiService.getStakeAccountInfo(stakeAddress),
       this.iagonApiService.getStakeAccountRewards(stakeAddress),
-      this.iagonApiService.getWithdrawalHistory(stakeAddress),
     ]);
 
     const rewards = rewardsResponse.data.map((reward) => ({

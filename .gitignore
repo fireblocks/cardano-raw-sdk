@@ -16,6 +16,7 @@ yarn-error.log*
 
 build/
 dist/
+coverage/
 
 yarn.lock
 
@@ -34,3 +35,6 @@ yarn.lock
 
 .claude
 CLAUDE.md
+*.md
+!README.md
+*.pdf

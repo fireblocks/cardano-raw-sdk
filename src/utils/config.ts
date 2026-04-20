@@ -36,7 +36,7 @@ const getSecretKey = (secretKeyPath?: string): string => {
   try {
     return readFileSync(path, "utf-8");
   } catch (error) {
-    throw new Error(`Failed to read secret key file at ${path}: ${error}`);
+    throw new Error(`Failed to read secret key file at ${path}: ${error}`, { cause: error });
   }
 };
 

@@ -17,6 +17,7 @@ const logger = new Logger("utils:fireblocks");
  * @param txId - The Fireblocks transaction ID to monitor
  * @param fireblocks - Initialized Fireblocks SDK instance for API calls
  * @param pollingInterval - Optional interval between status checks in milliseconds (default: 1000ms)
+ * @param maxWaitMs - Maximum total time to wait before throwing a timeout error (default: 10 minutes)
  *
  * @returns Promise resolving to the final TransactionResponse when completed or broadcasting
  *
@@ -54,12 +55,14 @@ const logger = new Logger("utils:fireblocks");
 export const getTxStatus = async (
   txId: string,
   fireblocks: Fireblocks,
-  pollingInterval: number = 1000
+  pollingInterval: number = 1000,
+  maxWaitMs: number = 10 * 60 * 1000 // 10 minutes
 ): Promise<TransactionResponse> => {
   try {
     let txResponse: FireblocksResponse<TransactionResponse> =
       await fireblocks.transactions.getTransaction({ txId });
     let lastStatus = txResponse.data.status;
+    const deadline = Date.now() + maxWaitMs;
 
     logger.info(
       `Transaction ${txResponse.data.id} is currently at status - ${txResponse.data.status}`
@@ -70,6 +73,12 @@ export const getTxStatus = async (
       txResponse.data.status !== TransactionStateEnum.Completed &&
       txResponse.data.status !== TransactionStateEnum.Broadcasting
     ) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `Transaction ${txId} polling timed out after ${maxWaitMs / 1000}s. Last status: ${lastStatus}`
+        );
+      }
+
       await new Promise((resolve) => setTimeout(resolve, pollingInterval));
 
       txResponse = await fireblocks.transactions.getTransaction({

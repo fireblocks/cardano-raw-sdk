@@ -3,7 +3,7 @@ export class SdkApiError extends Error {
     message: string,
     public statusCode?: number,
     public errorType?: string,
-    public errorInfo?: any,
+    public errorInfo?: unknown,
     public service?: string
   ) {
     super(message);

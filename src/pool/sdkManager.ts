@@ -197,6 +197,31 @@ export class SdkManager {
   }
 
   /**
+   * Acquires an SDK instance, runs a callback, then releases it back to the pool.
+   * Guarantees release even if the callback throws.
+   *
+   * @param vaultAccountId - The vault account ID
+   * @param callback - Async function that receives the SDK instance
+   * @returns The value returned by the callback
+   *
+   * @example
+   * ```typescript
+   * const balance = await manager.withSdk('vault-123', (sdk) => sdk.getBalanceByAddress());
+   * ```
+   */
+  public async withSdk<T>(
+    vaultAccountId: string,
+    callback: (sdk: FireblocksCardanoRawSDK) => Promise<T>
+  ): Promise<T> {
+    const sdk = await this.getSdk(vaultAccountId);
+    try {
+      return await callback(sdk);
+    } finally {
+      this.releaseSdk(vaultAccountId);
+    }
+  }
+
+  /**
    * Removes the oldest idle SDK from the pool (LRU eviction).
    *
    * @returns True if an SDK was removed, false otherwise

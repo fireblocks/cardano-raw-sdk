@@ -192,7 +192,8 @@ export class FireblocksService {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
       throw new Error(
-        `Failed to get ${assetId} address for vault account ${vaultAccountId}: ${message}`
+        `Failed to get ${assetId} address for vault account ${vaultAccountId}: ${message}`,
+        { cause: error }
       );
     }
   };
@@ -288,7 +289,8 @@ export class FireblocksService {
             : "Unknown error";
 
       throw new Error(
-        `Failed to get ${assetId} address for vault account ${vaultAccountId}: ${message}`
+        `Failed to get ${assetId} address for vault account ${vaultAccountId}: ${message}`,
+        { cause: error }
       );
     }
   };
@@ -554,7 +556,8 @@ export class FireblocksService {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Unknown error";
       throw new Error(
-        `Failed to get public key for vault account ${vaultAccountId} on ${assetId}: ${message}`
+        `Failed to get public key for vault account ${vaultAccountId} on ${assetId}: ${message}`,
+        { cause: error }
       );
     }
   };

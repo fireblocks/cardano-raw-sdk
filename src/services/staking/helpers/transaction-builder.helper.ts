@@ -21,7 +21,7 @@ export class TransactionBuilder {
 
   async buildTransaction(
     context: TransactionBuildContext
-  ): Promise<{ serialized: Buffer; deserialized: any }> {
+  ): Promise<{ serialized: Buffer; deserialized: Map<number, unknown> }> {
     return buildPayload({
       toAddress: context.toAddress,
       netAmount: context.netAmount,

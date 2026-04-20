@@ -3,7 +3,12 @@
  * Handles UTXO finding and selection logic
  */
 
-import { Logger, findSuitableUtxo, UtxoForStaking } from "../../../utils/index.js";
+import {
+  Logger,
+  findSuitableUtxo,
+  UtxoForStaking,
+  formatWithDecimals,
+} from "../../../utils/index.js";
 import { SdkApiError } from "../../../types/index.js";
 import { FireblocksService, IagonApiService } from "../../index.js";
 import {
@@ -80,7 +85,7 @@ export class UtxoProvider implements IUtxoProvider {
   }
 
   private createInsufficientFundsError(vaultAccountId: string, minAmount: number): SdkApiError {
-    const requiredAda = this.formatAda(minAmount);
+    const requiredAda = formatWithDecimals(minAmount, 6).value;
     return new SdkApiError(
       `No address with pure ADA UTXO of at least ${requiredAda} ADA found. ` +
         `Please send ${requiredAda} ADA (without tokens) to this vault.`,
@@ -89,9 +94,5 @@ export class UtxoProvider implements IUtxoProvider {
       { vaultAccountId, requiredAmount: minAmount },
       "staking-service"
     );
-  }
-
-  private formatAda(lovelace: number): string {
-    return (lovelace / 1000000).toFixed(1);
   }
 }

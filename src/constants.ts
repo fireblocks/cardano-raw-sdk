@@ -1,17 +1,15 @@
 export const iagonBaseUrl = "https://api.fireblocks.partners.iagon.com";
 
 export enum CardanoConstants {
-  BIP_44_CONSTANT = 44,
   ADA_COIN_TYPE = 1815,
   ADA_TEST_COIN_TYPE = 1,
   CHANGE_INDEX = 0,
-  PERMANENT_ACCOUNT_INDEX = 0,
   CHIMERIC_INDEX = 2,
   CARDANO_BASE_ADDRESS_MIN_LENGTH = 57, // 1 byte header + 28 bytes payment + 28 bytes stake
   CARDANO_PAYMENT_CREDENTIAL_OFFSET = 29, // 1 byte header + 28 bytes payment hash
   ADA_DECIMALS = 6, // 1 ADA = 1,000,000 lovelace
-  MIN_FEE_A = 44, // Cardano protocol parameter: minFeeA — lovelace per transaction byte
-  MIN_FEE_B = 155_381, // Cardano protocol parameter: minFeeB — constant lovelace term in the fee formulaCardano protocol parameter: minFeeB — constant factor in fee calculation
+  MIN_FEE_A = 44, // Cardano protocol parameter: minFeeA - lovelace per transaction byte
+  MIN_FEE_B = 155_381, // Cardano protocol parameter: minFeeB - constant lovelace term in the fee formula
   /**
    * Bytes per Ed25519 signature witness in the CBOR-encoded transaction
    */
@@ -25,6 +23,21 @@ export enum CardanoConstants {
    * permanent blocking if a request crashes before calling release().
    */
   UTXO_LOCK_TTL_MS = 120_000,
+  /**
+   * Maximum number of UTxO inputs per transaction.
+   * Cardano's 16KB transaction size limit allows ~100–150 inputs in practice.
+   * This cap prevents dust-attack vectors where many tiny UTxOs are sent to an
+   * address to make future transactions exceed the size limit.
+   */
+  MAX_TX_INPUTS = 100,
+  /**
+   * Base minimum lovelace for any UTxO (Cardano protocol parameter).
+   * Minimum ADA required for ADA-only or single-policy UTxOs.
+   * Kept here (not in CardanoAmounts) to avoid a duplicate-value clash with
+   * CardanoAmounts.GOVERNANCE_TX_FEE - both happen to be 1 ADA today but are
+   * independent protocol constants that must be updated separately if either changes.
+   */
+  MIN_UTXO_BASE_LOVELACE = 1_000_000,
 }
 
 export enum CardanoAmounts {
@@ -51,12 +64,6 @@ export enum CardanoAmounts {
    * Set to 0.5 ADA (500,000 lovelace) as a safe upper bound
    */
   ESTIMATED_MAX_FEE = 500_000,
-  MIN_UTXO_VALUE_ADA_ONLY = 1_000_000,
-  /**
-   * Base minimum lovelace for any UTXO (Cardano protocol parameter)
-   * This is the minimum for ADA-only or single-policy UTXOs
-   */
-  MIN_UTXO_BASE_LOVELACE = 1_000_000,
   /**
    * Additional lovelace required per token policy (Cardano protocol parameter)
    * Each distinct policy in a UTXO adds ~0.15 ADA to the minimum requirement

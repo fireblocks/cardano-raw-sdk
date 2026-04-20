@@ -24,6 +24,7 @@ import {
   submitTransaction,
   decodeAssetName,
   formatWithDecimals,
+  parseAdaStringToLovelace,
   getStakeAddressFromBaseAddress,
 } from "./utils/index.js";
 
@@ -66,7 +67,7 @@ import {
   CastVoteResult,
   RewardsData,
   WebhookEventTypes,
-  StakeAccountInfoResponse,
+  StakeAccountInfo,
   HealthStatusResponse,
   CurrentEpochResponse,
   AssetInfoResponse,
@@ -209,9 +210,10 @@ export class FireblocksCardanoRawSDK {
       });
 
       return sdkInstance;
-    } catch (error: any) {
+    } catch (error: unknown) {
       throw new Error(
-        `Error creating FireblocksCardanoRawSDK: ${error instanceof Error ? error.message : error}`
+        `Error creating FireblocksCardanoRawSDK: ${error instanceof Error ? error.message : error}`,
+        { cause: error }
       );
     }
   };
@@ -228,7 +230,7 @@ export class FireblocksCardanoRawSDK {
    */
   public getBalanceByAddress = async (
     options: { index?: number; groupByPolicy?: boolean; includeMetadata?: boolean } = {}
-  ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { index = 0, groupByPolicy = false, includeMetadata = false } = options;
 
     // Use cached address fetching
@@ -312,7 +314,7 @@ export class FireblocksCardanoRawSDK {
     credential: string;
     groupByPolicy?: boolean;
     includeMetadata?: boolean;
-  }): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+  }): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { credential, groupByPolicy = false, includeMetadata = false } = options;
 
     this.logger.info(
@@ -343,7 +345,7 @@ export class FireblocksCardanoRawSDK {
       groupByPolicy?: boolean;
       includeMetadata?: boolean;
     } = {}
-  ): Promise<BalanceResponse | GroupedBalanceResponse | any> => {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> => {
     const { groupByPolicy = false, includeMetadata = false } = options;
 
     // Get the base address for this vault account (using index 0, but stake key is the same for all indices)
@@ -817,7 +819,7 @@ export class FireblocksCardanoRawSDK {
   /**
    * Calculates the transaction hash from transaction body
    */
-  private calculateTransactionHash(txBody: any): string {
+  private calculateTransactionHash(txBody: TransactionBody): string {
     const txBodyBytes = txBody.to_bytes();
     const hashBytes = blake2b(txBodyBytes, undefined, 32);
     return Buffer.from(hashBytes).toString("hex");
@@ -854,7 +856,7 @@ export class FireblocksCardanoRawSDK {
    * Signs the transaction using Fireblocks and creates witness set
    */
   private async signTransaction(
-    txBody: any,
+    txBody: TransactionBody,
     assetId: SupportedAssets = SupportedAssets.ADA
   ): Promise<Transaction> {
     const txHashHex = this.calculateTransactionHash(txBody);
@@ -871,20 +873,27 @@ export class FireblocksCardanoRawSDK {
     const publicKeyBytes = Uint8Array.from(Buffer.from(signatureResponse.publicKey, "hex"));
     const signatureBytes = Uint8Array.from(Buffer.from(signatureResponse.signature.fullSig, "hex"));
 
-    const cardanoPubKey = Vkey.new(PublicKey.from_bytes(publicKeyBytes));
+    const pubKey = PublicKey.from_bytes(publicKeyBytes);
+    const cardanoPubKey = Vkey.new(pubKey);
+    pubKey.free();
     const cardanoSig = Ed25519Signature.from_bytes(signatureBytes);
 
     const witness = Vkeywitness.new(cardanoPubKey, cardanoSig);
+    cardanoPubKey.free();
+    cardanoSig.free();
     const witnesses = Vkeywitnesses.new();
     witnesses.add(witness);
+    witness.free();
 
     const witnessSet = TransactionWitnessSet.new();
     witnessSet.set_vkeys(witnesses);
+    witnesses.free();
 
     const signedTx = Transaction.new(txBody, witnessSet);
 
     // Verify the fee is sufficient using Cardano's min_fee calculation
     const minRequiredFee = calculateTransactionFee(signedTx);
+    witnessSet.free();
     const allocatedFee = parseInt(txBody.fee().to_str());
 
     if (minRequiredFee > allocatedFee) {
@@ -990,11 +999,13 @@ export class FireblocksCardanoRawSDK {
     const txInputs = createTransactionInputs(selectedUtxos);
     const ttl = await this.fetchCurrentTtl();
 
+    const recipientAddr = Address.from_bech32(resolvedRecipientAddress);
+    const senderAddr = Address.from_bech32(senderAddress);
     const { txBody } = buildCntTransactionWithCalculatedFee(
       {
         requiredLovelace: minRecipientLovelace,
-        recipientAddress: Address.from_bech32(resolvedRecipientAddress),
-        senderAddress: Address.from_bech32(senderAddress),
+        recipientAddress: recipientAddr,
+        senderAddress: senderAddr,
         tokenPolicyId,
         tokenName,
         transferAmount: requiredTokenAmount,
@@ -1004,6 +1015,8 @@ export class FireblocksCardanoRawSDK {
       ttl,
       WITNESS_COUNT_PAYMENT_KEY_ONLY
     );
+    recipientAddr.free();
+    senderAddr.free();
 
     return { txBody, senderAddress, resolvedRecipientAddress, minRecipientLovelace, release };
   }
@@ -1020,16 +1033,21 @@ export class FireblocksCardanoRawSDK {
   ): Promise<CntFeeEstimationResponse> => {
     const { requiredTokenAmount, grossAmount = false } = request;
 
+    let txBody: TransactionBody | null = null;
     try {
       this.logger.info(
         `Estimating transaction fee for ${requiredTokenAmount} ${request.tokenName} (grossAmount: ${grossAmount})`
       );
 
       // Prepare transaction (reuses validation and building logic)
-      const { txBody, minRecipientLovelace } = await this.prepareTransaction(request);
+      const prepareResult = await this.prepareTransaction(request);
+      txBody = prepareResult.txBody;
+      const minRecipientLovelace = prepareResult.minRecipientLovelace;
 
       // Extract fee from transaction body
-      const feeLovelace = BigInt(txBody.fee().to_str());
+      const fee = txBody.fee();
+      const feeLovelace = BigInt(fee.to_str());
+      fee.free();
       const feeFormatted = formatWithDecimals(Number(feeLovelace), CardanoConstants.ADA_DECIMALS);
 
       // Calculate minimum ADA required in output
@@ -1079,6 +1097,9 @@ export class FireblocksCardanoRawSDK {
       };
     } catch (error) {
       this.logAndRethrow("FeeEstimation", error);
+    } finally {
+      // Always free WASM objects to prevent memory leaks
+      if (txBody) txBody.free();
     }
   };
 
@@ -1183,12 +1204,12 @@ export class FireblocksCardanoRawSDK {
         "FireblocksCardanoRawSDK"
       );
     }
-    if (lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+    if (lovelaceAmount < CardanoConstants.MIN_UTXO_BASE_LOVELACE) {
       throw new SdkApiError(
-        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
         400,
         "BelowMinimumUtxo",
-        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        { lovelaceAmount, minimum: CardanoConstants.MIN_UTXO_BASE_LOVELACE },
         "FireblocksCardanoRawSDK"
       );
     }
@@ -1201,7 +1222,7 @@ export class FireblocksCardanoRawSDK {
 
     const senderAddress = await this.getAddressByIndex(this.assetId, index);
 
-    // Select UTxOs — prefer ADA-only, fall back to multi-asset if needed
+    // Select UTxOs - prefer ADA-only, fall back to multi-asset if needed
     const { selectedUtxos, accumulatedAda, changeTokenAssets, minChangeLovelace } =
       await fetchAndSelectUtxosForAda({
         iagonApiService: this.iagonApiService,
@@ -1247,17 +1268,21 @@ export class FireblocksCardanoRawSDK {
     const txInputs = createTransactionInputs(selectedUtxos);
     const ttl = await this.fetchCurrentTtl();
 
+    const recipientAddrAda = Address.from_bech32(resolvedRecipientAddress);
+    const senderAddrAda = Address.from_bech32(senderAddress);
     const { txBody, fee } = buildAdaTransactionWithCalculatedFee(
       {
         lovelaceAmount,
-        recipientAddress: Address.from_bech32(resolvedRecipientAddress),
-        senderAddress: Address.from_bech32(senderAddress),
+        recipientAddress: recipientAddrAda,
+        senderAddress: senderAddrAda,
         selectedUtxos,
       },
       txInputs,
       ttl,
       WITNESS_COUNT_PAYMENT_KEY_ONLY
     );
+    recipientAddrAda.free();
+    senderAddrAda.free();
 
     return { txBody, senderAddress, resolvedRecipientAddress, fee, changeTokenAssets };
   }
@@ -1273,12 +1298,16 @@ export class FireblocksCardanoRawSDK {
   ): Promise<AdaFeeEstimationResponse> => {
     const { lovelaceAmount, grossAmount = false } = request;
 
+    let txBody: TransactionBody | null = null;
     try {
       this.logger.info(
         `Estimating ADA transaction fee for ${lovelaceAmount} lovelace (grossAmount: ${grossAmount})`
       );
 
-      const { fee, changeTokenAssets } = await this.prepareAdaTransaction(request);
+      const prepareResult = await this.prepareAdaTransaction(request);
+      txBody = prepareResult.txBody;
+      const fee = prepareResult.fee;
+      const changeTokenAssets = prepareResult.changeTokenAssets;
 
       const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
 
@@ -1314,6 +1343,9 @@ export class FireblocksCardanoRawSDK {
       return response;
     } catch (error) {
       this.logAndRethrow("AdaFeeEstimation", error);
+    } finally {
+      // Always free WASM objects to prevent memory leaks
+      if (txBody) txBody.free();
     }
   };
 
@@ -1321,7 +1353,7 @@ export class FireblocksCardanoRawSDK {
    * Transfers native ADA (lovelace) to a recipient address or vault.
    *
    * UTxO selection prefers ADA-only UTxOs. If multi-asset UTxOs must be spent,
-   * all their tokens are returned to the sender in the change output — no tokens are lost.
+   * all their tokens are returned to the sender in the change output - no tokens are lost.
    *
    * @param options - AdaTransferOpts (lovelaceAmount + recipient)
    * @returns AdaTransferResult including txHash, fee, and optional tokensPresentedInChange
@@ -1357,10 +1389,9 @@ export class FireblocksCardanoRawSDK {
         recipientVaultAccountId,
       });
 
-      // networkFee is returned as a decimal ADA string (e.g. "0.178701") — convert to lovelace
-      const networkFeeLovelace = networkFee
-        ? Math.round(parseFloat(networkFee) * Math.pow(10, CardanoConstants.ADA_DECIMALS))
-        : undefined;
+      // networkFee is returned as a decimal ADA string (e.g. "0.178701") - convert to lovelace
+      // using string splitting to avoid floating-point precision loss
+      const networkFeeLovelace = networkFee ? parseAdaStringToLovelace(networkFee) : undefined;
       const feeFormatted = networkFeeLovelace
         ? formatWithDecimals(networkFeeLovelace, CardanoConstants.ADA_DECIMALS)
         : { value: "unknown" };
@@ -1409,12 +1440,12 @@ export class FireblocksCardanoRawSDK {
       lovelaceAmount,
     } = params;
 
-    if (lovelaceAmount !== undefined && lovelaceAmount < CardanoAmounts.MIN_UTXO_BASE_LOVELACE) {
+    if (lovelaceAmount !== undefined && lovelaceAmount < CardanoConstants.MIN_UTXO_BASE_LOVELACE) {
       throw new SdkApiError(
-        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoAmounts.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
+        `lovelaceAmount ${lovelaceAmount} is below the Cardano protocol minimum of ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace (1 ADA)`,
         400,
         "BelowMinimumUtxo",
-        { lovelaceAmount, minimum: CardanoAmounts.MIN_UTXO_BASE_LOVELACE },
+        { lovelaceAmount, minimum: CardanoConstants.MIN_UTXO_BASE_LOVELACE },
         "FireblocksCardanoRawSDK"
       );
     }
@@ -1462,7 +1493,7 @@ export class FireblocksCardanoRawSDK {
     const recipientPolicies = new Set(tokens.map((t) => t.tokenPolicyId)).size;
     const estimatedMinRecipient =
       lovelaceAmount ??
-      CardanoAmounts.MIN_UTXO_BASE_LOVELACE +
+      CardanoConstants.MIN_UTXO_BASE_LOVELACE +
         recipientPolicies * CardanoAmounts.MIN_UTXO_PER_POLICY_LOVELACE;
     const minimumRequired =
       estimatedMinRecipient + CardanoAmounts.ESTIMATED_MAX_FEE + minChangeLovelace;
@@ -1479,20 +1510,22 @@ export class FireblocksCardanoRawSDK {
     }
 
     const numTokenPolicies = countDistinctPolicies(changeTokenAssets);
-    if (numTokenPolicies > tokens.length) {
+    if (numTokenPolicies > recipientPolicies) {
       this.logger.warn(
-        `Multi-token transfer: selected UTxOs contain additional tokens (${numTokenPolicies} total policies). Extra tokens returned to sender in change.`
+        `Multi-token transfer: selected UTxOs contain additional tokens (${numTokenPolicies} total policies, ${recipientPolicies} requested). Extra tokens returned to sender in change.`
       );
     }
 
     const txInputs = createTransactionInputs(selectedUtxos);
     const ttl = await this.fetchCurrentTtl();
 
+    const recipientAddrMT = Address.from_bech32(resolvedRecipientAddress);
+    const senderAddrMT = Address.from_bech32(senderAddress);
     const { txBody, fee } = buildMultiTokenTransactionWithCalculatedFee(
       {
         tokens,
-        recipientAddress: Address.from_bech32(resolvedRecipientAddress),
-        senderAddress: Address.from_bech32(senderAddress),
+        recipientAddress: recipientAddrMT,
+        senderAddress: senderAddrMT,
         selectedUtxos,
         minRecipientLovelace: lovelaceAmount,
       },
@@ -1500,6 +1533,8 @@ export class FireblocksCardanoRawSDK {
       ttl,
       WITNESS_COUNT_PAYMENT_KEY_ONLY
     );
+    recipientAddrMT.free();
+    senderAddrMT.free();
 
     return {
       txBody,
@@ -1524,13 +1559,18 @@ export class FireblocksCardanoRawSDK {
   ): Promise<MultiTokenFeeEstimationResponse> => {
     const { grossAmount = false } = request;
 
+    let txBody: TransactionBody | null = null;
     try {
       this.logger.info(`Estimating multi-token fee for ${request.tokens.length} token type(s)`);
 
-      const { txBody, minRecipientLovelace, changeTokenAssets } =
-        await this.prepareMultiTokenTransaction(request);
+      const prepareResult = await this.prepareMultiTokenTransaction(request);
+      txBody = prepareResult.txBody;
+      const minRecipientLovelace = prepareResult.minRecipientLovelace;
+      const changeTokenAssets = prepareResult.changeTokenAssets;
 
-      const feeLovelace = parseInt(txBody.fee().to_str());
+      const fee = txBody.fee();
+      const feeLovelace = parseInt(fee.to_str());
+      fee.free();
       const feeFormatted = formatWithDecimals(feeLovelace, CardanoConstants.ADA_DECIMALS);
       const minAdaFormatted = formatWithDecimals(
         minRecipientLovelace,
@@ -1562,6 +1602,9 @@ export class FireblocksCardanoRawSDK {
       return response;
     } catch (error) {
       this.logAndRethrow("MultiTokenFeeEstimation", error);
+    } finally {
+      // Always free WASM objects to prevent memory leaks
+      if (txBody) txBody.free();
     }
   };
 
@@ -1570,7 +1613,7 @@ export class FireblocksCardanoRawSDK {
    *
    * All specified tokens are bundled into one recipient output. Any tokens present
    * in consumed UTxOs but not listed in `tokens` are returned to the sender in the
-   * change output — no tokens are lost.
+   * change output - no tokens are lost.
    *
    * @param options - MultiTokenTransferOpts
    * @returns MultiTokenTransferResult with txHash, fee, and optional tokensPresentedInChange
@@ -1644,7 +1687,7 @@ export class FireblocksCardanoRawSDK {
    * All ADA and all native tokens are merged into one output back to the sender.
    * Useful for addressing UTxO fragmentation after many incoming transfers.
    *
-   * @param opts - ConsolidateUtxosOpts (optional — defaults: index=0, minUtxoCount=2)
+   * @param opts - ConsolidateUtxosOpts (optional - defaults: index=0, minUtxoCount=2)
    * @returns ConsolidateUtxosResult with txHash, fee, UTxO count merged, and token policies
    * @throws SdkApiError (400) if the address has fewer UTxOs than minUtxoCount
    */
@@ -1672,12 +1715,14 @@ export class FireblocksCardanoRawSDK {
       const txInputs = createTransactionInputs(utxos);
       const ttl = await this.fetchCurrentTtl();
 
+      const senderAddrConsolidate = Address.from_bech32(senderAddress);
       const { outputs, fee, txBody } = buildConsolidationTransactionWithCalculatedFee(
-        { senderAddress: Address.from_bech32(senderAddress), selectedUtxos: utxos },
+        { senderAddress: senderAddrConsolidate, selectedUtxos: utxos },
         txInputs,
         ttl,
         WITNESS_COUNT_PAYMENT_KEY_ONLY
       );
+      senderAddrConsolidate.free();
 
       const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
       this.logger.info(
@@ -1690,14 +1735,22 @@ export class FireblocksCardanoRawSDK {
 
       // Extract metadata from the single consolidated output
       const consolidatedOutput = outputs[0];
-      const outputLovelace = consolidatedOutput.amount().coin().to_str();
-      const multiAsset = consolidatedOutput.amount().multiasset();
+      const outputAmount = consolidatedOutput.amount();
+      const coinBN = outputAmount.coin();
+      const outputLovelace = coinBN.to_str();
+      coinBN.free();
+      const multiAsset = outputAmount.multiasset();
+      outputAmount.free();
       const tokenPolicies: string[] = [];
       if (multiAsset) {
         const keys = multiAsset.keys();
         for (let i = 0; i < keys.len(); i++) {
-          tokenPolicies.push(Buffer.from(keys.get(i).to_bytes()).toString("hex"));
+          const key = keys.get(i);
+          tokenPolicies.push(Buffer.from(key.to_bytes()).toString("hex"));
+          key.free();
         }
+        keys.free();
+        multiAsset.free();
       }
 
       return {
@@ -1716,7 +1769,6 @@ export class FireblocksCardanoRawSDK {
   /**
    * Retrieves the wallet addresses associated with a specific Fireblocks vault account.
    *
-   * @param vaultAccountId - The unique identifier of the vault account to fetch addresses for.
    * @returns A promise that resolves to an array of VaultWalletAddress objects.
    * @throws Error if the retrieval fails.
    */
@@ -1773,8 +1825,11 @@ export class FireblocksCardanoRawSDK {
       await compactVerify(fullJws, jwks);
       this.logger.info("JWKS webhook signature verification successful");
       return true;
-    } catch (error: any) {
-      this.logger.error("JWKS verification failed:", error.message);
+    } catch (error: unknown) {
+      this.logger.error(
+        "JWKS verification failed:",
+        error instanceof Error ? error.message : String(error)
+      );
       return false;
     }
   }
@@ -1813,8 +1868,11 @@ export class FireblocksCardanoRawSDK {
       }
 
       return isValid;
-    } catch (error: any) {
-      this.logger.error("Legacy signature verification failed:", error.message);
+    } catch (error: unknown) {
+      this.logger.error(
+        "Legacy signature verification failed:",
+        error instanceof Error ? error.message : String(error)
+      );
       return false;
     }
   }
@@ -1880,7 +1938,9 @@ export class FireblocksCardanoRawSDK {
    * @param payload - The webhook payload to enrich
    * @returns The enriched webhook payload with cardanoTokensData if applicable
    */
-  public enrichWebhookPayload = async (payload: WebhookPayloadData): Promise<any> => {
+  public enrichWebhookPayload = async (
+    payload: WebhookPayloadData
+  ): Promise<WebhookPayloadData> => {
     if (
       payload.eventType !== WebhookEventTypes.TRANSACTION_CREATED &&
       payload.eventType !== WebhookEventTypes.TRANSACTION_STATUS_UPDATED &&
@@ -1996,8 +2056,10 @@ export class FireblocksCardanoRawSDK {
         };
 
         return { assetId, metadata };
-      } catch (error: any) {
-        this.logger.warn(`Failed to fetch metadata for ${assetId}: ${error.message}`);
+      } catch (error: unknown) {
+        this.logger.warn(
+          `Failed to fetch metadata for ${assetId}: ${error instanceof Error ? error.message : String(error)}`
+        );
         return null;
       }
     });
@@ -2022,7 +2084,7 @@ export class FireblocksCardanoRawSDK {
    */
   private async enrichIagonResponse(
     response: BalanceResponse | GroupedBalanceResponse
-  ): Promise<any> {
+  ): Promise<BalanceResponse | GroupedBalanceResponse> {
     if (!response.success || !response.data) {
       return response;
     }
@@ -2037,7 +2099,7 @@ export class FireblocksCardanoRawSDK {
     if (isGrouped) {
       // GroupedBalanceResponse
       for (const [policyId, tokens] of Object.entries(data.assets || {})) {
-        for (const [assetName, amount] of Object.entries(tokens as any)) {
+        for (const [assetName, amount] of Object.entries(tokens as Record<string, unknown>)) {
           const assetId = `${policyId}.${assetName}`;
           assetIds.push(assetId);
           amounts.set(assetId, String(amount));
@@ -2054,14 +2116,14 @@ export class FireblocksCardanoRawSDK {
     // Fetch metadata for all assets
     const metadataMap = await this.enrichAssetMetadata(assetIds, amounts);
 
-    // Build enriched response
-    const enrichedAssets: any = {};
+    // Build enriched response (values include optional metadata, so we use a looser intermediate type)
+    const enrichedAssets: Record<string, Record<string, unknown>> = {};
 
     if (isGrouped) {
       // GroupedBalanceResponse structure
       for (const [policyId, tokens] of Object.entries(data.assets || {})) {
         enrichedAssets[policyId] = {};
-        for (const [assetName, amount] of Object.entries(tokens as any)) {
+        for (const [assetName, amount] of Object.entries(tokens as Record<string, unknown>)) {
           const assetId = `${policyId}.${assetName}`;
           const metadata = metadataMap.get(assetId);
           enrichedAssets[policyId][assetName] = {
@@ -2081,13 +2143,14 @@ export class FireblocksCardanoRawSDK {
       }
     }
 
+    // Cast is intentional: enriched assets are a superset of the base types (extra metadata fields)
     return {
       success: true,
       data: {
         lovelace: data.lovelace,
-        assets: enrichedAssets,
+        assets: enrichedAssets as unknown as BalanceResponse["data"]["assets"],
       },
-    };
+    } as BalanceResponse | GroupedBalanceResponse;
   }
 
   /**
@@ -2263,7 +2326,7 @@ export class FireblocksCardanoRawSDK {
         for (const token of addr.tokens) {
           const metadata = metadataMap.get(token.assetId);
           if (metadata) {
-            (token as any).metadata = metadata;
+            Object.assign(token, { metadata });
           }
         }
       }
@@ -2272,7 +2335,7 @@ export class FireblocksCardanoRawSDK {
       for (const token of totalTokens) {
         const metadata = metadataMap.get(token.assetId);
         if (metadata) {
-          (token as any).metadata = metadata;
+          Object.assign(token, { metadata });
         }
       }
     }
@@ -2362,7 +2425,7 @@ export class FireblocksCardanoRawSDK {
           const assetId = `${balance.policyId}.${hexTokenName}`;
           const metadata = metadataMap.get(assetId);
           if (metadata) {
-            (tokenData as any).metadata = metadata;
+            Object.assign(tokenData, { metadata });
           }
         }
       }
@@ -2531,13 +2594,12 @@ export class FireblocksCardanoRawSDK {
     return await this.stakingService.withdrawRewards({ vaultAccountId, limit, fee });
   };
 
-  public getStakeAccountInfo = async (
-    vaultAccountId: string
-  ): Promise<StakeAccountInfoResponse> => {
+  public getStakeAccountInfo = async (vaultAccountId: string): Promise<StakeAccountInfo> => {
     this.logger.info(`Getting staking account info for vault account ${vaultAccountId}`);
 
     const stakeAddress = await this.stakingService.getStakeAddress(vaultAccountId);
-    return await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+    const response = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
+    return response.data;
   };
 
   public getCurrentEpoch = async (): Promise<CurrentEpochResponse> => {
