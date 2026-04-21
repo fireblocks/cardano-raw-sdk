@@ -16,6 +16,7 @@ yarn-error.log*
 
 build/
 dist/
+coverage/
 
 yarn.lock
 

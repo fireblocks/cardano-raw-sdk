@@ -416,13 +416,14 @@ export const createTransactionOutputs = (
     tempRecipientOutput.free();
     tempRecipientOutput = null;
     recipientLovelace = Math.max(requiredLovelace, actualMinRecipient);
-  } finally {
+  } catch (e) {
     // Clean up WASM objects in case of error
     if (recipientMultiAsset) recipientMultiAsset.free();
     if (tempLovelaceBN) tempLovelaceBN.free();
     if (tempRecipientValue) tempRecipientValue.free();
     if (tempRecipientOutput) tempRecipientOutput.free();
     if (minRecipientBN) minRecipientBN.free();
+    throw e;
   }
 
   if (recipientLovelace > requiredLovelace) {
