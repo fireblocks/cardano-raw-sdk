@@ -27,6 +27,7 @@ import {
   formatWithDecimals,
   parseAdaStringToLovelace,
   getStakeAddressFromBaseAddress,
+  utxoLocks,
 } from "./utils/index.js";
 
 import {
@@ -1601,7 +1602,7 @@ export class FireblocksCardanoRawSDK {
       };
 
       // check if change has policies we didn't intend to transfer
-      const intendedPolicies = request.tokens.map((t) => t.tokenPolicyId);
+      const intendedPolicies = [...new Set(request.tokens.map((t) => t.tokenPolicyId))];
       const extra = getExtraPolicies(changeTokenAssets, intendedPolicies);
       if (extra.length > 0) {
         response.tokenChangeWarning = {
@@ -1720,7 +1721,17 @@ export class FireblocksCardanoRawSDK {
     const senderAddress = await this.getAddressByIndex(this.assetId, index);
     this.logger.info(`Consolidating UTxOs at address index ${index}: ${senderAddress}`);
 
-    const initialUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
+    const rawUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
+    const initialUtxos = rawUtxos.filter(
+      (u) => !utxoLocks.isLocked(u.transaction_id, u.output_index)
+    );
+
+    if (initialUtxos.length > CardanoConstants.MAX_TX_INPUTS) {
+      this.logger.warn(
+        `consolidateUtxos: capping ${initialUtxos.length} UTxOs to MAX_TX_INPUTS=${CardanoConstants.MAX_TX_INPUTS}`
+      );
+      initialUtxos.splice(CardanoConstants.MAX_TX_INPUTS);
+    }
 
     if (initialUtxos.length < minUtxoCount) {
       throw new SdkApiError(
