@@ -98,9 +98,7 @@ async function main() {
   }
 
   const explorerBase =
-    network === Networks.MAINNET
-      ? "https://cardanoscan.io"
-      : "https://preprod.cardanoscan.io";
+    network === Networks.MAINNET ? "https://cardanoscan.io" : "https://preprod.cardanoscan.io";
 
   if (action === "register") {
     if (stakeInfo.active) {
@@ -112,6 +110,11 @@ async function main() {
     const result = await sdk.registerStakingCredential({
       vaultAccountId,
     });
+
+    if (!result) {
+      console.log("Registration returned no result");
+      return;
+    }
 
     console.log(`\n=== Registration Complete ===`);
     console.log(`Transaction hash: ${result.txHash}`);
@@ -131,6 +134,10 @@ async function main() {
     if (!stakeInfo.active) {
       console.log("Stake key not registered. Registering first (2 ADA deposit)...");
       const regResult = await sdk.registerStakingCredential({ vaultAccountId });
+      if (!regResult) {
+        console.log("Registration failed (no result returned)");
+        return;
+      }
       console.log(`Registration TX: ${regResult.txHash}`);
       console.log("Waiting 30s for registration to confirm...");
       await new Promise((r) => setTimeout(r, 30_000));
