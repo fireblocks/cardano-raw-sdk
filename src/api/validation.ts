@@ -275,6 +275,9 @@ export const consolidateUtxosRequestSchema = z.object({
   vaultAccountId: z.string().min(1, "vaultAccountId is required"),
   index: z.number().int().nonnegative().optional(),
   minUtxoCount: z.number().int().min(2, "minUtxoCount must be at least 2").optional(),
+  batched: z.boolean().optional(),
+  batchSize: z.number().int().min(2).max(100).optional(),
+  maxBatches: z.number().int().min(1).max(100).optional(),
 });
 
 export type ConsolidateUtxosRequest = z.infer<typeof consolidateUtxosRequestSchema>;

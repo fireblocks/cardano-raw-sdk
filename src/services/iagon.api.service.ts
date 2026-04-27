@@ -1,7 +1,46 @@
 import axios from "axios";
 import https from "https";
+import { z } from "zod";
 import { Logger, ErrorHandler, decodeAssetName } from "../utils/index.js";
 import { iagonBaseUrl } from "../constants.js";
+
+// Zod schemas for critical Iagon responses
+const utxoDataSchema = z.object({
+  transaction_id: z.string(),
+  output_index: z.number(),
+  address: z.string(),
+  value: z.object({
+    lovelace: z.number(),
+    assets: z.record(z.string(), z.number()),
+  }),
+  datum_hash: z.string().nullable(),
+  script_hash: z.string().nullable(),
+  created_at: z.object({
+    slot_no: z.number(),
+    header_hash: z.string(),
+  }),
+});
+
+const utxoResponseSchema = z.object({
+  success: z.boolean(),
+  data: z.array(utxoDataSchema).optional(),
+});
+
+const balanceResponseSchema = z.object({
+  success: z.boolean(),
+  data: z.object({
+    lovelace: z.number(),
+    assets: z.record(z.string(), z.union([z.number(), z.record(z.string(), z.number())])),
+  }),
+});
+
+const transferResponseSchema = z.object({
+  success: z.boolean(),
+  data: z.object({
+    txHash: z.string(),
+  }),
+  error: z.string().optional(),
+});
 import {
   BalanceResponse,
   getBalanceByAddressOpts,
@@ -100,6 +139,42 @@ export class IagonApiService {
     });
   }
 
+  // validate response against schema, throw on mismatch
+  private validateResponse<T>(data: unknown, schema: z.ZodSchema<T>, ctx: string): T {
+    const result = schema.safeParse(data);
+    if (!result.success) {
+      const issues = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; ");
+      throw new Error(`Invalid response from ${ctx}: ${issues}`);
+    }
+    return result.data;
+  }
+
+  // retry on network errors and 5xx, skip 4xx
+  private async withRetry<T>(
+    fn: () => Promise<T>,
+    ctx: string,
+    maxRetries = 2
+  ): Promise<T> {
+    let lastErr: unknown;
+    const delays = [250, 750];
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: unknown) {
+        lastErr = err;
+        const status = (err as { response?: { status?: number } })?.response?.status;
+        // don't retry client errors
+        if (status && status >= 400 && status < 500) throw err;
+        if (attempt < maxRetries) {
+          const delay = delays[attempt] ?? 750;
+          this.logger.warn(`${ctx} failed, retry ${attempt + 1}/${maxRetries} in ${delay}ms`);
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
   public checkHealth = async (): Promise<HealthStatusResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/health`;
@@ -131,12 +206,13 @@ export class IagonApiService {
   public getUtxosByAddress = async (address: string): Promise<UtxoIagonResponse> => {
     try {
       const url = `${this.iagonBaseUrl}/v1/utxos/address/${encodeURIComponent(address)}`;
-      const response = await this.axiosInstance.get(url);
-
-      if (response.status === 200) {
-        return response.data;
-      }
-      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+      return await this.withRetry(async () => {
+        const response = await this.axiosInstance.get(url);
+        if (response.status === 200) {
+          return this.validateResponse(response.data, utxoResponseSchema, "getUtxosByAddress");
+        }
+        throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+      }, `getUtxosByAddress(${address})`);
     } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, `fetching UTXOs for address ${address}`);
     }
@@ -176,12 +252,15 @@ export class IagonApiService {
 
     try {
       const url = `${this.iagonBaseUrl}/v1/assets/balance/address/${address}?groupByPolicy=${groupByPolicy}`;
-      const response = await this.axiosInstance.get(url);
-
-      if (response.status === 200) {
-        return response.data;
-      }
-      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+      return await this.withRetry(async () => {
+        const response = await this.axiosInstance.get(url);
+        if (response.status === 200) {
+          // validate structure, cast to correct type based on groupByPolicy
+          this.validateResponse(response.data, balanceResponseSchema, "getBalanceByAddress");
+          return response.data as BalanceResponse | GroupedBalanceResponse;
+        }
+        throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+      }, `getBalanceByAddress(${address})`);
     } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, `fetching balance for address ${address}`);
     }
@@ -313,7 +392,7 @@ export class IagonApiService {
       const response = await this.axiosInstance.post(url, txData);
 
       if (response.status === 200) {
-        return response.data;
+        return this.validateResponse(response.data, transferResponseSchema, "submitTransfer");
       }
       throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
     } catch (error: unknown) {

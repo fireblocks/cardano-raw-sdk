@@ -17,7 +17,7 @@ const logger = new Logger("utils:fireblocks");
  * @param txId - The Fireblocks transaction ID to monitor
  * @param fireblocks - Initialized Fireblocks SDK instance for API calls
  * @param pollingInterval - Optional interval between status checks in milliseconds (default: 1000ms)
- * @param maxWaitMs - Maximum total time to wait before throwing a timeout error (default: 10 minutes)
+ * @param maxWaitMs - Maximum total time to wait before throwing a timeout error (default: 30 minutes, matching Fireblocks RAW signing timeout)
  *
  * @returns Promise resolving to the final TransactionResponse when completed or broadcasting
  *
@@ -56,7 +56,7 @@ export const getTxStatus = async (
   txId: string,
   fireblocks: Fireblocks,
   pollingInterval: number = 1000,
-  maxWaitMs: number = 10 * 60 * 1000 // 10 minutes
+  maxWaitMs: number = 30 * 60 * 1000 // 30 minutes (Fireblocks RAW signing default timeout)
 ): Promise<TransactionResponse> => {
   try {
     let txResponse: FireblocksResponse<TransactionResponse> =

@@ -19,6 +19,7 @@ dist/
 coverage/
 
 yarn.lock
+package-lock.json
 
 .env
 .env.test

@@ -103,6 +103,22 @@ export const countDistinctPolicies = (assets: Record<string, number>): number =>
   return policies.size;
 };
 
+// find policy ids in change that weren't part of the intended transfer
+export const getExtraPolicies = (
+  changeAssets: Record<string, number>,
+  intendedPolicies: string[]
+): string[] => {
+  const intent = new Set(intendedPolicies);
+  const extra: string[] = [];
+  for (const assetUnit of Object.keys(changeAssets)) {
+    const [pid] = assetUnit.split(".");
+    if (pid && !intent.has(pid) && !extra.includes(pid)) {
+      extra.push(pid);
+    }
+  }
+  return extra;
+};
+
 /**
  * Calculate the minimum required fee for a transaction based on its size
  * @param tx - The transaction to calculate fee for

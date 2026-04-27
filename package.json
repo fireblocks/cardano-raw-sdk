@@ -18,10 +18,17 @@
     "test": "jest",
     "docs": "typedoc src"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "cardano",
+    "fireblocks",
+    "sdk",
+    "staking",
+    "governance",
+    "ada"
+  ],
+  "author": "Fireblocks",
   "license": "ISC",
-  "description": "",
+  "description": "Cardano SDK for Fireblocks MPC custody",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/express": "^5.0.6",
@@ -38,6 +45,7 @@
     "prettier": "^3.2.5",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typedoc": "^0.28.16",
     "typescript": "^5.9.3"
   },

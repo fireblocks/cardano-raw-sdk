@@ -25,12 +25,26 @@ export interface CustomConfig {
 // Cached config instance
 let configCache: Config | null = null;
 
-// Validate and get secret key from file
+/**
+ * Resolve secret key from multiple sources:
+ * 1. Direct key content via FIREBLOCKS_API_USER_SECRET_KEY env var
+ *    - PEM format (starts with -----BEGIN)
+ *    - Base64 encoded PEM
+ * 2. File path via FIREBLOCKS_API_USER_SECRET_KEY_PATH env var
+ */
 const getSecretKey = (secretKeyPath?: string): string => {
-  const path = secretKeyPath || process.env.FIREBLOCKS_API_USER_SECRET_KEY_PATH;
+  // check for direct key content first
+  const directKey = process.env.FIREBLOCKS_API_USER_SECRET_KEY;
+  if (directKey) {
+    return resolveKeyContent(directKey);
+  }
 
+  // fall back to file path
+  const path = secretKeyPath || process.env.FIREBLOCKS_API_USER_SECRET_KEY_PATH;
   if (!path) {
-    throw new Error("FIREBLOCKS_API_USER_SECRET_KEY_PATH environment variable or secretKeyPath parameter is required");
+    throw new Error(
+      "FIREBLOCKS_API_USER_SECRET_KEY or FIREBLOCKS_API_USER_SECRET_KEY_PATH is required"
+    );
   }
 
   try {
@@ -38,6 +52,31 @@ const getSecretKey = (secretKeyPath?: string): string => {
   } catch (error) {
     throw new Error(`Failed to read secret key file at ${path}: ${error}`, { cause: error });
   }
+};
+
+/**
+ * Resolve key content - handles PEM and base64 encoded formats
+ */
+const resolveKeyContent = (key: string): string => {
+  const trimmed = key.trim();
+
+  // already PEM format
+  if (trimmed.startsWith("-----BEGIN")) {
+    return trimmed;
+  }
+
+  // try base64 decode
+  try {
+    const decoded = Buffer.from(trimmed, "base64").toString("utf-8");
+    if (decoded.startsWith("-----BEGIN")) {
+      return decoded;
+    }
+  } catch {
+    // not valid base64, fall through
+  }
+
+  // assume it's PEM without proper detection (let Fireblocks SDK handle validation)
+  return trimmed;
 };
 
 // Validate base path

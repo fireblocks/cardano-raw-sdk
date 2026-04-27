@@ -1,5 +1,6 @@
 import { fileURLToPath } from "url";
 import path, { dirname } from "path";
+import http from "http";
 import { BasePath, ConfigurationOptions } from "@fireblocks/ts-sdk";
 import express, { Request, Response } from "express";
 
@@ -11,6 +12,27 @@ import { FireblocksCardanoRawSDK } from "./FireblocksCardanoRawSDK.js";
 import { Networks } from "./types/index.js";
 
 const logger = new Logger("app:server-setup");
+
+/**
+ * Valid Cardano networks supported by this SDK
+ */
+const VALID_NETWORKS: readonly string[] = ["mainnet", "preprod"] as const;
+
+/**
+ * Validate and parse CARDANO_NETWORK environment variable
+ * @throws Error if network is invalid
+ */
+const validateNetwork = (networkStr: string | undefined): Networks => {
+  const network = networkStr?.toLowerCase() || "mainnet";
+
+  if (!VALID_NETWORKS.includes(network)) {
+    throw new Error(
+      `Invalid CARDANO_NETWORK: "${networkStr}". Must be one of: ${VALID_NETWORKS.join(", ")}`
+    );
+  }
+
+  return network === "mainnet" ? Networks.MAINNET : Networks.PREPROD;
+};
 
 const startServer = () => {
   // Validate required environment variables for server mode
@@ -46,8 +68,8 @@ const startServer = () => {
     basePath: (config.FIREBLOCKS.basePath as BasePath) || BasePath.US,
   };
 
-  // Get network from environment variable
-  const network = (process.env.CARDANO_NETWORK as Networks) || Networks.MAINNET;
+  // Get and validate network from environment variable
+  const network = validateNetwork(process.env.CARDANO_NETWORK);
 
   // Get Iagon API key from environment variable
   const iagonApiKey = process.env.IAGON_API_KEY || "";
@@ -95,8 +117,48 @@ const startServer = () => {
   const __dirname = dirname(__filename);
   app.use("/docs", express.static(path.join(__dirname, "../docs")));
 
-  app.listen(config.PORT, () => {
+  // Create HTTP server for graceful shutdown support
+  const server = http.createServer(app);
+
+  // Graceful shutdown handler
+  let isShuttingDown = false;
+
+  const gracefulShutdown = async (signal: string) => {
+    if (isShuttingDown) {
+      logger.warn(`Shutdown already in progress, ignoring ${signal}`);
+      return;
+    }
+    isShuttingDown = true;
+
+    logger.info(`Received ${signal}, starting graceful shutdown...`);
+
+    // Stop accepting new connections
+    server.close((err) => {
+      if (err) {
+        logger.error("Error closing HTTP server:", err);
+      } else {
+        logger.info("HTTP server closed");
+      }
+    });
+
+    try {
+      // Shutdown SDK manager (clears cleanup interval, releases all SDK instances)
+      await sdkManager.shutdown();
+      logger.info("Graceful shutdown complete");
+      process.exit(0);
+    } catch (err) {
+      logger.error("Error during graceful shutdown:", err);
+      process.exit(1);
+    }
+  };
+
+  // Register signal handlers
+  process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+
+  server.listen(config.PORT, () => {
     logger.info(`${config.APP_NAME} listening on port ${config.PORT}`);
+    logger.info(`Network: ${network}`);
   });
 };
 

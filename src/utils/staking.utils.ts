@@ -23,6 +23,14 @@ import * as CardanoWasm from "@emurgo/cardano-serialization-lib-nodejs";
 /** Raw CBOR array - used for hand-built Cardano transaction structures */
 export type CborArray = unknown[];
 
+// credential must be 28 bytes per Conway CDDL
+const CREDENTIAL_LEN = 28;
+const assertCredLen = (buf: Buffer, ctx: string) => {
+  if (buf.length !== CREDENTIAL_LEN) {
+    throw new Error(`${ctx}: credential must be ${CREDENTIAL_LEN} bytes, got ${buf.length}`);
+  }
+};
+
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
  */
@@ -143,6 +151,7 @@ export const serializeCertificate = (certificate: Buffer): [number, Uint8Array] 
  * Shelley-era certs remain valid on the Conway ledger.
  */
 export const buildRegistrationCertificate = (credential: Buffer): CardanoCertificate => {
+  assertCredLen(credential, "buildRegistrationCertificate");
   const serializedCert = serializeCertificate(credential);
 
   return [
@@ -158,6 +167,7 @@ export const buildRegistrationCertificate = (credential: Buffer): CardanoCertifi
  * Shelley-era certs remain valid on the Conway ledger.
  */
 export const buildDeregistrationCertificate = (credential: Buffer): CardanoCertificate => {
+  assertCredLen(credential, "buildDeregistrationCertificate");
   const serializedCert = serializeCertificate(credential);
   return [
     CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 (Shelley)
@@ -172,6 +182,7 @@ export const buildDelegationCertificate = (
   credential: Buffer,
   poolId: string
 ): CardanoWasm.Certificate => {
+  assertCredLen(credential, "buildDelegationCertificate");
   const credentialHash = CardanoWasm.Ed25519KeyHash.from_bytes(credential);
   const stakeCredential = CardanoWasm.Credential.from_keyhash(credentialHash);
   credentialHash.free();
@@ -203,6 +214,7 @@ export const buildDelegationCertificate = (
  * Build vote delegation certificate (Conway era)
  */
 export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInfo): CborArray => {
+  assertCredLen(credential, "buildVoteDelegationCertificate");
   // Stake credential: [0, credential_bytes]
   const stakeCredential = [0, toUint8Array(credential)];
 
@@ -218,6 +230,7 @@ export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInf
       if (!drep.keyHash) {
         throw new Error("KEY_HASH DRep requires keyHash");
       }
+      assertCredLen(drep.keyHash, "DRep keyHash");
       // [kind, key_hash] - kind = 0
       drepValue = [drep.kind, toUint8Array(drep.keyHash)];
       break;
@@ -225,6 +238,7 @@ export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInf
       if (!drep.keyHash) {
         throw new Error("SCRIPT_HASH DRep requires keyHash");
       }
+      assertCredLen(drep.keyHash, "DRep scriptHash");
       // [kind, script_hash] - kind = 1
       drepValue = [drep.kind, toUint8Array(drep.keyHash)];
       break;
@@ -504,6 +518,7 @@ export const buildVotingProcedures = (
   vote: 0 | 1 | 2,
   anchor?: { url: string; dataHash: string }
 ): Map<CborArray, Map<CborArray, CborArray>> => {
+  assertCredLen(credential, "buildVotingProcedures");
   const voterKey = [1, [0, toUint8Array(credential)]]; // DRep voter, key-hash credential
 
   const txHashBytes = toUint8Array(Buffer.from(governanceActionId.txHash, "hex"));
@@ -529,6 +544,7 @@ export const buildDRepRegistrationCertificate = (
   depositLovelace: number,
   anchor?: { url: string; dataHash: string }
 ): CborArray => {
+  assertCredLen(credential, "buildDRepRegistrationCertificate");
   if (anchor) validateAnchorDataHash(anchor.dataHash);
   const drepCredential = [0, toUint8Array(credential)];
   const anchorValue = anchor

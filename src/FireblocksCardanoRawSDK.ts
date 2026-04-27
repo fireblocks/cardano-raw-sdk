@@ -15,6 +15,7 @@ import {
   buildMultiTokenTransactionWithCalculatedFee,
   buildConsolidationTransactionWithCalculatedFee,
   countDistinctPolicies,
+  getExtraPolicies,
   WITNESS_COUNT_PAYMENT_KEY_ONLY,
   calculateTransactionFee,
   calculateTtl,
@@ -89,6 +90,7 @@ import {
   MultiTokenFeeEstimationResponse,
   ConsolidateUtxosOpts,
   ConsolidateUtxosResult,
+  ConsolidateBatchResult,
 } from "./types/index.js";
 
 import { FireblocksService, IagonApiService, StakingService } from "./services/index.js";
@@ -100,6 +102,7 @@ import {
   PublicKey,
   Transaction,
   TransactionBody,
+  TransactionOutput,
   TransactionWitnessSet,
   Vkey,
   Vkeywitness,
@@ -915,16 +918,26 @@ export class FireblocksCardanoRawSDK {
     return signedTx;
   }
 
+  // ─── Transfer Architecture ──────────────────────────────────────────────────
+  //
+  // Three transfer types with two different flows:
+  //
+  // 1. CNT (single token) & Multi-token:
+  //    prepare*Transaction() → signTransaction() → submitTransaction()
+  //    Both build tx locally, sign via Fireblocks raw signing, submit to chain.
+  //    Fee estimation uses the same prepare path so estimates match actuals.
+  //
+  // 2. ADA (native):
+  //    fireblocksService.createTransfer() - delegates to Fireblocks native transfer.
+  //    Fee estimation builds locally (prepareAdaTransaction) for preview only;
+  //    actual transfer uses Fireblocks co-signing infrastructure.
+  //
+  // This split exists because Fireblocks handles ADA natively, while CNTs
+  // require raw transaction construction.
+  // ────────────────────────────────────────────────────────────────────────────
+
   /**
-   * Execute a transfer of Cardano tokens
-   *
-   * @param options - Transfer configuration options
-   * @returns Transaction result with hash, sender address, token name, and fee information
-   * @throws SdkApiError with 400 status code for validation errors
-   * @throws Error if any step of the transfer process fails
-   */
-  /**
-   * Private helper that prepares and validates transaction parameters
+   * Private helper that prepares and validates CNT transaction parameters.
    * Shared by both estimateTransactionFee() and transfer()
    */
   private async prepareTransaction(params: {
@@ -941,6 +954,7 @@ export class FireblocksCardanoRawSDK {
     senderAddress: string;
     resolvedRecipientAddress: string;
     minRecipientLovelace: number;
+    fee: number;
     release: () => void;
   }> {
     const {
@@ -1001,7 +1015,7 @@ export class FireblocksCardanoRawSDK {
 
     const recipientAddr = Address.from_bech32(resolvedRecipientAddress);
     const senderAddr = Address.from_bech32(senderAddress);
-    const { txBody } = buildCntTransactionWithCalculatedFee(
+    const { txBody, fee } = buildCntTransactionWithCalculatedFee(
       {
         requiredLovelace: minRecipientLovelace,
         recipientAddress: recipientAddr,
@@ -1018,7 +1032,7 @@ export class FireblocksCardanoRawSDK {
     recipientAddr.free();
     senderAddr.free();
 
-    return { txBody, senderAddress, resolvedRecipientAddress, minRecipientLovelace, release };
+    return { txBody, senderAddress, resolvedRecipientAddress, minRecipientLovelace, fee, release };
   }
 
   /**
@@ -1042,13 +1056,9 @@ export class FireblocksCardanoRawSDK {
       // Prepare transaction (reuses validation and building logic)
       const prepareResult = await this.prepareTransaction(request);
       txBody = prepareResult.txBody;
-      const minRecipientLovelace = prepareResult.minRecipientLovelace;
-
-      // Extract fee from transaction body
-      const fee = txBody.fee();
-      const feeLovelace = BigInt(fee.to_str());
-      fee.free();
-      const feeFormatted = formatWithDecimals(Number(feeLovelace), CardanoConstants.ADA_DECIMALS);
+      const { minRecipientLovelace, fee: feeLovelaceNum } = prepareResult;
+      const feeLovelace = BigInt(feeLovelaceNum);
+      const feeFormatted = formatWithDecimals(feeLovelaceNum, CardanoConstants.ADA_DECIMALS);
 
       // Calculate minimum ADA required in output
       const minAdaFormatted = formatWithDecimals(
@@ -1136,13 +1146,12 @@ export class FireblocksCardanoRawSDK {
         txBody,
         senderAddress,
         resolvedRecipientAddress,
+        fee,
         release: _release,
       } = await this.prepareTransaction({ ...options, lock: true });
       release = _release; // promote to outer scope so finally can call it
 
-      // Extract fee information from transaction body
-      const feeLovelace = txBody.fee().to_str();
-      const feeFormatted = formatWithDecimals(parseInt(feeLovelace), CardanoConstants.ADA_DECIMALS);
+      const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
 
       this.logger.info(
         `Transaction prepared, recipient: ${resolvedRecipientAddress}, fee: ${feeFormatted.value} ADA`
@@ -1163,7 +1172,7 @@ export class FireblocksCardanoRawSDK {
         tokenName,
         amount: requiredTokenAmount,
         fee: {
-          lovelace: feeLovelace,
+          lovelace: fee.toString(),
           ada: feeFormatted.value,
         },
       };
@@ -1591,10 +1600,12 @@ export class FireblocksCardanoRawSDK {
         totalCost: { ada: totalCostFormatted.value, lovelace: totalCostLovelace.toString() },
       };
 
-      const numPolicies = countDistinctPolicies(changeTokenAssets);
-      if (numPolicies > request.tokens.length) {
+      // check if change has policies we didn't intend to transfer
+      const intendedPolicies = request.tokens.map((t) => t.tokenPolicyId);
+      const extra = getExtraPolicies(changeTokenAssets, intendedPolicies);
+      if (extra.length > 0) {
         response.tokenChangeWarning = {
-          policiesAffected: numPolicies - request.tokens.length,
+          policiesAffected: extra.length,
           message: `Selected UTxOs carry additional tokens not included in this transfer. They will be returned to your address in the change output.`,
         };
       }
@@ -1681,37 +1692,61 @@ export class FireblocksCardanoRawSDK {
 
   // ─── UTxO consolidation ───────────────────────────────────────────────────────
 
+  // default batch size leaves headroom for witness overhead
+  private static readonly DEFAULT_BATCH_SIZE = CardanoConstants.MAX_TX_INPUTS - 10;
+  private static readonly DEFAULT_MAX_BATCHES = 20;
+
   /**
-   * Consolidates all UTxOs at the given address index into a single UTxO.
+   * Consolidates UTxOs at the given address index.
    *
-   * All ADA and all native tokens are merged into one output back to the sender.
-   * Useful for addressing UTxO fragmentation after many incoming transfers.
+   * By default consolidates all UTxOs in a single transaction. For dust-attacked
+   * addresses with >100 UTxOs, use `batched: true` to process in multiple txs.
    *
-   * @param opts - ConsolidateUtxosOpts (optional - defaults: index=0, minUtxoCount=2)
+   * @param opts - ConsolidateUtxosOpts
    * @returns ConsolidateUtxosResult with txHash, fee, UTxO count merged, and token policies
    * @throws SdkApiError (400) if the address has fewer UTxOs than minUtxoCount
    */
   public consolidateUtxos = async (
     opts: ConsolidateUtxosOpts = {}
   ): Promise<ConsolidateUtxosResult> => {
-    const { index = 0, minUtxoCount = 2 } = opts;
+    const {
+      index = 0,
+      minUtxoCount = 2,
+      batched = false,
+      batchSize = FireblocksCardanoRawSDK.DEFAULT_BATCH_SIZE,
+      maxBatches = FireblocksCardanoRawSDK.DEFAULT_MAX_BATCHES,
+    } = opts;
 
+    const senderAddress = await this.getAddressByIndex(this.assetId, index);
+    this.logger.info(`Consolidating UTxOs at address index ${index}: ${senderAddress}`);
+
+    const initialUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
+
+    if (initialUtxos.length < minUtxoCount) {
+      throw new SdkApiError(
+        `Address has ${initialUtxos.length} UTxO(s), below minimum ${minUtxoCount} for consolidation`,
+        400,
+        "InsufficientUtxos",
+        { utxoCount: initialUtxos.length, minUtxoCount, address: senderAddress },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    // single-tx path (legacy behavior)
+    if (!batched) {
+      return this.consolidateSingleBatch(senderAddress, initialUtxos);
+    }
+
+    // batched consolidation for dust-attacked addresses
+    return this.consolidateBatched(senderAddress, batchSize, maxBatches, minUtxoCount);
+  };
+
+  /** Single-transaction consolidation (original behavior) */
+  private async consolidateSingleBatch(
+    senderAddress: string,
+    utxos: UtxoData[]
+  ): Promise<ConsolidateUtxosResult> {
     try {
-      const senderAddress = await this.getAddressByIndex(this.assetId, index);
-      this.logger.info(`Consolidating UTxOs at address index ${index}: ${senderAddress}`);
-
-      const utxos = await fetchUtxos(this.iagonApiService, senderAddress);
-
-      if (utxos.length < minUtxoCount) {
-        throw new SdkApiError(
-          `Address has ${utxos.length} UTxO(s), which is below the required minimum of ${minUtxoCount} for consolidation`,
-          400,
-          "InsufficientUtxos",
-          { utxoCount: utxos.length, minUtxoCount, address: senderAddress },
-          "FireblocksCardanoRawSDK"
-        );
-      }
-
       const txInputs = createTransactionInputs(utxos);
       const ttl = await this.fetchCurrentTtl();
 
@@ -1733,25 +1768,7 @@ export class FireblocksCardanoRawSDK {
       const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
       this.logger.info(`UTxO consolidation successful: ${txHash}`);
 
-      // Extract metadata from the single consolidated output
-      const consolidatedOutput = outputs[0];
-      const outputAmount = consolidatedOutput.amount();
-      const coinBN = outputAmount.coin();
-      const outputLovelace = coinBN.to_str();
-      coinBN.free();
-      const multiAsset = outputAmount.multiasset();
-      outputAmount.free();
-      const tokenPolicies: string[] = [];
-      if (multiAsset) {
-        const keys = multiAsset.keys();
-        for (let i = 0; i < keys.len(); i++) {
-          const key = keys.get(i);
-          tokenPolicies.push(Buffer.from(key.to_bytes()).toString("hex"));
-          key.free();
-        }
-        keys.free();
-        multiAsset.free();
-      }
+      const { lovelace: outputLovelace, tokenPolicies } = this.extractOutputMetadata(outputs[0]);
 
       return {
         txHash,
@@ -1764,7 +1781,155 @@ export class FireblocksCardanoRawSDK {
     } catch (error) {
       this.logAndRethrow("Consolidation", error);
     }
-  };
+  }
+
+  /** Batched consolidation for dust-attacked addresses */
+  private async consolidateBatched(
+    senderAddress: string,
+    batchSize: number,
+    maxBatches: number,
+    minUtxoCount: number
+  ): Promise<ConsolidateUtxosResult> {
+    const batches: ConsolidateBatchResult[] = [];
+    let totalUtxosCombined = 0;
+    let totalFeeLovelace = 0;
+    let lastTxHash = "";
+    let partialError: string | undefined;
+
+    for (let batchNum = 0; batchNum < maxBatches; batchNum++) {
+      // re-fetch UTxOs after each batch to get fresh state
+      const utxos = await fetchUtxos(this.iagonApiService, senderAddress);
+
+      // stop if we've consolidated enough (only 1 UTxO left or below threshold)
+      if (utxos.length < minUtxoCount) {
+        this.logger.info(`Batched consolidation complete after ${batchNum} batch(es)`);
+        break;
+      }
+
+      // take up to batchSize UTxOs for this batch
+      const batchUtxos = utxos.slice(0, batchSize);
+
+      try {
+        const txInputs = createTransactionInputs(batchUtxos);
+        const ttl = await this.fetchCurrentTtl();
+
+        const senderAddrObj = Address.from_bech32(senderAddress);
+        const { fee, txBody } = buildConsolidationTransactionWithCalculatedFee(
+          { senderAddress: senderAddrObj, selectedUtxos: batchUtxos },
+          txInputs,
+          ttl,
+          WITNESS_COUNT_PAYMENT_KEY_ONLY
+        );
+        senderAddrObj.free();
+
+        const feeFormatted = formatWithDecimals(fee, CardanoConstants.ADA_DECIMALS);
+        this.logger.info(
+          `Batch ${batchNum + 1}: consolidating ${batchUtxos.length} UTxOs, fee: ${feeFormatted.value} ADA`
+        );
+
+        const signedTransaction = await this.signTransaction(txBody);
+        const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+
+        batches.push({
+          txHash,
+          utxosCombined: batchUtxos.length,
+          fee: { lovelace: fee.toString(), ada: feeFormatted.value },
+        });
+
+        totalUtxosCombined += batchUtxos.length;
+        totalFeeLovelace += fee;
+        lastTxHash = txHash;
+
+        this.logger.info(`Batch ${batchNum + 1} successful: ${txHash}`);
+
+        // brief pause between batches to let chain register the tx
+        if (batchNum < maxBatches - 1) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      } catch (error) {
+        partialError =
+          error instanceof Error ? error.message : "Unknown error during batch consolidation";
+        this.logger.error(`Batch ${batchNum + 1} failed: ${partialError}`);
+        break;
+      }
+    }
+
+    if (batches.length === 0) {
+      throw new SdkApiError(
+        partialError ?? "Batched consolidation failed on first batch",
+        500,
+        "ConsolidationFailed",
+        { address: senderAddress },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+
+    // get final state for output metadata
+    const finalUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
+    const tokenPolicies = this.extractTokenPoliciesFromUtxos(finalUtxos);
+    const totalLovelace = finalUtxos.reduce((sum, u) => sum + u.value.lovelace, 0);
+    const totalFeeFormatted = formatWithDecimals(totalFeeLovelace, CardanoConstants.ADA_DECIMALS);
+
+    const result: ConsolidateUtxosResult = {
+      txHash: lastTxHash,
+      address: senderAddress,
+      utxosCombined: totalUtxosCombined,
+      lovelace: totalLovelace.toString(),
+      fee: batches[batches.length - 1].fee,
+      tokenPolicies,
+      batches,
+      totalFee: { lovelace: totalFeeLovelace.toString(), ada: totalFeeFormatted.value },
+    };
+
+    if (partialError) {
+      result.partialError = partialError;
+    }
+
+    return result;
+  }
+
+  /** Extract lovelace and token policies from a transaction output */
+  private extractOutputMetadata(output: TransactionOutput): {
+    lovelace: string;
+    tokenPolicies: string[];
+  } {
+    const outputAmount = output.amount();
+    const coinBN = outputAmount.coin();
+    const lovelace = coinBN.to_str();
+    coinBN.free();
+
+    const multiAsset = outputAmount.multiasset();
+    outputAmount.free();
+
+    const tokenPolicies: string[] = [];
+    if (multiAsset) {
+      const keys = multiAsset.keys();
+      for (let i = 0; i < keys.len(); i++) {
+        const key = keys.get(i);
+        tokenPolicies.push(Buffer.from(key.to_bytes()).toString("hex"));
+        key.free();
+      }
+      keys.free();
+      multiAsset.free();
+    }
+
+    return { lovelace, tokenPolicies };
+  }
+
+  /** Extract unique token policy IDs from a list of UTxOs */
+  private extractTokenPoliciesFromUtxos(utxos: UtxoData[]): string[] {
+    const policies = new Set<string>();
+    for (const utxo of utxos) {
+      if (utxo.value.assets) {
+        // asset keys are "policyId.assetName" - extract the policy part
+        for (const assetUnit of Object.keys(utxo.value.assets)) {
+          const policyId = assetUnit.split(".")[0];
+          if (policyId) policies.add(policyId);
+        }
+      }
+    }
+    return [...policies];
+  }
 
   /**
    * Retrieves the wallet addresses associated with a specific Fireblocks vault account.
