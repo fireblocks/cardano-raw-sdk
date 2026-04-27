@@ -4,6 +4,7 @@ import { Logger, config } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, SdkApiError } from "../../types/index.js";
 import { CardanoAmounts } from "../../constants.js";
+import type { AddressQuery, TxHistoryQuery, PaginationQuery } from "../validation.js";
 
 // standard success envelope
 const ok = <T>(res: Response, data: T, status = 200) =>
@@ -80,7 +81,7 @@ export class ApiController {
 
   public getBalanceByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const { index } = req.query as unknown as AddressQuery;
     const groupByPolicy = req.query.groupByPolicy === "true";
     const includeMetadata = req.query.includeMetadata === "true";
 
@@ -184,7 +185,7 @@ export class ApiController {
 
   public getUtxosByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const { index } = req.query as unknown as AddressQuery;
 
     try {
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
@@ -210,26 +211,12 @@ export class ApiController {
     }
   };
 
-  /**
-   * Helper method to parse transaction history query parameters
-   */
-  private parseTransactionHistoryParams(req: Request) {
-    const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
-    const options = {
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
-      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
-    };
-
-    return { vaultAccountId, index, options };
-  }
-
   public getTransactionHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { index, limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     try {
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
-        sdk.getTransactionHistory(index, options)
+        sdk.getTransactionHistory(index, { limit, offset, fromSlot })
       );
       this.logger.info(`Transactions history retrieved successfully`);
       ok(res, result);
@@ -239,10 +226,11 @@ export class ApiController {
   };
 
   public getDetailedTxHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { index, limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     try {
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
-        sdk.getDetailedTxHistory(index, options)
+        sdk.getDetailedTxHistory(index, { limit, offset, fromSlot })
       );
       this.logger.info(`Detailed transactions history retrieved successfully`);
       ok(res, result);
@@ -253,10 +241,11 @@ export class ApiController {
 
   public getAllTransactionHistory = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     const options = {
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
-      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      limit,
+      offset,
+      fromSlot,
       groupByAddress: req.query.groupByAddress === "true",
     };
 
@@ -275,10 +264,11 @@ export class ApiController {
 
   public getAllDetailedTxHistory = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     const options = {
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
-      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      limit,
+      offset,
+      fromSlot,
       groupByAddress: req.query.groupByAddress === "true",
     };
 
@@ -413,27 +403,26 @@ export class ApiController {
         (config.FIREBLOCKS.basePath as BasePath) || BasePath.US
       );
 
-      const vaultAccountId = payload.data.destination.id;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      try {
-        // Step 1: Verify webhook signature
-        const isValid = await sdk.verifyWebhook(rawBody, headers, environment);
-        if (!isValid) {
-          this.logger.error("Webhook signature verification failed");
-          return res.status(401).json({
-            success: false,
-            error: "Webhook signature verification failed",
-          });
-        }
-
-        // Step 2: Enrich webhook payload
-        const result = await sdk.enrichWebhookPayload(payload);
-
-        this.logger.info("Webhook verified and enriched successfully");
-        ok(res, result);
-      } finally {
-        this.sdkManager.releaseSdk(vaultAccountId);
+      // Step 1: Verify signature using a default SDK instance
+      const verifyResult = await this.sdkManager.withSdk("0", (sdk) =>
+        sdk.verifyWebhook(rawBody, headers, environment)
+      );
+      if (!verifyResult) {
+        this.logger.error("Webhook signature verification failed");
+        return res.status(401).json({
+          success: false,
+          error: "Webhook signature verification failed",
+        });
       }
+
+      // Step 2: acquire the correct vault SDK for enrichment
+      const vaultAccountId = payload?.data?.destination?.id ?? "0";
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.enrichWebhookPayload(payload)
+      );
+
+      this.logger.info("Webhook verified and enriched successfully");
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "enrichWebhookPayload");
     }
@@ -722,10 +711,9 @@ export class ApiController {
   };
 
   public getPoolDelegatorsList = async (req: Request, res: Response) => {
+    const { limit, offset } = req.query as unknown as PaginationQuery;
     try {
       const { poolId } = req.params as { poolId: string };
-      const limit = req.query.limit ? Number(req.query.limit) : undefined;
-      const offset = req.query.offset ? Number(req.query.offset) : undefined;
       const result = await this.sdkManager.withSdk("0", (sdk) =>
         sdk.getPoolDelegatorsList(poolId, limit, offset)
       );
@@ -805,11 +793,10 @@ export class ApiController {
       });
     } else {
       const message = error instanceof Error ? error.message : "Unknown error";
-      this.logger.error(`${endpoint} - Error:`, message);
-
+      this.logger.error(`${endpoint} - UnhandledError:`, message);
       res.status(500).json({
         success: false,
-        error: "Something went wrong",
+        error: message,
       });
     }
   }
