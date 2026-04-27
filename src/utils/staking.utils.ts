@@ -408,7 +408,7 @@ export const findSuitableUtxo = (
     // Skip UTXOs that contain tokens - only use pure ADA UTXOs for staking
     const hasTokens = utxo.value.assets && Object.keys(utxo.value.assets).length > 0;
 
-    if (!hasTokens && utxo.value.lovelace > minAmount) {
+    if (!hasTokens && utxo.value.lovelace >= minAmount) {
       return {
         txHash: utxo.transaction_id,
         indexInTx: utxo.output_index,
@@ -507,10 +507,17 @@ export const drepActionToDRepInfo = (action: DRepAction, drepId?: string): DRepI
  *   { voter => { gov_action_id => voting_procedure } }
  *
  * Where:
- *   voter           = [1, [0, drep_key_hash_bytes]]   (voter type 1 = DRep, cred type 0 = key)
- *   gov_action_id   = [tx_hash_bytes, index]
- *   voting_procedure = [vote, anchor_or_null]         (vote: 0=No, 1=Yes, 2=Abstain)
- *   anchor          = [url_string, data_hash_bytes]
+ *   voter            = [2, drep_key_hash_bytes]         (Conway CDDL: tag 2 = drep_keyhash, flat 2-tuple)
+ *   gov_action_id    = [tx_hash_bytes, index]
+ *   voting_procedure = [vote, anchor_or_null]           (vote: 0=No, 1=Yes, 2=Abstain)
+ *   anchor           = [url_string, data_hash_bytes]
+ *
+ * Conway voter tags (IntersectMBO/cardano-ledger conway.cddl):
+ *   0 = committee_hot_keyhash
+ *   1 = committee_hot_scripthash
+ *   2 = drep_keyhash       ← this SDK
+ *   3 = drep_scripthash
+ *   4 = stake_pool_keyhash
  */
 export const buildVotingProcedures = (
   credential: Buffer,
@@ -519,7 +526,7 @@ export const buildVotingProcedures = (
   anchor?: { url: string; dataHash: string }
 ): Map<CborArray, Map<CborArray, CborArray>> => {
   assertCredLen(credential, "buildVotingProcedures");
-  const voterKey = [1, [0, toUint8Array(credential)]]; // DRep voter, key-hash credential
+  const voterKey = [2, toUint8Array(credential)]; // DRep key-hash voter: flat [tag=2, hash_bytes]
 
   const txHashBytes = toUint8Array(Buffer.from(governanceActionId.txHash, "hex"));
   const govActionKey = [txHashBytes, governanceActionId.index];
