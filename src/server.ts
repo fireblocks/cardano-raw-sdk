@@ -155,6 +155,13 @@ const startServer = () => {
   // Register signal handlers
   process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
   process.on("SIGINT", () => gracefulShutdown("SIGINT"));
+  process.on("unhandledRejection", (reason) => {
+    logger.error("Unhandled promise rejection:", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    logger.error("Uncaught exception:", err);
+    gracefulShutdown("uncaughtException");
+  });
 
   server.listen(config.PORT, () => {
     logger.info(`${config.APP_NAME} listening on port ${config.PORT}`);
