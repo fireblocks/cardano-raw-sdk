@@ -11,7 +11,7 @@ import type { FireblocksCardanoRawSDK } from "../FireblocksCardanoRawSDK.js";
 interface SdkPoolItem {
   sdk: FireblocksCardanoRawSDK;
   lastUsed: Date;
-  isInUse: boolean;
+  useCount: number; // incremented on acquire, decremented on release
 }
 
 /**
@@ -106,7 +106,9 @@ export class SdkManager {
     this.sdkFactory =
       sdkFactory ||
       (async () => {
-        throw new Error("SDK factory not initialized. This should be set by FireblocksCardanoRawSDK.");
+        throw new Error(
+          "SDK factory not initialized. This should be set by FireblocksCardanoRawSDK."
+        );
       });
 
     this.cleanupInterval = setInterval(
@@ -156,7 +158,7 @@ export class SdkManager {
     if (poolItem) {
       this.logger.debug(`Reusing SDK for vault ${vaultAccountId}`);
       poolItem.lastUsed = new Date();
-      poolItem.isInUse = true;
+      poolItem.useCount++;
       return poolItem.sdk;
     }
 
@@ -177,7 +179,7 @@ export class SdkManager {
     this.sdkPool.set(key, {
       sdk,
       lastUsed: new Date(),
-      isInUse: true,
+      useCount: 1,
     });
 
     return sdk;
@@ -191,7 +193,7 @@ export class SdkManager {
   public releaseSdk(vaultAccountId: string): void {
     const poolItem = this.sdkPool.get(vaultAccountId);
     if (poolItem) {
-      poolItem.isInUse = false;
+      poolItem.useCount = Math.max(0, poolItem.useCount - 1);
       poolItem.lastUsed = new Date();
     }
   }
@@ -232,14 +234,20 @@ export class SdkManager {
     let oldestDate: Date = new Date();
 
     for (const [key, value] of this.sdkPool.entries()) {
-      if (!value.isInUse && value.lastUsed < oldestDate) {
+      if (value.useCount === 0 && value.lastUsed < oldestDate) {
         oldestDate = value.lastUsed;
         oldestKey = key;
       }
     }
 
     if (oldestKey) {
+      const item = this.sdkPool.get(oldestKey);
       this.sdkPool.delete(oldestKey);
+      item?.sdk
+        .shutdown()
+        .catch((err) =>
+          this.logger.error(`Shutdown error during LRU eviction for vault ${oldestKey}:`, err)
+        );
       this.logger.info(`Evicted idle SDK for vault ${oldestKey}`);
       return true;
     }
@@ -256,7 +264,7 @@ export class SdkManager {
     const keysToRemove: string[] = [];
 
     for (const [key, value] of this.sdkPool.entries()) {
-      if (!value.isInUse) {
+      if (value.useCount === 0) {
         const idleTime = now.getTime() - value.lastUsed.getTime();
         if (idleTime > this.poolConfig.idleTimeoutMs) {
           keysToRemove.push(key);
@@ -289,12 +297,12 @@ export class SdkManager {
     };
 
     for (const [key, value] of this.sdkPool.entries()) {
-      if (value.isInUse) {
+      if (value.useCount > 0) {
         metrics.activeInstances++;
       } else {
         metrics.idleInstances++;
       }
-      metrics.instancesByVaultAccount[key] = value.isInUse;
+      metrics.instancesByVaultAccount[key] = value.useCount > 0;
     }
 
     return metrics;
