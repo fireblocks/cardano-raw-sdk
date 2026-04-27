@@ -4,6 +4,10 @@ import { ApiController } from "./controllers/controller.js";
 import {
   validateRequest,
   validateParams,
+  validateQuery,
+  addressQuerySchema,
+  txHistoryQuerySchema,
+  paginationQuerySchema,
   transferRequestSchema,
   feeEstimationRequestSchema,
   adaTransferRequestSchema,
@@ -135,6 +139,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/balance/address/:vaultAccountId",
     validateParams(vaultAccountIdParamsSchema),
+    validateQuery(addressQuerySchema),
     apiController.getBalanceByAddress
   );
 
@@ -624,6 +629,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/utxos/:vaultAccountId",
     validateParams(vaultAccountIdParamsSchema),
+    validateQuery(addressQuerySchema),
     apiController.getUtxosByAddress
   );
 
@@ -826,6 +832,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/tx/history/:vaultAccountId/all",
     validateParams(vaultAccountIdParamsSchema),
+    validateQuery(txHistoryQuerySchema),
     apiController.getAllTransactionHistory
   );
 
@@ -931,6 +938,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/tx/history/:vaultAccountId",
     validateParams(vaultAccountIdParamsSchema),
+    validateQuery(txHistoryQuerySchema),
     apiController.getTransactionHistory
   );
 
@@ -1115,6 +1123,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/tx/address/:vaultAccountId/all",
     validateParams(vaultAccountIdParamsSchema),
+    validateQuery(txHistoryQuerySchema),
     apiController.getAllDetailedTxHistory
   );
 
@@ -1266,6 +1275,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/tx/address/:vaultAccountId",
     validateParams(vaultAccountIdParamsSchema),
+    validateQuery(txHistoryQuerySchema),
     apiController.getDetailedTxHistory
   );
 
@@ -3004,6 +3014,7 @@ export const configureRouter = (sdkManager: SdkManager): Router => {
   router.get(
     "/pools/:poolId/delegators/list",
     validateParams(poolIdParamsSchema),
+    validateQuery(paginationQuerySchema),
     apiController.getPoolDelegatorsList
   );
 

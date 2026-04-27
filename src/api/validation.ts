@@ -35,6 +35,25 @@ export const validateRequest = (schema: z.ZodSchema) => {
  * @param schema - Zod schema to validate against
  * @returns Express middleware function
  */
+export const validateQuery = (schema: z.ZodSchema) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const result = schema.safeParse(req.query);
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid query parameters",
+        details: result.error.issues.map((err) => ({
+          path: err.path.join("."),
+          message: err.message,
+          code: err.code,
+        })),
+      });
+    }
+    Object.assign(req.query, result.data);
+    next();
+  };
+};
+
 export const validateParams = (schema: z.ZodSchema) => {
   return (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -288,7 +307,13 @@ export const delegateToDRepRequestSchema = z
     drepAction: z.enum(["always-abstain", "always-no-confidence", "custom-drep"], {
       message: 'drepAction must be "always-abstain", "always-no-confidence", or "custom-drep"',
     }),
-    drepId: z.string().min(1).optional(),
+    drepId: z
+      .string()
+      .regex(
+        /^(drep1|drep_script1)[a-z0-9]+$|^[0-9a-fA-F]{56}$/,
+        "drepId must be bech32 (drep1... or drep_script1...) or a 56-character hex string"
+      )
+      .optional(),
     fee: z.number().int().positive().optional(),
   })
   .refine((data) => data.drepAction !== "custom-drep" || !!data.drepId, {
@@ -305,10 +330,12 @@ export const registerAsDRepRequestSchema = z.object({
       url: z
         .string()
         .min(1, "anchor.url is required")
+        .max(128, "anchor.url must not exceed 128 bytes (Conway protocol limit)")
         .regex(/^https?:\/\/.+/, "anchor.url must be a valid HTTP/HTTPS URL"),
       dataHash: z
         .string()
-        .length(64, "anchor.dataHash must be a 64-character hex string (blake2b-256)"),
+        .length(64, "anchor.dataHash must be a 64-character hex string (blake2b-256)")
+        .regex(/^[0-9a-fA-F]{64}$/, "anchor.dataHash must be hex"),
     })
     .optional(),
   depositAmount: z.number().int().positive().optional(),
@@ -321,16 +348,21 @@ const anchorSchema = z.object({
   url: z
     .string()
     .min(1, "anchor.url is required")
+    .max(128, "anchor.url must not exceed 128 bytes (Conway protocol limit)")
     .regex(/^https?:\/\/.+/, "anchor.url must be a valid HTTP/HTTPS URL"),
   dataHash: z
     .string()
-    .length(64, "anchor.dataHash must be a 64-character hex string (blake2b-256)"),
+    .length(64, "anchor.dataHash must be a 64-character hex string (blake2b-256)")
+    .regex(/^[0-9a-fA-F]{64}$/, "anchor.dataHash must be hex"),
 });
 
 export const castVoteRequestSchema = z.object({
   vaultAccountId: z.string().min(1, "vaultAccountId is required"),
   governanceActionId: z.object({
-    txHash: z.string().length(64, "governanceActionId.txHash must be a 64-character hex string"),
+    txHash: z
+      .string()
+      .length(64, "governanceActionId.txHash must be a 64-character hex string")
+      .regex(/^[0-9a-fA-F]{64}$/, "governanceActionId.txHash must be hex"),
     index: z.number().int().nonnegative("governanceActionId.index must be a non-negative integer"),
   }),
   vote: z.enum(["yes", "no", "abstain"], { message: 'vote must be "yes", "no", or "abstain"' }),
@@ -370,3 +402,29 @@ export const withdrawRewardsRequestSchema = z.object({
 });
 
 export type WithdrawRewardsRequest = z.infer<typeof withdrawRewardsRequestSchema>;
+
+// ======================
+// Query Parameter Schemas
+// ======================
+
+export const addressQuerySchema = z.object({
+  index: z.coerce.number().int().nonnegative().optional().default(0),
+});
+
+export type AddressQuery = z.infer<typeof addressQuerySchema>;
+
+export const txHistoryQuerySchema = z.object({
+  index: z.coerce.number().int().nonnegative().optional().default(0),
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+  fromSlot: z.coerce.number().int().nonnegative().optional(),
+});
+
+export type TxHistoryQuery = z.infer<typeof txHistoryQuerySchema>;
+
+export const paginationQuerySchema = z.object({
+  limit: z.coerce.number().int().positive().optional(),
+  offset: z.coerce.number().int().nonnegative().optional(),
+});
+
+export type PaginationQuery = z.infer<typeof paginationQuerySchema>;
