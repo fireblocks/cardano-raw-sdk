@@ -23,6 +23,14 @@ import * as CardanoWasm from "@emurgo/cardano-serialization-lib-nodejs";
 /** Raw CBOR array - used for hand-built Cardano transaction structures */
 export type CborArray = unknown[];
 
+// credential must be 28 bytes per Conway CDDL
+const CREDENTIAL_LEN = 28;
+const assertCredLen = (buf: Buffer, ctx: string) => {
+  if (buf.length !== CREDENTIAL_LEN) {
+    throw new Error(`${ctx}: credential must be ${CREDENTIAL_LEN} bytes, got ${buf.length}`);
+  }
+};
+
 /**
  * Blake2b hash with configurable digest size (default 28 bytes for address hash, 32 for TX hash)
  */
@@ -143,6 +151,7 @@ export const serializeCertificate = (certificate: Buffer): [number, Uint8Array] 
  * Shelley-era certs remain valid on the Conway ledger.
  */
 export const buildRegistrationCertificate = (credential: Buffer): CardanoCertificate => {
+  assertCredLen(credential, "buildRegistrationCertificate");
   const serializedCert = serializeCertificate(credential);
 
   return [
@@ -158,6 +167,7 @@ export const buildRegistrationCertificate = (credential: Buffer): CardanoCertifi
  * Shelley-era certs remain valid on the Conway ledger.
  */
 export const buildDeregistrationCertificate = (credential: Buffer): CardanoCertificate => {
+  assertCredLen(credential, "buildDeregistrationCertificate");
   const serializedCert = serializeCertificate(credential);
   return [
     CertificateType.STAKE_KEY_DEREGISTRATION, // Type 1 (Shelley)
@@ -172,6 +182,7 @@ export const buildDelegationCertificate = (
   credential: Buffer,
   poolId: string
 ): CardanoWasm.Certificate => {
+  assertCredLen(credential, "buildDelegationCertificate");
   const credentialHash = CardanoWasm.Ed25519KeyHash.from_bytes(credential);
   const stakeCredential = CardanoWasm.Credential.from_keyhash(credentialHash);
   credentialHash.free();
@@ -203,6 +214,7 @@ export const buildDelegationCertificate = (
  * Build vote delegation certificate (Conway era)
  */
 export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInfo): CborArray => {
+  assertCredLen(credential, "buildVoteDelegationCertificate");
   // Stake credential: [0, credential_bytes]
   const stakeCredential = [0, toUint8Array(credential)];
 
@@ -218,6 +230,7 @@ export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInf
       if (!drep.keyHash) {
         throw new Error("KEY_HASH DRep requires keyHash");
       }
+      assertCredLen(drep.keyHash, "DRep keyHash");
       // [kind, key_hash] - kind = 0
       drepValue = [drep.kind, toUint8Array(drep.keyHash)];
       break;
@@ -225,6 +238,7 @@ export const buildVoteDelegationCertificate = (credential: Buffer, drep: DRepInf
       if (!drep.keyHash) {
         throw new Error("SCRIPT_HASH DRep requires keyHash");
       }
+      assertCredLen(drep.keyHash, "DRep scriptHash");
       // [kind, script_hash] - kind = 1
       drepValue = [drep.kind, toUint8Array(drep.keyHash)];
       break;
@@ -394,7 +408,7 @@ export const findSuitableUtxo = (
     // Skip UTXOs that contain tokens - only use pure ADA UTXOs for staking
     const hasTokens = utxo.value.assets && Object.keys(utxo.value.assets).length > 0;
 
-    if (!hasTokens && utxo.value.lovelace > minAmount) {
+    if (!hasTokens && utxo.value.lovelace >= minAmount) {
       return {
         txHash: utxo.transaction_id,
         indexInTx: utxo.output_index,
@@ -493,10 +507,17 @@ export const drepActionToDRepInfo = (action: DRepAction, drepId?: string): DRepI
  *   { voter => { gov_action_id => voting_procedure } }
  *
  * Where:
- *   voter           = [1, [0, drep_key_hash_bytes]]   (voter type 1 = DRep, cred type 0 = key)
- *   gov_action_id   = [tx_hash_bytes, index]
- *   voting_procedure = [vote, anchor_or_null]         (vote: 0=No, 1=Yes, 2=Abstain)
- *   anchor          = [url_string, data_hash_bytes]
+ *   voter            = [2, drep_key_hash_bytes]         (Conway CDDL: tag 2 = drep_keyhash, flat 2-tuple)
+ *   gov_action_id    = [tx_hash_bytes, index]
+ *   voting_procedure = [vote, anchor_or_null]           (vote: 0=No, 1=Yes, 2=Abstain)
+ *   anchor           = [url_string, data_hash_bytes]
+ *
+ * Conway voter tags (IntersectMBO/cardano-ledger conway.cddl):
+ *   0 = committee_hot_keyhash
+ *   1 = committee_hot_scripthash
+ *   2 = drep_keyhash       ← this SDK
+ *   3 = drep_scripthash
+ *   4 = stake_pool_keyhash
  */
 export const buildVotingProcedures = (
   credential: Buffer,
@@ -504,7 +525,8 @@ export const buildVotingProcedures = (
   vote: 0 | 1 | 2,
   anchor?: { url: string; dataHash: string }
 ): Map<CborArray, Map<CborArray, CborArray>> => {
-  const voterKey = [1, [0, toUint8Array(credential)]]; // DRep voter, key-hash credential
+  assertCredLen(credential, "buildVotingProcedures");
+  const voterKey = [2, toUint8Array(credential)]; // DRep key-hash voter: flat [tag=2, hash_bytes]
 
   const txHashBytes = toUint8Array(Buffer.from(governanceActionId.txHash, "hex"));
   const govActionKey = [txHashBytes, governanceActionId.index];
@@ -529,6 +551,7 @@ export const buildDRepRegistrationCertificate = (
   depositLovelace: number,
   anchor?: { url: string; dataHash: string }
 ): CborArray => {
+  assertCredLen(credential, "buildDRepRegistrationCertificate");
   if (anchor) validateAnchorDataHash(anchor.dataHash);
   const drepCredential = [0, toUint8Array(credential)];
   const anchorValue = anchor

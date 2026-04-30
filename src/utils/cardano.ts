@@ -18,7 +18,6 @@ import {
   min_ada_for_output,
   DataCost,
 } from "@emurgo/cardano-serialization-lib-nodejs";
-import { toHex } from "./general.js";
 import { IagonApiService } from "../services/index.js";
 import {
   CntTransactionOutputsParams,
@@ -101,6 +100,22 @@ export const countDistinctPolicies = (assets: Record<string, number>): number =>
     }
   }
   return policies.size;
+};
+
+// find policy ids in change that weren't part of the intended transfer
+export const getExtraPolicies = (
+  changeAssets: Record<string, number>,
+  intendedPolicies: string[]
+): string[] => {
+  const intent = new Set(intendedPolicies);
+  const extra: string[] = [];
+  for (const assetUnit of Object.keys(changeAssets)) {
+    const [pid] = assetUnit.split(".");
+    if (pid && !intent.has(pid) && !extra.includes(pid)) {
+      extra.push(pid);
+    }
+  }
+  return extra;
 };
 
 /**
@@ -670,7 +685,7 @@ const buildValidatedOutput = (
 
 /**
  * Shared fee-convergence loop used by all transaction types.
- * Iteratively rebuilds outputs until the fee stabilises within TX_FEE_TOLERANCE.
+ * Iteratively rebuilds outputs until the fee stabilizes within TX_FEE_TOLERANCE.
  *
  * @param buildOutputsFn - Builds transaction outputs for a given fee
  * @param txInputs       - Transaction inputs
@@ -1186,53 +1201,4 @@ export const buildConsolidationTransactionWithCalculatedFee = (
     estimatedWitnessCount,
     "consolidation"
   );
-};
-
-/**
- * Calculate token balance for given addresses
- * @param iagonApiService - Iagon API service instance
- * @param policyId - Token policy ID
- * @param tokenName - Token name
- * @param addresses - Array of ADA addresses to calculate balance for
- * @returns Promise resolving to balance information including total, confirmed and unconfirmed amounts
- */
-export const calculateBalance = async (
-  iagonApiService: IagonApiService,
-  policyId: string,
-  tokenName: string,
-  addresses: string[]
-): Promise<{
-  total: number;
-  confirmed: number;
-  unconfirmed: number;
-}> => {
-  try {
-    if (!addresses || addresses.length === 0) {
-      logger.error("No addresses provided");
-      throw new Error("No addresses provided");
-    }
-
-    const assetNameHex = toHex(tokenName);
-    const targetUnit = `${policyId}${assetNameHex}`;
-
-    // Fetch UTXOs for the provided addresses
-    const allUtxos = await Promise.all(
-      addresses.map((address) => fetchUtxos(iagonApiService, address))
-    );
-    const utxos = allUtxos.flat();
-
-    let totalTokenAmount = 0;
-    utxos.forEach((utxo) => {
-      totalTokenAmount += utxo.value.assets[targetUnit] || 0;
-    });
-
-    return {
-      total: totalTokenAmount,
-      confirmed: totalTokenAmount,
-      unconfirmed: 0,
-    };
-  } catch (error) {
-    logger.error("Error calculating token balance:", error);
-    throw error;
-  }
 };

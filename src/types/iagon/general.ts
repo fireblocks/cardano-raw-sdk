@@ -64,6 +64,19 @@ export interface ConsolidateUtxosOpts {
    * Defaults to 2. Throws if the address has fewer UTxOs than this value.
    */
   minUtxoCount?: number;
+  /** Enable batched consolidation for dust-attacked addresses (default: false) */
+  batched?: boolean;
+  /** Max UTxOs per batch (default: 90). Only used when batched=true */
+  batchSize?: number;
+  /** Max number of batches to process (default: 20). Only used when batched=true */
+  maxBatches?: number;
+}
+
+/** Result from a single consolidation batch */
+export interface ConsolidateBatchResult {
+  txHash: string;
+  utxosCombined: number;
+  fee: { lovelace: string; ada: string };
 }
 
 export interface ConsolidateUtxosResult {
@@ -76,6 +89,12 @@ export interface ConsolidateUtxosResult {
   fee: { lovelace: string; ada: string };
   /** Distinct token policy IDs present in the consolidated output */
   tokenPolicies: string[];
+  /** Per-batch results when batched=true */
+  batches?: ConsolidateBatchResult[];
+  /** Total fee across all batches (only present when batched=true) */
+  totalFee?: { lovelace: string; ada: string };
+  /** Set when a batch failed partway through */
+  partialError?: string;
 }
 
 export interface AdaTransferOpts {

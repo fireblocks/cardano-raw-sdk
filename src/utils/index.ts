@@ -7,4 +7,5 @@ export * from "./httpClient.js";
 export * from "./logger.js";
 export * from "./sanitizer.js";
 export * from "./staking.utils.js";
+export * from "./utxoLock.js";
 // NOTE: swagger.js is NOT exported here - it's only used by server.ts

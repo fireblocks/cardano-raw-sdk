@@ -4,6 +4,11 @@ import { Logger, config } from "../../utils/index.js";
 import { SdkManager } from "../../pool/sdkManager.js";
 import { GroupByOptions, SdkApiError } from "../../types/index.js";
 import { CardanoAmounts } from "../../constants.js";
+import type { AddressQuery, TxHistoryQuery, PaginationQuery } from "../validation.js";
+
+// standard success envelope
+const ok = <T>(res: Response, data: T, status = 200) =>
+  res.status(status).json({ success: true, data });
 
 /**
  * Map Fireblocks BasePath to webhook environment
@@ -68,7 +73,7 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.checkIagonHealth());
 
       this.logger.info(`Iagon health check successful`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getIagonHealth");
     }
@@ -76,7 +81,7 @@ export class ApiController {
 
   public getBalanceByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const { index } = req.query as unknown as AddressQuery;
     const groupByPolicy = req.query.groupByPolicy === "true";
     const includeMetadata = req.query.includeMetadata === "true";
 
@@ -85,7 +90,7 @@ export class ApiController {
         sdk.getBalanceByAddress({ index, groupByPolicy, includeMetadata })
       );
 
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getBalanceByAddress");
     }
@@ -101,7 +106,7 @@ export class ApiController {
         sdk.getVaultBalance({ groupBy, includeMetadata })
       );
 
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getVaultBalance");
     }
@@ -120,7 +125,7 @@ export class ApiController {
         sdk.getBalanceByCredential({ credential, groupByPolicy, includeMetadata })
       );
 
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getBalanceByCredential");
     }
@@ -136,7 +141,7 @@ export class ApiController {
         sdk.getBalanceByStakeKey({ groupByPolicy, includeMetadata })
       );
 
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getBalanceByStakeKey");
     }
@@ -147,7 +152,7 @@ export class ApiController {
     try {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getTransactionDetails(hash));
       this.logger.info(`Transaction details retrieved successfully`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getTransactionDetails");
     }
@@ -172,7 +177,7 @@ export class ApiController {
       );
 
       this.logger.info(`Asset info retrieved successfully for ${policyId}.${assetName}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getAssetInfo");
     }
@@ -180,14 +185,14 @@ export class ApiController {
 
   public getUtxosByAddress = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
+    const { index } = req.query as unknown as AddressQuery;
 
     try {
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
         sdk.getUtxosByAddress(index)
       );
       this.logger.info(`UTXOs retrieved successfully for vault ${vaultAccountId}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getUtxosByAddress");
     }
@@ -200,48 +205,35 @@ export class ApiController {
         sdk.getUtxosByVaultAccountId()
       );
       this.logger.info(`Vault UTxOs retrieved for vault ${vaultAccountId}`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getVaultUtxos");
     }
   };
 
-  /**
-   * Helper method to parse transaction history query parameters
-   */
-  private parseTransactionHistoryParams(req: Request) {
-    const { vaultAccountId } = req.params as { vaultAccountId: string };
-    const index = req.query.index ? parseInt(req.query.index as string, 10) : 0;
-    const options = {
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
-      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
-    };
-
-    return { vaultAccountId, index, options };
-  }
-
   public getTransactionHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { index, limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     try {
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
-        sdk.getTransactionHistory(index, options)
+        sdk.getTransactionHistory(index, { limit, offset, fromSlot })
       );
       this.logger.info(`Transactions history retrieved successfully`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getTransactionHistory");
     }
   };
 
   public getDetailedTxHistory = async (req: Request, res: Response) => {
-    const { vaultAccountId, index, options } = this.parseTransactionHistoryParams(req);
+    const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { index, limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     try {
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
-        sdk.getDetailedTxHistory(index, options)
+        sdk.getDetailedTxHistory(index, { limit, offset, fromSlot })
       );
       this.logger.info(`Detailed transactions history retrieved successfully`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getDetailedTxHistory");
     }
@@ -249,10 +241,11 @@ export class ApiController {
 
   public getAllTransactionHistory = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     const options = {
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
-      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      limit,
+      offset,
+      fromSlot,
       groupByAddress: req.query.groupByAddress === "true",
     };
 
@@ -263,7 +256,7 @@ export class ApiController {
       this.logger.info(
         `All transactions history retrieved successfully for vault ${vaultAccountId}`
       );
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getAllTransactionHistory");
     }
@@ -271,10 +264,11 @@ export class ApiController {
 
   public getAllDetailedTxHistory = async (req: Request, res: Response) => {
     const { vaultAccountId } = req.params as { vaultAccountId: string };
+    const { limit, offset, fromSlot } = req.query as unknown as TxHistoryQuery;
     const options = {
-      limit: req.query.limit ? Number(req.query.limit) : undefined,
-      offset: req.query.offset ? Number(req.query.offset) : undefined,
-      fromSlot: req.query.fromSlot ? Number(req.query.fromSlot) : undefined,
+      limit,
+      offset,
+      fromSlot,
       groupByAddress: req.query.groupByAddress === "true",
     };
 
@@ -285,7 +279,7 @@ export class ApiController {
       this.logger.info(
         `All detailed transactions history retrieved successfully for vault ${vaultAccountId}`
       );
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getAllDetailedTxHistory");
     }
@@ -296,7 +290,7 @@ export class ApiController {
       const { vaultAccountId } = req.body;
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) => sdk.transfer(req.body));
       this.logger.info(`Transfer executed successfully`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "transfer");
     }
@@ -309,7 +303,7 @@ export class ApiController {
         sdk.estimateTransactionFee(req.body)
       );
       this.logger.info(`Fee estimation completed successfully`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "estimateFee");
     }
@@ -322,7 +316,7 @@ export class ApiController {
         sdk.transferAda(req.body)
       );
       this.logger.info(`ADA transfer executed successfully: ${result.txHash}`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "transferAda");
     }
@@ -335,7 +329,7 @@ export class ApiController {
         sdk.estimateAdaTransactionFee(req.body)
       );
       this.logger.info(`ADA fee estimation completed successfully`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "estimateAdaFee");
     }
@@ -348,7 +342,7 @@ export class ApiController {
         sdk.transferMultipleTokens(req.body)
       );
       this.logger.info(`Multi-token transfer executed successfully: ${result.txHash}`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "transferMultipleTokens");
     }
@@ -361,7 +355,7 @@ export class ApiController {
         sdk.estimateMultiTokenTransactionFee(req.body)
       );
       this.logger.info(`Multi-token fee estimation completed successfully`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "estimateMultiTokenFee");
     }
@@ -374,7 +368,7 @@ export class ApiController {
         sdk.consolidateUtxos(req.body)
       );
       this.logger.info(`UTxO consolidation executed successfully: ${result.txHash}`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "consolidateUtxos");
     }
@@ -409,27 +403,26 @@ export class ApiController {
         (config.FIREBLOCKS.basePath as BasePath) || BasePath.US
       );
 
-      const vaultAccountId = payload.data.destination.id;
-      const sdk = await this.sdkManager.getSdk(vaultAccountId);
-      try {
-        // Step 1: Verify webhook signature
-        const isValid = await sdk.verifyWebhook(rawBody, headers, environment);
-        if (!isValid) {
-          this.logger.error("Webhook signature verification failed");
-          return res.status(401).json({
-            success: false,
-            error: "Webhook signature verification failed",
-          });
-        }
-
-        // Step 2: Enrich webhook payload
-        const result = await sdk.enrichWebhookPayload(payload);
-
-        this.logger.info("Webhook verified and enriched successfully");
-        res.status(200).json({ success: true, data: result });
-      } finally {
-        this.sdkManager.releaseSdk(vaultAccountId);
+      // Step 1: Verify signature using a default SDK instance
+      const verifyResult = await this.sdkManager.withSdk("0", (sdk) =>
+        sdk.verifyWebhook(rawBody, headers, environment)
+      );
+      if (!verifyResult) {
+        this.logger.error("Webhook signature verification failed");
+        return res.status(401).json({
+          success: false,
+          error: "Webhook signature verification failed",
+        });
       }
+
+      // Step 2: acquire the correct vault SDK for enrichment
+      const vaultAccountId = payload?.data?.destination?.id ?? "0";
+      const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
+        sdk.enrichWebhookPayload(payload)
+      );
+
+      this.logger.info("Webhook verified and enriched successfully");
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "enrichWebhookPayload");
     }
@@ -462,10 +455,7 @@ export class ApiController {
       );
 
       this.logger.info(`Staking registration successful for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "registerStaking");
     }
@@ -492,10 +482,7 @@ export class ApiController {
       );
 
       this.logger.info(`Staking deregistration successful for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "deregisterStaking");
     }
@@ -530,10 +517,7 @@ export class ApiController {
       );
 
       this.logger.info(`Pool delegation successful for vault ${vaultAccountId} to pool ${poolId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "delegateToPool");
     }
@@ -561,10 +545,7 @@ export class ApiController {
       );
 
       this.logger.info(`Reward withdrawal successful for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "withdrawRewards");
     }
@@ -586,10 +567,7 @@ export class ApiController {
       );
 
       this.logger.info(`Staking account info retrieved successfully for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getStakeAccountInfo");
     }
@@ -600,7 +578,7 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getCurrentEpoch());
 
       this.logger.info(`Current epoch retrieved successfully`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getCurrentEpoch");
     }
@@ -626,10 +604,7 @@ export class ApiController {
       );
 
       this.logger.info(`Staking rewards queried successfully for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "queryStakingRewards");
     }
@@ -650,7 +625,7 @@ export class ApiController {
       this.logger.info(
         `Governance vote "${vote}" submitted for vault ${vaultAccountId}: ${result.txHash}`
       );
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "castGovernanceVote");
     }
@@ -670,10 +645,7 @@ export class ApiController {
       );
 
       this.logger.info(`DRep delegation successful for vault ${vaultAccountId}`);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "delegateToDRep");
     }
@@ -692,7 +664,7 @@ export class ApiController {
       );
 
       this.logger.info(`DRep registration submitted for vault ${vaultAccountId}: ${result.txHash}`);
-      res.status(200).json({ success: true, data: result });
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "registerAsDRep");
     }
@@ -708,7 +680,7 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolInfo(poolId));
 
       this.logger.info(`Pool info retrieved for ${poolId}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getPoolInfo");
     }
@@ -720,7 +692,7 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolMetadata(poolId));
 
       this.logger.info(`Pool metadata retrieved for ${poolId}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getPoolMetadata");
     }
@@ -732,23 +704,22 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolDelegators(poolId));
 
       this.logger.info(`Pool delegators retrieved for ${poolId}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getPoolDelegators");
     }
   };
 
   public getPoolDelegatorsList = async (req: Request, res: Response) => {
+    const { limit, offset } = req.query as unknown as PaginationQuery;
     try {
       const { poolId } = req.params as { poolId: string };
-      const limit = req.query.limit ? Number(req.query.limit) : undefined;
-      const offset = req.query.offset ? Number(req.query.offset) : undefined;
       const result = await this.sdkManager.withSdk("0", (sdk) =>
         sdk.getPoolDelegatorsList(poolId, limit, offset)
       );
 
       this.logger.info(`Pool delegators list retrieved for ${poolId}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getPoolDelegatorsList");
     }
@@ -760,7 +731,7 @@ export class ApiController {
       const result = await this.sdkManager.withSdk("0", (sdk) => sdk.getPoolBlocks(poolId));
 
       this.logger.info(`Pool blocks retrieved for ${poolId}`);
-      res.status(200).json(result);
+      ok(res, result);
     } catch (error: unknown) {
       this.handleError(error, res, "getPoolBlocks");
     }
@@ -788,12 +759,7 @@ export class ApiController {
       this.logger.info(
         `Stake address retrieved successfully for vault ${vaultAccountId}: ${stakeAddress}`
       );
-      res.status(200).json({
-        success: true,
-        data: {
-          stakeAddress,
-        },
-      });
+      ok(res, { stakeAddress });
     } catch (error: unknown) {
       this.handleError(error, res, "getStakeAddress");
     }
@@ -827,11 +793,10 @@ export class ApiController {
       });
     } else {
       const message = error instanceof Error ? error.message : "Unknown error";
-      this.logger.error(`${endpoint} - Error:`, message);
-
+      this.logger.error(`${endpoint} - UnhandledError:`, message);
       res.status(500).json({
         success: false,
-        error: "Something went wrong",
+        error: message,
       });
     }
   }

@@ -807,21 +807,48 @@ cp .env.example .env
 
 ### Fireblocks Secret Key
 
-Store your Fireblocks secret key in a secure file:
+The SDK supports three ways to provide your Fireblocks RSA private key:
+
+#### Option 1: File Path (Recommended for local development)
 
 ```bash
 # Create a secure directory
 mkdir -p ~/.fireblocks
 
 # Save your secret key
-echo "YOUR_FIREBLOCKS_SECRET_KEY" > ~/.fireblocks/secret.key
+cat > ~/.fireblocks/secret.key << 'EOF'
+-----BEGIN PRIVATE KEY-----
+MIIJQgIBADANBgkqhki...
+-----END PRIVATE KEY-----
+EOF
 
 # Set proper permissions
 chmod 600 ~/.fireblocks/secret.key
 
-# Update .env
-FIREBLOCKS_API_USER_SECRET_KEY_PATH=/home/user/.fireblocks/secret.key
+# Set environment variable
+export FIREBLOCKS_API_USER_SECRET_KEY_PATH=/home/user/.fireblocks/secret.key
 ```
+
+#### Option 2: Direct PEM Content (CI/CD environments)
+
+```bash
+# Set the key content directly (with newlines)
+export FIREBLOCKS_API_USER_SECRET_KEY="-----BEGIN PRIVATE KEY-----
+MIIJQgIBADANBgkqhki...
+-----END PRIVATE KEY-----"
+```
+
+#### Option 3: Base64 Encoded (Recommended for CI/CD secrets)
+
+```bash
+# Encode your key file to base64 (single line, easy to store as secret)
+cat ~/.fireblocks/secret.key | base64 -w 0 > key.b64
+
+# Set the base64-encoded content
+export FIREBLOCKS_API_USER_SECRET_KEY=$(cat key.b64)
+```
+
+**Priority:** If both `FIREBLOCKS_API_USER_SECRET_KEY` and `FIREBLOCKS_API_USER_SECRET_KEY_PATH` are set, the direct key content takes precedence.
 
 ## API Documentation
 

@@ -1,28 +1,27 @@
-FROM node:20-alpine AS build
+# pinned digest for node:20-alpine - update periodically
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS build
 
 WORKDIR /usr/src/app
 
-
 COPY package*.json ./
-RUN npm ci --strict-ssl=false
+RUN npm ci
 
 COPY . .
-# COPY .env .
 RUN npx tsc
 
 # Stage 2: production
-FROM node:20-alpine
+FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
 
 WORKDIR /usr/src/app
 
-# Copy only compiled files + dependencies
 COPY package*.json ./
-RUN npm ci --omit=dev --strict-ssl=false
+RUN npm ci --omit=dev
 
 COPY --from=build /usr/src/app/dist ./dist
 
-# COPY --from=build /usr/src/app/.env ./
-# COPY ./secrets ./secrets
+# run as non-root
+RUN chown -R node:node /usr/src/app
+USER node
 
 EXPOSE 8000
 

@@ -1,0 +1,95 @@
+name: Test native token (CNT) transfer
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Cardano network"
+        required: true
+        default: "preprod"
+        type: choice
+        options:
+          - preprod
+          - mainnet
+      token_policy_id:
+        description: "Token policy ID (hex)"
+        required: true
+        type: string
+      token_name:
+        description: "Asset name: hex on-chain, or UTF-8 if token_name_utf8 is true"
+        required: true
+        type: string
+      token_name_utf8:
+        description: "If true, token_name is UTF-8 and will be hex-encoded"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      transfer_token_amount:
+        description: "Amount in token base units (integer)"
+        required: true
+        type: string
+      source_vault:
+        description: "Source vault account ID"
+        required: true
+        default: "0"
+      dest_vault:
+        description: "Destination vault account ID"
+        required: true
+        default: "1"
+      address_index:
+        description: "Source address index"
+        required: false
+        default: "0"
+      recipient_index:
+        description: "Recipient address index (dest vault)"
+        required: false
+        default: "0"
+      token_transfer_mode:
+        description: "full = estimate + transfer; estimate = fee only; transfer = skip estimate"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - estimate
+          - transfer
+
+jobs:
+  test-token-transfer:
+    runs-on: ubuntu-latest
+    environment: tests
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Run CNT transfer test
+        env:
+          FIREBLOCKS_API_USER_KEY: ${{ secrets.FIREBLOCKS_API_KEY }}
+          FIREBLOCKS_API_USER_SECRET_KEY: ${{ secrets.FIREBLOCKS_API_SECRET }}
+          IAGON_API_KEY: ${{ secrets.IAGON_API_KEY }}
+          CARDANO_NETWORK: ${{ inputs.network }}
+          TOKEN_POLICY_ID: ${{ inputs.token_policy_id }}
+          TOKEN_NAME: ${{ inputs.token_name }}
+          TOKEN_NAME_UTF8: ${{ inputs.token_name_utf8 }}
+          TRANSFER_TOKEN_AMOUNT: ${{ inputs.transfer_token_amount }}
+          SOURCE_VAULT: ${{ inputs.source_vault }}
+          DEST_VAULT: ${{ inputs.dest_vault }}
+          ADDRESS_INDEX: ${{ inputs.address_index }}
+          RECIPIENT_INDEX: ${{ inputs.recipient_index }}
+          TOKEN_TRANSFER_MODE: ${{ inputs.token_transfer_mode }}
+        run: npx tsx scripts/test-token-transfer.ts
