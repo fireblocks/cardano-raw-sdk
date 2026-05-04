@@ -53,4 +53,5 @@ jobs:
           TRANSFER_AMOUNT_ADA: ${{ inputs.amount_ada }}
           SOURCE_VAULT: ${{ inputs.source_vault }}
           DEST_VAULT: ${{ inputs.dest_vault }}
+          FIREBLOCKS_BASE_PATH: ${{ secrets.FIREBLOCKS_BASE_PATH }}
         run: npx tsx scripts/test-ada-transfer.ts
