@@ -92,4 +92,5 @@ jobs:
           ADDRESS_INDEX: ${{ inputs.address_index }}
           RECIPIENT_INDEX: ${{ inputs.recipient_index }}
           TOKEN_TRANSFER_MODE: ${{ inputs.token_transfer_mode }}
+          FIREBLOCKS_BASE_PATH: ${{ secrets.FIREBLOCKS_BASE_PATH }}
         run: npx tsx scripts/test-token-transfer.ts

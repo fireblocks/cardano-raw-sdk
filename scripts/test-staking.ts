@@ -73,7 +73,7 @@ async function main() {
 
   console.log("Initializing SDK...");
   const sdk = await FireblocksCardanoRawSDK.createInstance({
-    fireblocksConfig: { apiKey, secretKey },
+    fireblocksConfig: { apiKey, secretKey, basePath: process.env.FIREBLOCKS_BASE_PATH },
     vaultAccountId,
     network,
     iagonApiKey,

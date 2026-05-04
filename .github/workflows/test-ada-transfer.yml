@@ -6,7 +6,7 @@ on:
       network:
         description: 'Cardano network'
         required: true
-        default: 'preprod'
+        default: 'mainnet'
         type: choice
         options:
           - preprod
@@ -14,7 +14,7 @@ on:
       amount_ada:
         description: 'Amount in ADA'
         required: true
-        default: '50'
+        default: '3'
       source_vault:
         description: 'Source vault account ID'
         required: true
