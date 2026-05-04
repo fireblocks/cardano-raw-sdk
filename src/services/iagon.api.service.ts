@@ -11,7 +11,7 @@ const utxoDataSchema = z.object({
   address: z.string(),
   value: z.object({
     lovelace: z.number(),
-    assets: z.record(z.string(), z.number()),
+    assets: z.record(z.string(), z.number()).optional().default({}),
   }),
   datum_hash: z.string().nullable(),
   script_hash: z.string().nullable(),
@@ -150,11 +150,7 @@ export class IagonApiService {
   }
 
   // retry on network errors and 5xx, skip 4xx
-  private async withRetry<T>(
-    fn: () => Promise<T>,
-    ctx: string,
-    maxRetries = 2
-  ): Promise<T> {
+  private async withRetry<T>(fn: () => Promise<T>, ctx: string, maxRetries = 2): Promise<T> {
     let lastErr: unknown;
     const delays = [250, 750];
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -192,7 +188,9 @@ export class IagonApiService {
         },
       };
     } catch (error: unknown) {
-      this.logger.error(`Iagon health check error: ${error instanceof Error ? error.message : String(error)}`);
+      this.logger.error(
+        `Iagon health check error: ${error instanceof Error ? error.message : String(error)}`
+      );
       return {
         success: false,
         data: {
