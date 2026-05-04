@@ -6,7 +6,7 @@ on:
       network:
         description: 'Cardano network'
         required: true
-        default: 'preprod'
+        default: 'mainnet'
         type: choice
         options:
           - preprod
@@ -59,4 +59,5 @@ jobs:
           VAULT_ACCOUNT_ID: ${{ inputs.vault_account_id }}
           STAKING_ACTION: ${{ inputs.staking_action }}
           POOL_ID: ${{ inputs.pool_id }}
+          FIREBLOCKS_BASE_PATH: ${{ secrets.FIREBLOCKS_BASE_PATH }}
         run: npx tsx scripts/test-staking.ts
