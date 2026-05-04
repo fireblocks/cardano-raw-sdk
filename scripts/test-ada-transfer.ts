@@ -81,6 +81,7 @@ async function main() {
     fireblocksConfig: {
       apiKey,
       secretKey,
+      basePath: process.env.FIREBLOCKS_BASE_PATH
     },
     vaultAccountId: sourceVault,
     network,
