@@ -155,7 +155,7 @@ export class StakingService {
         return await this.handleAlreadyRegistered(vaultAccountId);
       }
 
-      const minInputAmount = depositAmount + fee;
+      const minInputAmount = depositAmount + fee + CardanoConstants.MIN_UTXO_BASE_LOVELACE;
       const addressWithUtxo = await this.utxoProvider.findAddressWithSuitableUtxo(
         vaultAccountId,
         minInputAmount

@@ -70,11 +70,20 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
 
       - name: Install dependencies
         run: npm install
 
+      - name: Cache build
+        uses: actions/cache@v4
+        id: build-cache
+        with:
+          path: dist/
+          key: build-${{ hashFiles('src/**/*.ts', 'tsconfig.json') }}
+
       - name: Build
+        if: steps.build-cache.outputs.cache-hit != 'true'
         run: npm run build
 
       - name: Run CNT transfer test
