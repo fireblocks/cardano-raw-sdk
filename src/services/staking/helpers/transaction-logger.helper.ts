@@ -3,7 +3,7 @@
  * Handles transaction logging for debugging
  */
 
-import { Logger, sortWitnesses } from "../../../utils/index.js";
+import { Logger, LogLevel, sortWitnesses } from "../../../utils/index.js";
 import { CardanoWitness } from "../../../types/index.js";
 
 export class TransactionLogger {
@@ -15,6 +15,10 @@ export class TransactionLogger {
     witnesses: CardanoWitness[],
     signedTx: Buffer
   ): void {
+    // Building these hex strings (full tx body, every witness, signed tx) is expensive
+    // and wasted when INFO output is suppressed, so skip it entirely below INFO (S-6).
+    if (Logger.getLogLevel() > LogLevel.INFO) return;
+
     this.logger.info("=== Transaction Details ===");
     this.logger.info(`Serialized TX body (hex): ${serialized.toString("hex")}`);
     this.logger.info(`TX hash for signing: ${txHash.toString("hex")}`);

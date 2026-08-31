@@ -19,10 +19,39 @@ export enum CardanoConstants {
    */
   TX_FEE_MAX_ITERATIONS = 5,
   /**
+   * Maximum time (ms) Fireblocks holds a RAW signing request before it expires it.
+   * This is a hard Fireblocks platform guarantee (30 minutes): a raw signing request
+   * always resolves — success or timeout — within this window, even under a manual /
+   * quorum signing policy. It gives every raw-signing SDK operation a bounded worst case.
+   * (Native ADA transfers are signed by Fireblocks' own transfer flow and never hold an
+   * SDK UTxO lock, so this bound is only relevant to the raw-signing paths.)
+   */
+  FIREBLOCKS_RAW_SIGN_MAX_MS = 1_800_000,
+  /**
    * TTL for in-memory UTxO locks (ms). Locks expire automatically to prevent
    * permanent blocking if a request crashes before calling release().
+   *
+   * INVARIANT: must be >= FIREBLOCKS_RAW_SIGN_MAX_MS + TX_CONFIRM_TIMEOUT_MS. A raw
+   * operation holds a lock across the whole "sign (<=30 min) -> submit -> confirm
+   * (<=TX_CONFIRM_TIMEOUT_MS)" window; if the lock expired sooner it could be released
+   * mid-signing (manual policies) or mid-confirmation, letting a concurrent request
+   * re-select the same inputs and reopen the double-spend window. Sized to 35 min =
+   * 30 min max signing + 180s confirmation + ~2 min buffer. The only cost is that a
+   * hard process crash holds the affected UTxOs for up to this long before auto-expiry.
    */
-  UTXO_LOCK_TTL_MS = 120_000,
+  UTXO_LOCK_TTL_MS = 2_100_000,
+  /**
+   * Polling interval (ms) when waiting for a submitted transaction's inputs to be
+   * observed as spent on-chain (used by batched consolidation between batches).
+   */
+  TX_CONFIRM_POLL_INTERVAL_MS = 6_000,
+  /**
+   * Maximum time (ms) to wait for a submitted transaction's inputs to be spent
+   * on-chain before giving up. Cardano settles within a few ~20s blocks; this
+   * bound tolerates indexer lag without blocking indefinitely. Keep
+   * UTXO_LOCK_TTL_MS >= FIREBLOCKS_RAW_SIGN_MAX_MS + this value (see the invariant above).
+   */
+  TX_CONFIRM_TIMEOUT_MS = 180_000,
   /**
    * Maximum number of UTxO inputs per transaction.
    * Cardano's 16KB transaction size limit allows ~100–150 inputs in practice.
@@ -31,6 +60,15 @@ export enum CardanoConstants {
    */
   MAX_TX_INPUTS = 100,
   /**
+   * Maximum serialized size (bytes) of a single output's Value (the coin + multi-asset
+   * bundle), per the Cardano `maxValueSize` protocol parameter (mainnet: 5000 bytes).
+   * An output whose token bundle exceeds this is rejected by the node, so it must be
+   * caught locally before consuming a Fireblocks signing operation.
+   * NOTE: this is a protocol parameter — replace with the dynamic value once the
+   * parameter endpoint (audit finding H-04) is available.
+   */
+  MAX_VALUE_SIZE = 5000,
+  /**
    * Base minimum lovelace for any UTxO (Cardano protocol parameter).
    * Minimum ADA required for ADA-only or single-policy UTxOs.
    * Kept here (not in CardanoAmounts) to avoid a duplicate-value clash with
@@ -38,6 +76,12 @@ export enum CardanoConstants {
    * independent protocol constants that must be updated separately if either changes.
    */
   MIN_UTXO_BASE_LOVELACE = 1_000_000,
+  /**
+   * Maximum on-chain transaction size in bytes (Cardano protocol parameter
+   * maxTxSize). Conway mainnet is 16,384. We refuse to sign anything larger
+   * because the network would reject it.
+   */
+  MAX_TX_SIZE_BYTES = 16_384,
 }
 
 export enum CardanoAmounts {

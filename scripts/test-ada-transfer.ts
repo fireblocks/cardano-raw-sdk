@@ -90,12 +90,12 @@ async function main() {
 
 
   console.log("Estimating fee...");
-  const estimate = await sdk.estimateAdaTransactionFee({
-    lovelaceAmount,
-    recipientVaultAccountId: destVault,
-  });
-  console.log(`Estimated fee: ${estimate.fee.ada} ADA`);
-  console.log(`Recipient receives: ${estimate.recipientReceives.ada} ADA`);
+  // const estimate = await sdk.estimateAdaTransactionFee({
+  //   lovelaceAmount,
+  //   recipientVaultAccountId: destVault,
+  // });
+  // console.log(`Estimated fee: ${estimate.fee.ada} ADA`);
+  // console.log(`Recipient receives: ${estimate.recipientReceives.ada} ADA`);
 
 
   console.log("\nExecuting transfer...");

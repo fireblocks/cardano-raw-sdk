@@ -1,46 +1,14 @@
 import axios from "axios";
 import https from "https";
 import { z } from "zod";
-import { Logger, ErrorHandler, decodeAssetName } from "../utils/index.js";
+import { Logger, ErrorHandler, decodeAssetName, collectAllPages } from "../utils/index.js";
 import { iagonBaseUrl } from "../constants.js";
-
-// Zod schemas for critical Iagon responses
-const utxoDataSchema = z.object({
-  transaction_id: z.string(),
-  output_index: z.number(),
-  address: z.string(),
-  value: z.object({
-    lovelace: z.number(),
-    assets: z.record(z.string(), z.number()).optional().default({}),
-  }),
-  datum_hash: z.string().nullable(),
-  script_hash: z.string().nullable(),
-  created_at: z.object({
-    slot_no: z.number(),
-    header_hash: z.string(),
-  }),
-});
-
-const utxoResponseSchema = z.object({
-  success: z.boolean(),
-  data: z.array(utxoDataSchema).optional(),
-});
-
-const balanceResponseSchema = z.object({
-  success: z.boolean(),
-  data: z.object({
-    lovelace: z.number(),
-    assets: z.record(z.string(), z.union([z.number(), z.record(z.string(), z.number())])),
-  }),
-});
-
-const transferResponseSchema = z.object({
-  success: z.boolean(),
-  data: z.object({
-    txHash: z.string(),
-  }),
-  error: z.string().optional(),
-});
+import {
+  utxoResponseSchema,
+  balanceResponseSchema,
+  transferResponseSchema,
+  poolInfoResponseSchema,
+} from "./iagon.schemas.js";
 import {
   BalanceResponse,
   getBalanceByAddressOpts,
@@ -82,7 +50,7 @@ interface CachedAssetInfo {
 export class IagonApiService {
   private readonly logger = new Logger("services:iagon-api-service");
   private network: Networks;
-  private readonly iagonBaseUrl = iagonBaseUrl;
+  private readonly iagonBaseUrl: string;
   private readonly iagonApiKey: string;
   private readonly errorHandler = new ErrorHandler("iagon-api", this.logger);
   private readonly axiosInstance;
@@ -95,7 +63,8 @@ export class IagonApiService {
     apiKey: string,
     network: Networks = Networks.MAINNET,
     assetCacheTTL: number = 1000 * 60 * 60 * 24, // Default: 24 hours
-    disableSslVerification: boolean = false
+    disableSslVerification: boolean = false,
+    baseUrl?: string
   ) {
     // Validate API key is provided and not empty
     if (!apiKey || apiKey.trim() === "") {
@@ -125,6 +94,7 @@ export class IagonApiService {
     this.iagonApiKey = apiKey;
     this.network = network;
     this.ASSET_CACHE_TTL = assetCacheTTL;
+    this.iagonBaseUrl = baseUrl ?? process.env.IAGON_BASE_URL ?? iagonBaseUrl;
 
     // Create axios instance with default headers
     this.axiosInstance = axios.create({
@@ -389,10 +359,23 @@ export class IagonApiService {
 
       const response = await this.axiosInstance.post(url, txData);
 
-      if (response.status === 200) {
-        return this.validateResponse(response.data, transferResponseSchema, "submitTransfer");
+      if (response.status !== 200) {
+        throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
       }
-      throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);
+
+      const parsed = this.validateResponse(response.data, transferResponseSchema, "submitTransfer");
+
+      if (!parsed.success || !parsed.data?.txHash) {
+        throw new SdkApiError(
+          `Transaction submission rejected: ${parsed.error ?? "unknown error"}`,
+          400,
+          "TX_SUBMIT_REJECTED",
+          { iagonError: parsed.error },
+          "iagon-api"
+        );
+      }
+
+      return { success: true, data: parsed.data };
     } catch (error: unknown) {
       throw this.errorHandler.handleApiError(error, `submitting transfer`);
     }
@@ -421,6 +404,92 @@ export class IagonApiService {
         `fetching rewards for stake address ${stakeAddress}`
       );
     }
+  };
+
+  /**
+   * Get the COMPLETE staking reward history for a stake address, iterating through all
+   * pages instead of returning only the first (audit finding M-14).
+   */
+  public getAllStakeAccountRewards = async (
+    stakeAddress: string,
+    order: "asc" | "desc" = "asc"
+  ): Promise<StakeAccountRewardsResponse["data"]> => {
+    return collectAllPages(
+      (offset, limit) => this.getStakeAccountRewards(stakeAddress, offset, limit, order),
+      {
+        onPageFailure: ({ offset }) => {
+          throw new SdkApiError(
+            `Rewards page fetch failed for ${stakeAddress} at offset ${offset}`,
+            502,
+            "REWARDS_PAGE_FETCH_ERROR",
+            { stakeAddress, offset },
+            "iagon-api"
+          );
+        },
+        onMaxPages: ({ pagesFetched, rowsCollected }) =>
+          this.logger.warn(
+            `getAllStakeAccountRewards hit the ${pagesFetched}-page cap for ${stakeAddress}; ` +
+              `results truncated at ${rowsCollected} rows`
+          ),
+      }
+    );
+  };
+
+  /**
+   * Get the COMPLETE delegation history for a stake address, iterating through all pages.
+   */
+  public getAllDelegationHistory = async (
+    stakeAddress: string,
+    order: "asc" | "desc" = "asc"
+  ): Promise<DelegationHistoryResponse["data"]> => {
+    return collectAllPages(
+      (offset, limit) => this.getDelegationHistory(stakeAddress, offset, limit, order),
+      {
+        onPageFailure: ({ offset }) => {
+          throw new SdkApiError(
+            `Delegation history page fetch failed for ${stakeAddress} at offset ${offset}`,
+            502,
+            "DELEGATION_HISTORY_PAGE_FETCH_ERROR",
+            { stakeAddress, offset },
+            "iagon-api"
+          );
+        },
+        onMaxPages: ({ pagesFetched, rowsCollected }) =>
+          this.logger.warn(
+            `getAllDelegationHistory hit the ${pagesFetched}-page cap for ${stakeAddress}; ` +
+              `results truncated at ${rowsCollected} rows`
+          ),
+      }
+    );
+  };
+
+  /**
+   * Get the COMPLETE registration/deregistration history for a stake address, iterating
+   * through all pages.
+   */
+  public getAllRegistrationHistory = async (
+    stakeAddress: string,
+    order: "asc" | "desc" = "asc"
+  ): Promise<RegistrationHistoryResponse["data"]> => {
+    return collectAllPages(
+      (offset, limit) => this.getRegistrationHistory(stakeAddress, limit, offset, order),
+      {
+        onPageFailure: ({ offset }) => {
+          throw new SdkApiError(
+            `Registration history page fetch failed for ${stakeAddress} at offset ${offset}`,
+            502,
+            "REGISTRATION_HISTORY_PAGE_FETCH_ERROR",
+            { stakeAddress, offset },
+            "iagon-api"
+          );
+        },
+        onMaxPages: ({ pagesFetched, rowsCollected }) =>
+          this.logger.warn(
+            `getAllRegistrationHistory hit the ${pagesFetched}-page cap for ${stakeAddress}; ` +
+              `results truncated at ${rowsCollected} rows`
+          ),
+      }
+    );
   };
 
   /**
@@ -469,6 +538,7 @@ export class IagonApiService {
       const response = await this.axiosInstance.get(url);
 
       if (response.status === 200) {
+        this.validateResponse(response.data, poolInfoResponseSchema, "getPoolInfo");
         return response.data;
       }
       throw new SdkApiError(`Unexpected response status: ${response.status}`, response.status);

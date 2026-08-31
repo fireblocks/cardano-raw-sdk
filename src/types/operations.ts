@@ -320,7 +320,12 @@ export interface AdaFeeEstimationRequest {
 }
 
 /**
- * Fee estimation response for native ADA transfers
+ * Fee estimation response for native ADA transfers.
+ *
+ * **Estimate only.** ADA transfers are executed through the Fireblocks
+ * `createTransfer` policy engine, which builds its own transaction; the
+ * fee it pays can differ from this preview. Never treat this value as the
+ * exact fee the chain will charge for a subsequent `transferAda`.
  */
 export interface AdaFeeEstimationResponse {
   fee: {

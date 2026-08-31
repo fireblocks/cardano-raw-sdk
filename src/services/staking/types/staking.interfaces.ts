@@ -8,6 +8,7 @@ import {
   SupportedAssets,
   CardanoWitness,
   TransferResponse,
+  WithdrawalMap,
 } from "../../../types/index.js";
 import { UtxoForStaking } from "../../../utils/staking.utils.js";
 
@@ -37,6 +38,11 @@ export interface IStakeAddressResolver {
 }
 
 export interface IUtxoProvider {
+  /**
+   * Finds a single vault address whose pure-ADA UTxOs together cover `minAmount`,
+   * returning those UTxOs aggregated (audit finding S-4). All inputs come from one
+   * address so the transaction still needs only the payment + stake witnesses.
+   */
   findAddressWithSuitableUtxo(vaultAccountId: string, minAmount: number): Promise<AddressWithUtxo>;
 }
 
@@ -64,7 +70,15 @@ export interface AddressInfo {
 }
 
 export interface AddressWithUtxo extends AddressInfo {
-  readonly utxo: UtxoForStaking;
+  /** Pure-ADA UTxOs from this address whose combined lovelace covers the required amount. */
+  readonly utxos: UtxoForStaking[];
+  /** Combined lovelace of `utxos`. */
+  readonly totalAmount: number;
+  /**
+   * Release the UTXO lock held on `utxos`. Should be called in finally blocks after the
+   * transaction completes. If not called, the lock auto-expires after UTXO_LOCK_TTL_MS.
+   */
+  readonly release: () => void;
 }
 
 export interface SigningContext {
@@ -77,11 +91,11 @@ export interface SigningContext {
 export interface TransactionBuildContext {
   readonly toAddress: string;
   readonly netAmount: number;
-  readonly utxo: UtxoForStaking;
+  readonly utxos: UtxoForStaking[];
   readonly fee: number;
   readonly ttl?: number; // Optional for Conway-era governance transactions
   readonly certificates?: Array<unknown>;
-  readonly withdrawals?: Map<Uint8Array, number>;
+  readonly withdrawals?: WithdrawalMap;
   /** Conway-era voting procedures (key 19 in the TX body) */
   readonly votingProcedures?: Map<unknown, unknown>;
   readonly network: Networks;

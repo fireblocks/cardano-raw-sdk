@@ -24,6 +24,13 @@ export interface StakeAccountWithdrawal {
 
 export interface StakeAccountInfo {
   stake_address: string;
+  /**
+   * Registration state, not delegation state: Iagon derives `active` purely
+   * from the credential's registration/deregistration certificates, so it is
+   * true the moment a registration confirms, independent of any delegation
+   * (unlike Blockfrost, whose `active` tracks delegation). The staking gates
+   * rely on this semantic (OC-1).
+   */
   active: boolean;
   active_epoch: number | null;
   active_stake: string;

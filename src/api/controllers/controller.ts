@@ -376,10 +376,9 @@ export class ApiController {
 
   public enrichWebhookPayload = async (req: Request, res: Response) => {
     try {
-      // Extract raw body (Buffer) for signature verification
-      // rawBody is attached by express.json verify callback
-      const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
-      if (!rawBody) {
+      // req.body is a Buffer because /api/webhook is mounted with express.raw()
+      const rawBody = req.body;
+      if (!Buffer.isBuffer(rawBody) || rawBody.length === 0) {
         return res.status(400).json({
           success: false,
           error:
@@ -387,10 +386,6 @@ export class ApiController {
         });
       }
 
-      // Body is already parsed by express.json
-      const payload = req.body;
-
-      // Extract headers for signature verification
       const headers: Record<string, string | undefined> = {
         "fireblocks-webhook-signature": req.headers["fireblocks-webhook-signature"] as
           | string
@@ -398,12 +393,11 @@ export class ApiController {
         "fireblocks-signature": req.headers["fireblocks-signature"] as string | undefined,
       };
 
-      // Get webhook environment from Fireblocks basePath config
       const environment = getWebhookEnvironment(
         (config.FIREBLOCKS.basePath as BasePath) || BasePath.US
       );
 
-      // Step 1: Verify signature using a default SDK instance
+      // Verify signature first, before parsing untrusted JSON
       const verifyResult = await this.sdkManager.withSdk("0", (sdk) =>
         sdk.verifyWebhook(rawBody, headers, environment)
       );
@@ -415,10 +409,20 @@ export class ApiController {
         });
       }
 
-      // Step 2: acquire the correct vault SDK for enrichment
-      const vaultAccountId = payload?.data?.destination?.id ?? "0";
+      let payload: unknown;
+      try {
+        payload = JSON.parse(rawBody.toString("utf8"));
+      } catch {
+        return res.status(400).json({
+          success: false,
+          error: "Invalid JSON payload",
+        });
+      }
+
+      const vaultAccountId =
+        (payload as { data?: { destination?: { id?: string } } })?.data?.destination?.id ?? "0";
       const result = await this.sdkManager.withSdk(vaultAccountId, (sdk) =>
-        sdk.enrichWebhookPayload(payload)
+        sdk.enrichWebhookPayload(payload as Parameters<typeof sdk.enrichWebhookPayload>[0])
       );
 
       this.logger.info("Webhook verified and enriched successfully");
@@ -783,20 +787,26 @@ export class ApiController {
         message: error.message,
       });
 
+      // errorInfo and service are logged server-side only; keep the public
+      // response minimal to avoid leaking internal context.
       res.status(statusCode).json({
         success: false,
         error: error.message,
         statusCode: error.statusCode,
         type: error.errorType,
-        info: error.errorInfo,
-        service: error.service,
       });
     } else {
-      const message = error instanceof Error ? error.message : "Unknown error";
+      // Log the full error server-side, but never echo arbitrary internal
+      // exception messages to the API consumer.
+      const message = error instanceof Error ? error.message : String(error);
       this.logger.error(`${endpoint} - UnhandledError:`, message);
+      if (error instanceof Error && error.stack) {
+        this.logger.error(`${endpoint} - stack:`, error.stack);
+      }
       res.status(500).json({
         success: false,
-        error: message,
+        error: "Internal server error",
+        type: "InternalServerError",
       });
     }
   }

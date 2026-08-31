@@ -3,13 +3,20 @@
  * Handles transaction building and submission to the blockchain
  */
 
-import { Logger, buildPayload, calculateTtl } from "../../../utils/index.js";
+import {
+  Logger,
+  buildPayload,
+  calculateTtl,
+  assertFeeCoversSize,
+  assertOutputMeetsMinUtxo,
+} from "../../../utils/index.js";
 import { TransferResponse } from "../../../types/index.js";
 import { IagonApiService } from "../../index.js";
 import {
   INetworkConfiguration,
   ITransactionSubmitter,
   TransactionBuildContext,
+  EXPECTED_SIGNATURE_COUNT,
 } from "../types/staking.interfaces.js";
 
 export class TransactionBuilder {
@@ -22,12 +29,17 @@ export class TransactionBuilder {
   async buildTransaction(
     context: TransactionBuildContext
   ): Promise<{ serialized: Buffer; deserialized: Map<number, unknown> }> {
-    return buildPayload({
+    // Reject a change output below the protocol min-UTxO before signing, so an
+    // underfunded input set fails fast instead of after a Fireblocks signing op (S-4/S-7).
+    assertOutputMeetsMinUtxo(context.netAmount);
+
+    const payload = buildPayload({
       toAddress: context.toAddress,
       netAmount: context.netAmount,
-      txInputs: [
-        { txHash: Buffer.from(context.utxo.txHash, "hex"), indexInTx: context.utxo.indexInTx },
-      ],
+      txInputs: context.utxos.map((u) => ({
+        txHash: Buffer.from(u.txHash, "hex"),
+        indexInTx: u.indexInTx,
+      })),
       feeAmount: context.fee,
       ttl: context.ttl,
       certificates: context.certificates,
@@ -35,6 +47,20 @@ export class TransactionBuilder {
       votingProcedures: context.votingProcedures,
       network: context.network,
     });
+
+    // Validate the allocated fee against the size-aware network minimum BEFORE signing,
+    // so an underpriced fee is rejected locally instead of after a Fireblocks signing
+    // operation is consumed (audit finding S-7). Staking/gov txs always carry 2 witnesses.
+    const minFee = assertFeeCoversSize(
+      payload.serialized.length,
+      EXPECTED_SIGNATURE_COUNT,
+      context.fee
+    );
+    this.logger.info(
+      `Fee validated: allocated ${context.fee} lovelace, network minimum ${minFee} lovelace`
+    );
+
+    return payload;
   }
 
   async getCurrentTtl(): Promise<number> {

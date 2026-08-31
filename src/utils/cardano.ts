@@ -1,5 +1,6 @@
 import {
   Address,
+  ByronAddress,
   TransactionInput,
   TransactionHash,
   BigNum,
@@ -28,8 +29,10 @@ import {
   fetchAndSelectUtxosForAdaParams,
   fetchAndSelectUtxosForMultiTokenParams,
   SupportedAssets,
+  SdkApiError,
+  Networks,
 } from "../types/index.js";
-import { Logger } from "./logger.js";
+import { Logger, LogLevel } from "./logger.js";
 import { CardanoAmounts, CardanoConstants } from "../constants.js";
 import { utxoLocks } from "./utxoLock.js";
 
@@ -128,6 +131,111 @@ export const calculateTransactionFee = (tx: Transaction): number => {
   return parseInt(calculatedFee.to_str());
 };
 
+/**
+ * Throws if a serialized transaction would exceed the network maxTxSize.
+ * Uses a conservative projection that accounts for one Ed25519 witness and
+ * the surrounding CBOR overhead, so the check is meaningful for the
+ * already-signed and not-yet-signed forms alike.
+ */
+export const assertTxSizeWithinLimit = (
+  serializedTxBodyOrTx: Uint8Array,
+  context: string
+): void => {
+  const bodyLen = serializedTxBodyOrTx.length;
+  const projected = bodyLen + CardanoConstants.TX_WITNESS_SIZE_BYTES + 16;
+  if (projected > CardanoConstants.MAX_TX_SIZE_BYTES) {
+    throw new SdkApiError(
+      `Transaction too large: estimated ${projected} bytes exceeds maxTxSize=${CardanoConstants.MAX_TX_SIZE_BYTES}`,
+      400,
+      "TxSizeLimitExceeded",
+      {
+        context,
+        bodyBytes: bodyLen,
+        projectedSignedBytes: projected,
+        maxTxSize: CardanoConstants.MAX_TX_SIZE_BYTES,
+      },
+      "FireblocksCardanoRawSDK"
+    );
+  }
+};
+
+/**
+ * A UTxO is spendable by this SDK only with a simple Ed25519 witness.
+ * UTxOs carrying a datum_hash (Plutus v1/v2 inputs) or a script_hash
+ * (script-locked outputs) require a Plutus/native-script witness and
+ * must be excluded from selection.
+ */
+export const isSpendableUtxo = (utxo: UtxoData): boolean => {
+  return !utxo.datum_hash && !utxo.script_hash;
+};
+
+/**
+ * Filters a UTxO set down to the ones spendable with a simple Ed25519
+ * witness, logging a count when value is excluded so a balance that
+ * selection cannot reach is visible to the operator rather than silently
+ * stranded.
+ *
+ * @param utxos   - Candidate UTxOs
+ * @param context - Short label for the log message (e.g. "ADA", "consolidation")
+ */
+export const filterSpendableUtxos = (utxos: UtxoData[], context: string): UtxoData[] => {
+  const spendable = utxos.filter(isSpendableUtxo);
+  const excluded = utxos.length - spendable.length;
+  if (excluded > 0) {
+    logger.warn(
+      `[${context}] excluded ${excluded} UTxO(s) carrying a datum_hash or script_hash from selection`
+    );
+  }
+  return spendable;
+};
+
+/**
+ * Parses a bech32 Cardano address and asserts it is on the expected network.
+ * Throws SdkApiError on parse failure or network mismatch.
+ */
+export const assertRecipientAddress = (recipientAddress: string, network: Networks): void => {
+  let parsed;
+  try {
+    parsed = Address.from_bech32(recipientAddress);
+  } catch {
+    // Byron-era (base58) addresses are valid on-chain but rejected by
+    // Fireblocks address-format validation (INVALID_ADDRESS), so they
+    // are rejected here with a message naming the unsupported format.
+    if (ByronAddress.is_valid(recipientAddress)) {
+      throw new SdkApiError(
+        "Invalid recipientAddress: Byron-era (base58) addresses are not supported; " +
+          "use a Shelley bech32 address (addr1… / addr_test1…)",
+        400,
+        "ValidationError",
+        { recipientAddress },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+    throw new SdkApiError(
+      "Invalid recipientAddress: not a valid Cardano bech32 address",
+      400,
+      "ValidationError",
+      { recipientAddress },
+      "FireblocksCardanoRawSDK"
+    );
+  }
+  try {
+    const expectedNetworkId = network === Networks.MAINNET ? 1 : 0;
+    const actualNetworkId = parsed.network_id();
+    if (actualNetworkId !== expectedNetworkId) {
+      throw new SdkApiError(
+        `recipientAddress network mismatch: address is for network ${actualNetworkId}, SDK is configured for ${network} (network ${expectedNetworkId})`,
+        400,
+        "ValidationError",
+        { recipientAddress, expectedNetworkId, actualNetworkId },
+        "FireblocksCardanoRawSDK"
+      );
+    }
+  } finally {
+    parsed.free();
+  }
+};
+
 export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCntParams) => {
   const {
     iagonApiService,
@@ -140,7 +248,9 @@ export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCn
   } = params;
   try {
     const rawUtxos = await fetchUtxos(iagonApiService, address);
-    const utxos = rawUtxos.filter((u) => !utxoLocks.isLocked(u.transaction_id, u.output_index));
+    const utxos = filterSpendableUtxos(rawUtxos, "CNT").filter(
+      (u) => !utxoLocks.isLocked(u.transaction_id, u.output_index)
+    );
 
     const tokenUtxosWithAmounts = filterUtxos(utxos, tokenPolicyId, tokenName)
       .map((utxo) => ({
@@ -224,9 +334,13 @@ export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCn
 
     // If the input cap was hit and ADA is still insufficient, surface a clear error.
     if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS && accumulatedAda < adaTarget) {
-      throw new Error(
+      throw new SdkApiError(
         `Input cap (${CardanoConstants.MAX_TX_INPUTS} UTxOs) reached but only ${accumulatedAda} of ${adaTarget} lovelace accumulated. ` +
-          `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`
+          `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`,
+        400,
+        "InputCapReached",
+        { maxInputs: CardanoConstants.MAX_TX_INPUTS, accumulatedAda, adaTarget },
+        "utils:cardano"
       );
     }
 
@@ -241,6 +355,8 @@ export const fetchAndSelectUtxosForCnt = async (params: fetchAndSelectUtxosForCn
       release,
     };
   } catch (error) {
+    // Preserve typed client-facing errors (4xx) instead of masking them as a generic 500.
+    if (error instanceof SdkApiError) throw error;
     throw new Error(
       `Error fetching and selecting UTXOs: ${error instanceof Error ? error.message : error}`,
       { cause: error }
@@ -252,37 +368,56 @@ export const fetchUtxos = async (
   iagonApiService: IagonApiService,
   address: string
 ): Promise<UtxoData[]> => {
+  logger.info(`Fetching UTXOs for address: ${address}`);
+
+  let response;
   try {
-    logger.info(`Fetching UTXOs for address: ${address}`);
-    const response = await iagonApiService.getUtxosByAddress(address);
-
-    logger.info(`API Response:`, JSON.stringify(response, null, 2));
-
-    if (response.success) {
-      const utxos = response.data;
-
-      if (!utxos || utxos.length === 0) {
-        logger.warn(`No UTXOs found for address: ${address}`);
-        return [];
-      }
-
-      logger.info(`Found ${utxos.length} UTXOs`);
-      if (utxos.length > 0) {
-        logger.info(`Sample UTXO assets:`, JSON.stringify(utxos[0].value.assets, null, 2));
-      }
-
-      return utxos;
-    } else {
-      logger.warn(`API returned success=false for address: ${address}`);
-      return [];
-    }
+    response = await iagonApiService.getUtxosByAddress(address);
   } catch (error: unknown) {
-    logger.error(
-      `Error fetching UTXOs for ${address}: ${error instanceof Error ? error.message : String(error)}`,
-      error instanceof Error ? error.stack : undefined
+    // Propagate network/API errors instead of swallowing them
+    const message = error instanceof Error ? error.message : String(error);
+    logger.error(`Error fetching UTXOs for ${address}: ${message}`);
+    throw new SdkApiError(
+      `Failed to fetch UTXOs for address ${address}: ${message}`,
+      500,
+      "UTXO_FETCH_ERROR",
+      { address },
+      "iagon-api"
     );
+  }
+
+  // Full UTxO payloads can be multiple MB. Only serialize when DEBUG is enabled
+  // (arguments are evaluated eagerly, so the stringify must be guarded, not just demoted).
+  if (Logger.getLogLevel() <= LogLevel.DEBUG) {
+    logger.debug(`API Response:`, JSON.stringify(response, null, 2));
+  }
+
+  // Propagate API errors instead of returning empty array
+  if (!response.success) {
+    logger.error(`API returned success=false for address: ${address}`);
+    throw new SdkApiError(
+      `Failed to fetch UTXOs for address ${address}: API returned unsuccessful response`,
+      500,
+      "UTXO_FETCH_ERROR",
+      { address },
+      "iagon-api"
+    );
+  }
+
+  const utxos = response.data;
+
+  // Empty result is valid (address has no UTXOs) - return empty array
+  if (!utxos || utxos.length === 0) {
+    logger.warn(`No UTXOs found for address: ${address}`);
     return [];
   }
+
+  logger.info(`Found ${utxos.length} UTXOs`);
+  if (utxos.length > 0 && Logger.getLogLevel() <= LogLevel.DEBUG) {
+    logger.debug(`Sample UTXO assets:`, JSON.stringify(utxos[0].value.assets, null, 2));
+  }
+
+  return utxos;
 };
 
 export const calculateTokenAmount = (
@@ -350,13 +485,19 @@ export const filterUtxos = (
     logger.info(`Found ${filtered.length} UTXOs with the token`);
 
     if (filtered.length === 0) {
-      throw new Error(
-        `No UTXOs found containing token '${tokenName}' with policy ID '${tokenPolicyId}'.`
+      throw new SdkApiError(
+        `No UTXOs found containing token '${tokenName}' with policy ID '${tokenPolicyId}'.`,
+        400,
+        "TokenNotFound",
+        { tokenPolicyId, tokenName },
+        "utils:cardano"
       );
     }
 
     return filtered;
   } catch (err: unknown) {
+    // Preserve typed client-facing errors (4xx) instead of masking them as a generic 500.
+    if (err instanceof SdkApiError) throw err;
     throw new Error(
       `An unexpected error occurred while filtering UTXOs. ${err instanceof Error ? err.message : String(err)}`,
       { cause: err }
@@ -400,7 +541,13 @@ export const createTransactionOutputs = (
   logger.info("All assets collected:", allAssets, "Total tokens for transfer:", totalTokenAmount);
 
   if (totalTokenAmount < transferAmount) {
-    throw new Error(`Insufficient tokens: have ${totalTokenAmount}, need ${transferAmount}`);
+    throw new SdkApiError(
+      `Insufficient tokens: have ${totalTokenAmount}, need ${transferAmount}`,
+      400,
+      "InsufficientBalance",
+      { have: totalTokenAmount, need: transferAmount },
+      "utils:cardano"
+    );
   }
 
   // --- Recipient output ---
@@ -449,8 +596,12 @@ export const createTransactionOutputs = (
 
   if (changeLovelace < 0) {
     recipientMultiAsset.free();
-    throw new Error(
-      `Insufficient funds: inputs ${totalLovelace} lovelace < recipient ${recipientLovelace} + fee ${fee} = ${recipientLovelace + fee} lovelace`
+    throw new SdkApiError(
+      `Insufficient funds: inputs ${totalLovelace} lovelace < recipient ${recipientLovelace} + fee ${fee} = ${recipientLovelace + fee} lovelace`,
+      400,
+      "InsufficientBalance",
+      { inputs: totalLovelace, recipient: recipientLovelace, fee },
+      "utils:cardano"
     );
   }
 
@@ -565,21 +716,19 @@ export const submitTransaction = async (
   try {
     const txCbor = Buffer.from(signedTx.to_bytes()).toString("hex");
 
-    logger.info(`=== TRANSACTION CBOR DEBUG ===`);
-    logger.info(`CBOR length: ${txCbor.length} chars (${txCbor.length / 2} bytes)`);
-    logger.info(`CBOR hex (first 200 chars): ${txCbor.substring(0, 200)}`);
-    logger.info(`CBOR hex (full): ${txCbor}`);
+    logger.info(`Submitting transaction: ${txCbor.length / 2} bytes`);
+    // Full CBOR is verbose; only emit it under DEBUG.
+    logger.debug(`CBOR hex (full): ${txCbor}`);
 
-    // Submit transaction using Iagon API
+    // submitTransfer throws on rejection with the upstream Iagon error
+    // message preserved, so we don't need to re-check response.success here.
     const response = await iagonApiService.submitTransfer(txCbor, false);
-
-    if (response.success) {
-      logger.info(`Transaction successfully submitted. Transaction ID: ${response.data.txHash}`);
-      return response.data.txHash;
-    }
-
-    throw new Error("Transaction submission failed");
+    logger.info(`Transaction successfully submitted. Transaction ID: ${response.data.txHash}`);
+    return response.data.txHash;
   } catch (error) {
+    // Preserve SdkApiError (and its TX_SUBMIT_REJECTED type) so callers can
+    // pattern-match on it. Wrap only generic errors.
+    if (error instanceof SdkApiError) throw error;
     throw new Error(
       `Error submitting transaction: ${error instanceof Error ? error.message : error}`,
       { cause: error }
@@ -653,8 +802,11 @@ const buildMultiAssetFromGrouped = (
 };
 
 /**
- * Creates a TransactionOutput and validates it meets the protocol min-ADA rule.
- * Throws if the supplied lovelace is below the calculated minimum.
+ * Creates a TransactionOutput and validates it meets two protocol rules:
+ *  1. min-ADA: the supplied lovelace covers `min_ada_for_output`.
+ *  2. maxValueSize: the serialized Value (coin + token bundle) does not exceed
+ *     `CardanoConstants.MAX_VALUE_SIZE`. An oversized bundle is rejected by the
+ *     node, so it must be caught here before a Fireblocks signing operation is spent.
  * Module-private helper - not exported.
  */
 const buildValidatedOutput = (
@@ -667,6 +819,22 @@ const buildValidatedOutput = (
   const value = Value.new(lovelaceBigNum);
   lovelaceBigNum.free();
   if (multiAsset) value.set_multiasset(multiAsset);
+
+  // maxValueSize applies to the serialized Value (the token bundle), not the whole output.
+  const valueSize = value.to_bytes().length;
+  if (valueSize > CardanoConstants.MAX_VALUE_SIZE) {
+    value.free();
+    throw new SdkApiError(
+      `${label} output: token bundle size ${valueSize} bytes exceeds the protocol ` +
+        `maximum of ${CardanoConstants.MAX_VALUE_SIZE} bytes (maxValueSize). ` +
+        `Reduce the number of tokens in this output.`,
+      400,
+      "MaxValueSizeExceeded",
+      { label, valueSize, maxValueSize: CardanoConstants.MAX_VALUE_SIZE },
+      "utils:cardano"
+    );
+  }
+
   const output = TransactionOutput.new(address, value);
   // Defer value.free() until after min_ada_for_output
   const minAdaBigNum = min_ada_for_output(output, DATA_COST);
@@ -675,9 +843,13 @@ const buildValidatedOutput = (
   minAdaBigNum.free();
   if (lovelace < minLovelace) {
     output.free();
-    throw new Error(
+    throw new SdkApiError(
       `${label} output: insufficient ADA - ${lovelace} lovelace available, ` +
-        `minimum required is ${minLovelace} lovelace`
+        `minimum required is ${minLovelace} lovelace`,
+      400,
+      "BelowMinimumUtxo",
+      { label, lovelace, minLovelace },
+      "utils:cardano"
     );
   }
   return output;
@@ -716,19 +888,42 @@ const convergeTransactionFee = (
       `[${label}] body: ${txBodySize}B, total: ${totalSize}B, fee: ${calculatedFee} lovelace`
     );
 
-    if (Math.abs(calculatedFee - currentFee) <= CardanoAmounts.TX_FEE_TOLERANCE) {
+    const converged = Math.abs(calculatedFee - currentFee) <= CardanoAmounts.TX_FEE_TOLERANCE;
+
+    // This iteration's handles only measure the fee: on convergence the
+    // body is rebuilt with the converged fee, otherwise the next
+    // iteration rebuilds them. Free them in both cases.
+    for (const output of outputs) output.free();
+    txBody.free();
+
+    if (converged) {
       logger.info(`[${label}] fee converged at ${calculatedFee} after ${i + 1} iterations`);
-      return { outputs, fee: calculatedFee, txBody };
+      // Rebuild the body with the converged fee: the measuring body still
+      // encodes currentFee, which may differ from calculatedFee by up to
+      // TX_FEE_TOLERANCE. The returned fee must match the fee encoded in
+      // the returned body. The caller owns the returned handles.
+      const finalOutputs = buildOutputsFn(calculatedFee);
+      const finalTxBody = buildTransaction({
+        txInputs,
+        txOutputs: finalOutputs,
+        fee: calculatedFee,
+        ttl,
+      });
+      return { outputs: finalOutputs, fee: calculatedFee, txBody: finalTxBody };
     }
     currentFee = calculatedFee;
   }
 
-  logger.warn(
-    `[${label}] fee did not converge after ${CardanoConstants.TX_FEE_MAX_ITERATIONS} iterations`
+  // Non-convergence is unsafe: returning the last estimate would build a tx
+  // whose declared fee is below the network minimum, and the node will reject
+  // it. Fail loudly instead so the caller can retry or surface the error.
+  throw new SdkApiError(
+    `[${label}] fee did not converge after ${CardanoConstants.TX_FEE_MAX_ITERATIONS} iterations`,
+    500,
+    "FeeConvergenceError",
+    { label, lastFee: currentFee, maxIterations: CardanoConstants.TX_FEE_MAX_ITERATIONS },
+    "FireblocksCardanoRawSDK"
   );
-  const finalOutputs = buildOutputsFn(currentFee);
-  const finalTxBody = buildTransaction({ txInputs, txOutputs: finalOutputs, fee: currentFee, ttl });
-  return { outputs: finalOutputs, fee: currentFee, txBody: finalTxBody };
 };
 
 /**
@@ -754,9 +949,17 @@ export const fetchAndSelectUtxosForAda = async (
   const { iagonApiService, address, lovelaceAmount, transactionFee, lock = false } = params;
 
   const rawUtxos = await fetchUtxos(iagonApiService, address);
-  const utxos = rawUtxos.filter((u) => !utxoLocks.isLocked(u.transaction_id, u.output_index));
+  const utxos = filterSpendableUtxos(rawUtxos, "ADA").filter(
+    (u) => !utxoLocks.isLocked(u.transaction_id, u.output_index)
+  );
   if (!utxos || utxos.length === 0) {
-    throw new Error(`No UTxOs found for address: ${address}`);
+    throw new SdkApiError(
+      `No UTxOs found for address: ${address}`,
+      400,
+      "InsufficientBalance",
+      { address },
+      "utils:cardano"
+    );
   }
 
   // Partition UTxOs: ADA-only first, multi-asset second - both sorted largest-first
@@ -812,9 +1015,13 @@ export const fetchAndSelectUtxosForAda = async (
   // give a clear error if hit the input cap and still have insufficient funds.
   const required = lovelaceAmount + transactionFee + CardanoConstants.MIN_UTXO_BASE_LOVELACE;
   if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS && accumulatedAda < required) {
-    throw new Error(
+    throw new SdkApiError(
       `Input cap (${CardanoConstants.MAX_TX_INPUTS} UTxOs) reached but only ${accumulatedAda} of ${required} lovelace accumulated. ` +
-        `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`
+        `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`,
+      400,
+      "InputCapReached",
+      { maxInputs: CardanoConstants.MAX_TX_INPUTS, accumulatedAda, required },
+      "utils:cardano"
     );
   }
 
@@ -933,9 +1140,17 @@ export const fetchAndSelectUtxosForMultiToken = async (
   const { iagonApiService, address, tokens, transactionFee, lovelaceAmount, lock = false } = params;
 
   const rawUtxos = await fetchUtxos(iagonApiService, address);
-  const utxos = rawUtxos.filter((u) => !utxoLocks.isLocked(u.transaction_id, u.output_index));
+  const utxos = filterSpendableUtxos(rawUtxos, "multi-token").filter(
+    (u) => !utxoLocks.isLocked(u.transaction_id, u.output_index)
+  );
   if (!utxos || utxos.length === 0) {
-    throw new Error(`No UTxOs found for address: ${address}`);
+    throw new SdkApiError(
+      `No UTxOs found for address: ${address}`,
+      400,
+      "InsufficientBalance",
+      { address },
+      "utils:cardano"
+    );
   }
 
   // Build required amounts map: "policyId.tokenName" → required amount
@@ -981,8 +1196,12 @@ export const fetchAndSelectUtxosForMultiToken = async (
   // Validate all token requirements are met
   for (const [key, needed] of Object.entries(required)) {
     if ((accumulated[key] || 0) < needed) {
-      throw new Error(
-        `Insufficient balance for token ${key}: have ${accumulated[key] || 0}, need ${needed}`
+      throw new SdkApiError(
+        `Insufficient balance for token ${key}: have ${accumulated[key] || 0}, need ${needed}`,
+        400,
+        "InsufficientBalance",
+        { token: key, have: accumulated[key] || 0, need: needed },
+        "utils:cardano"
       );
     }
   }
@@ -1024,9 +1243,13 @@ export const fetchAndSelectUtxosForMultiToken = async (
   // If the input cap was hit and ADA is still insufficient, surface a clear error.
   const adaRequired = minRecipient + transactionFee + minChangeLovelace;
   if (selectedUtxos.length >= CardanoConstants.MAX_TX_INPUTS && accumulatedAda < adaRequired) {
-    throw new Error(
+    throw new SdkApiError(
       `Input cap (${CardanoConstants.MAX_TX_INPUTS} UTxOs) reached but only ${accumulatedAda} of ${adaRequired} lovelace accumulated. ` +
-        `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`
+        `This address may be dust-attacked with many small UTxOs. Consider consolidating UTxOs first.`,
+      400,
+      "InputCapReached",
+      { maxInputs: CardanoConstants.MAX_TX_INPUTS, accumulatedAda, adaRequired },
+      "utils:cardano"
     );
   }
 
@@ -1159,9 +1382,13 @@ export const createConsolidationOutput = (
   const outputLovelace = totalInputLovelace - fee;
 
   if (outputLovelace < CardanoConstants.MIN_UTXO_BASE_LOVELACE) {
-    throw new Error(
+    throw new SdkApiError(
       `Insufficient ADA for consolidation: fee (${fee} lovelace) leaves only ` +
-        `${outputLovelace} lovelace, below the ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace minimum`
+        `${outputLovelace} lovelace, below the ${CardanoConstants.MIN_UTXO_BASE_LOVELACE} lovelace minimum`,
+      400,
+      "InsufficientBalance",
+      { fee, outputLovelace, minimum: CardanoConstants.MIN_UTXO_BASE_LOVELACE },
+      "utils:cardano"
     );
   }
 

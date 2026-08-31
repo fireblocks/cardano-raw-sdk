@@ -1,6 +1,6 @@
 {
   "name": "cardano-raw-sdk",
-  "version": "1.4.2",
+  "version": "1.4.3",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "type": "module",
@@ -15,7 +15,7 @@
     "format:check": "prettier --check \"src/**/*.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
-    "test": "jest",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "docs": "typedoc src"
   },
   "keywords": [
@@ -31,6 +31,7 @@
   "description": "Cardano SDK for Fireblocks MPC custody",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.1",
@@ -56,8 +57,10 @@
     "bech32": "^2.0.0",
     "blakejs": "^1.2.1",
     "cbor2": "^2.0.1",
+    "cors": "^2.8.6",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^8.5.1",
     "jose": "^6.1.3",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",

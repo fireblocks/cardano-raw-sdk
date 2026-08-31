@@ -28,6 +28,11 @@ import {
   parseAdaStringToLovelace,
   getStakeAddressFromBaseAddress,
   utxoLocks,
+  setProtocolParams,
+  assertRecipientAddress,
+  assertTxSizeWithinLimit,
+  filterSpendableUtxos,
+  collectAllPages,
 } from "./utils/index.js";
 
 import {
@@ -168,6 +173,30 @@ export class FireblocksCardanoRawSDK {
     assetCacheTTL?: number;
     /** Disable SSL certificate verification (use only in development) */
     disableSslVerification?: boolean;
+    /**
+     * Override the Iagon API base URL. Falls back to the IAGON_BASE_URL
+     * environment variable and finally to the built-in default. Useful for
+     * staging/private deployments and tests.
+     */
+    iagonBaseUrl?: string;
+    /**
+     * Override Cardano protocol parameters.
+     *
+     * Consumed by the API fee validation floor (minFeeB) only.
+     * Transaction building, minimum-UTxO calculation, and deposit
+     * amounts read the constants in constants.ts (runtime wiring
+     * tracked as H-04). Process-global: the last override wins across
+     * all SDK instances in the process.
+     *
+     * Only specified fields will be overridden; others use defaults.
+     */
+    protocolParams?: {
+      minFeeA?: number;
+      minFeeB?: number;
+      coinsPerUtxoByte?: number;
+      stakeKeyDeposit?: number;
+      drepDeposit?: number;
+    };
   }): Promise<FireblocksCardanoRawSDK> => {
     try {
       const logger = new Logger(`app:fireblocks-cardano-raw-sdk`);
@@ -179,7 +208,18 @@ export class FireblocksCardanoRawSDK {
         iagonApiKey,
         assetCacheTTL,
         disableSslVerification = false,
+        iagonBaseUrl: iagonBaseUrlOverride,
+        protocolParams,
       } = params;
+
+      // Apply custom protocol parameters if provided
+      if (protocolParams) {
+        setProtocolParams(protocolParams);
+        logger.info(
+          "Custom protocol parameters applied (scope: API fee validation floor only)",
+          protocolParams
+        );
+      }
 
       if (network === Networks.PREVIEW) {
         throw new Error(`Unsupported network: ${network}`);
@@ -190,7 +230,8 @@ export class FireblocksCardanoRawSDK {
         iagonApiKey,
         network,
         assetCacheTTL,
-        disableSslVerification
+        disableSslVerification,
+        iagonBaseUrlOverride
       );
       const stakingService = new StakingService(fireblocksService, iagonApiService, network);
       const assetId = network === Networks.MAINNET ? SupportedAssets.ADA : SupportedAssets.ADA_TEST;
@@ -283,24 +324,32 @@ export class FireblocksCardanoRawSDK {
       return this.getEmptyVaultBalance(groupBy);
     }
 
-    // Fetch balances for all addresses in parallel
-    const balancePromises = addresses
-      .filter((addrData) => addrData.address && addrData.addressFormat === "BASE") // Filter out addresses without an address field / non-base addresses
-      .map(async (addrData) => {
-        const address = addrData.address!;
-        const index = addrData.bip44AddressIndex || 0;
+    // Fetch balances for all addresses in parallel. Only BASE addresses are
+    // in scope; dropped addresses are logged so the balance view is not
+    // silently narrower than the address list.
+    const baseAddresses = addresses.filter(
+      (addrData) => addrData.address && addrData.addressFormat === "BASE"
+    );
+    if (baseAddresses.length < addresses.length) {
+      this.logger.warn(
+        `getVaultBalance: dropped ${addresses.length - baseAddresses.length} non-BASE address(es) from the balance view`
+      );
+    }
+    const balancePromises = baseAddresses.map(async (addrData) => {
+      const address = addrData.address!;
+      const index = addrData.bip44AddressIndex || 0;
 
-        try {
-          const balance = await this.iagonApiService.getBalanceByAddress({
-            address,
-            groupByPolicy: groupBy === GroupByOptions.POLICY,
-          });
-          return { address, index, balance };
-        } catch (error) {
-          this.logger.error(`Error fetching balance for address ${address}:`, error);
-          return { address, index, balance: null };
-        }
-      });
+      try {
+        const balance = await this.iagonApiService.getBalanceByAddress({
+          address,
+          groupByPolicy: groupBy === GroupByOptions.POLICY,
+        });
+        return { address, index, balance };
+      } catch (error) {
+        this.logger.error(`Error fetching balance for address ${address}:`, error);
+        return { address, index, balance: null };
+      }
+    });
 
     const results = await Promise.all(balancePromises);
 
@@ -447,6 +496,9 @@ export class FireblocksCardanoRawSDK {
         "FireblocksCardanoRawSDK"
       );
     }
+    if (recipientAddress) {
+      assertRecipientAddress(recipientAddress, this.network);
+    }
     if (recipientVaultAccountId) {
       const recipientAddressData = await this.fireblocksService.getVaultAccountAddress(
         recipientVaultAccountId,
@@ -487,6 +539,64 @@ export class FireblocksCardanoRawSDK {
   }
 
   /**
+   * Iterates the underlying paginated history endpoint for a single address
+   * and concatenates every page until pagination.hasMore is false (or the
+   * server reports no more rows). If the caller pinned an explicit limit
+   * the original single-page semantics are preserved so existing query
+   * shapes still work.
+   */
+  private async fetchAllPagesForAddress<T extends { tx_hash: string; slot_no: number }>(
+    fetchFn: (params: {
+      address: string;
+      limit?: number;
+      offset?: number;
+      fromSlot?: number;
+    }) => Promise<{
+      success: boolean;
+      data?: T[];
+      last_updated?: LastUpdated;
+      pagination?: TransactionPagination;
+    }>,
+    address: string,
+    options: { limit?: number; offset?: number; fromSlot?: number }
+  ): Promise<{ success: boolean; data?: T[]; last_updated?: LastUpdated }> {
+    // Caller-supplied explicit paging is respected as-is (single page).
+    if (options.limit !== undefined) {
+      return fetchFn({ address, ...options });
+    }
+
+    // Otherwise walk all pages via the shared paginator (audit finding M-14), capturing
+    // last_updated from each page along the way.
+    let lastUpdated: LastUpdated | undefined;
+    const aggregated = await collectAllPages<T>(
+      async (offset, limit) => {
+        const response = await fetchFn({ address, limit, offset, fromSlot: options.fromSlot });
+        lastUpdated = response.last_updated ?? lastUpdated;
+        return response;
+      },
+      {
+        startOffset: options.offset ?? 0,
+        onPageFailure: ({ offset, page }) => {
+          throw new SdkApiError(
+            `History page fetch failed for ${address} at offset ${offset}`,
+            502,
+            "HISTORY_PAGE_FETCH_ERROR",
+            { address, offset, page },
+            "FireblocksCardanoRawSDK"
+          );
+        },
+        onMaxPages: ({ pagesFetched, rowsCollected }) =>
+          this.logger.warn(
+            `History walk hit the ${pagesFetched}-page cap for ${address}; ` +
+              `results truncated at ${rowsCollected} rows`
+          ),
+      }
+    );
+
+    return { success: true, data: aggregated, last_updated: lastUpdated };
+  }
+
+  /**
    * Fetches transaction history across all vault addresses.
    * Shared by getAllTransactionHistory() and getAllDetailedTxHistory().
    */
@@ -496,7 +606,12 @@ export class FireblocksCardanoRawSDK {
       limit?: number;
       offset?: number;
       fromSlot?: number;
-    }) => Promise<{ success: boolean; data?: T[]; last_updated?: LastUpdated }>,
+    }) => Promise<{
+      success: boolean;
+      data?: T[];
+      last_updated?: LastUpdated;
+      pagination?: TransactionPagination;
+    }>,
     options: { limit?: number; offset?: number; fromSlot?: number; groupByAddress?: boolean }
   ): Promise<{
     success: boolean;
@@ -529,7 +644,7 @@ export class FireblocksCardanoRawSDK {
 
     const validAddresses = addressesResponse.filter((addr) => addr.address);
     const allHistories = await Promise.all(
-      validAddresses.map((addr) => fetchFn({ address: addr.address!, ...options }))
+      validAddresses.map((addr) => this.fetchAllPagesForAddress(fetchFn, addr.address!, options))
     );
 
     const mostRecentUpdate = allHistories.reduce((latest, current) => {
@@ -630,6 +745,11 @@ export class FireblocksCardanoRawSDK {
     );
 
     const addresses = allAddresses.filter((addr) => addr.address && addr.addressFormat === "BASE");
+    if (addresses.length < allAddresses.length) {
+      this.logger.warn(
+        `getUtxosByVaultAccountId: dropped ${allAddresses.length - addresses.length} non-BASE address(es) from the UTxO view`
+      );
+    }
 
     this.logger.info(
       `Getting UTxOs for all ${addresses.length} BASE addresses in vault ${this.vaultAccountId}`
@@ -863,6 +983,7 @@ export class FireblocksCardanoRawSDK {
     txBody: TransactionBody,
     assetId: SupportedAssets = SupportedAssets.ADA
   ): Promise<Transaction> {
+    assertTxSizeWithinLimit(txBody.to_bytes(), "signTransaction");
     const txHashHex = this.calculateTransactionHash(txBody);
     const transactionPayload = this.createFireblocksTransactionPayload(assetId, txHashHex);
 
@@ -877,46 +998,72 @@ export class FireblocksCardanoRawSDK {
     const publicKeyBytes = Uint8Array.from(Buffer.from(signatureResponse.publicKey, "hex"));
     const signatureBytes = Uint8Array.from(Buffer.from(signatureResponse.signature.fullSig, "hex"));
 
-    const pubKey = PublicKey.from_bytes(publicKeyBytes);
-    const cardanoPubKey = Vkey.new(pubKey);
-    pubKey.free();
-    const cardanoSig = Ed25519Signature.from_bytes(signatureBytes);
+    // Track every WASM handle allocated below so we can free them on any
+    // exception path before returning. The successful path also frees the
+    // intermediates and only the returned Transaction stays live.
+    let pubKey: PublicKey | undefined;
+    let cardanoPubKey: Vkey | undefined;
+    let cardanoSig: Ed25519Signature | undefined;
+    let witness: Vkeywitness | undefined;
+    let witnesses: Vkeywitnesses | undefined;
+    let witnessSet: TransactionWitnessSet | undefined;
+    let signedTx: Transaction | undefined;
 
-    const witness = Vkeywitness.new(cardanoPubKey, cardanoSig);
-    cardanoPubKey.free();
-    cardanoSig.free();
-    const witnesses = Vkeywitnesses.new();
-    witnesses.add(witness);
-    witness.free();
+    try {
+      pubKey = PublicKey.from_bytes(publicKeyBytes);
+      cardanoPubKey = Vkey.new(pubKey);
+      cardanoSig = Ed25519Signature.from_bytes(signatureBytes);
 
-    const witnessSet = TransactionWitnessSet.new();
-    witnessSet.set_vkeys(witnesses);
-    witnesses.free();
+      witness = Vkeywitness.new(cardanoPubKey, cardanoSig);
+      witnesses = Vkeywitnesses.new();
+      witnesses.add(witness);
 
-    const signedTx = Transaction.new(txBody, witnessSet);
+      witnessSet = TransactionWitnessSet.new();
+      witnessSet.set_vkeys(witnesses);
 
-    // Verify the fee is sufficient using Cardano's min_fee calculation
-    const minRequiredFee = calculateTransactionFee(signedTx);
-    witnessSet.free();
-    const allocatedFee = parseInt(txBody.fee().to_str());
+      signedTx = Transaction.new(txBody, witnessSet);
 
-    if (minRequiredFee > allocatedFee) {
-      throw new SdkApiError(
-        `Transaction requires minimum ${minRequiredFee} lovelace but only ${allocatedFee} lovelace was allocated. This indicates a bug in fee calculation.`,
-        500,
-        "FeeEstimationError",
-        { minRequiredFee, allocatedFee, difference: minRequiredFee - allocatedFee },
-        "FireblocksCardanoRawSDK"
+      // Verify the fee is sufficient using Cardano's min_fee calculation
+      const minRequiredFee = calculateTransactionFee(signedTx);
+      const allocatedFee = parseInt(txBody.fee().to_str());
+
+      if (minRequiredFee > allocatedFee) {
+        throw new SdkApiError(
+          `Transaction requires minimum ${minRequiredFee} lovelace but only ${allocatedFee} lovelace was allocated. This indicates a bug in fee calculation.`,
+          500,
+          "FeeEstimationError",
+          { minRequiredFee, allocatedFee, difference: minRequiredFee - allocatedFee },
+          "FireblocksCardanoRawSDK"
+        );
+      }
+
+      const feeDifference = allocatedFee - minRequiredFee;
+      this.logger.info(
+        `Transaction fee verified: allocated ${allocatedFee} lovelace, ` +
+          `minimum required ${minRequiredFee} lovelace (margin: ${feeDifference} lovelace)`
       );
+
+      // Successful path: free intermediates, keep signedTx alive for the caller.
+      pubKey.free();
+      cardanoPubKey.free();
+      cardanoSig.free();
+      witness.free();
+      witnesses.free();
+      witnessSet.free();
+      const result = signedTx;
+      signedTx = undefined; // prevent the catch/finally from freeing it
+      return result;
+    } catch (err) {
+      // Free any handle that was allocated before the throw.
+      signedTx?.free();
+      witnessSet?.free();
+      witnesses?.free();
+      witness?.free();
+      cardanoSig?.free();
+      cardanoPubKey?.free();
+      pubKey?.free();
+      throw err;
     }
-
-    const feeDifference = allocatedFee - minRequiredFee;
-    this.logger.info(
-      `Transaction fee verified: allocated ${allocatedFee} lovelace, ` +
-        `minimum required ${minRequiredFee} lovelace (margin: ${feeDifference} lovelace)`
-    );
-
-    return signedTx;
   }
 
   // ─── Transfer Architecture ──────────────────────────────────────────────────
@@ -1161,8 +1308,13 @@ export class FireblocksCardanoRawSDK {
       // Sign transaction with Fireblocks
       const signedTransaction = await this.signTransaction(txBody);
 
-      // Submit transaction to blockchain
-      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      // Submit transaction to blockchain (free WASM handle once serialized).
+      let txHash: string;
+      try {
+        txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      } finally {
+        signedTransaction.free();
+      }
 
       this.logger.info(`Transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`);
 
@@ -1299,6 +1451,10 @@ export class FireblocksCardanoRawSDK {
 
   /**
    * Estimates the fee for a native ADA transfer without signing or submitting.
+   *
+   * **Estimate only.** The actual transfer (`transferAda`) is executed by the
+   * Fireblocks policy engine via `createTransfer`, which builds its own
+   * transaction, so the fee charged on-chain can differ from this preview.
    *
    * @param request - AdaFeeEstimationRequest
    * @returns AdaFeeEstimationResponse with fee breakdown; includes tokenChangeWarning when token UTxOs are consumed
@@ -1657,7 +1813,12 @@ export class FireblocksCardanoRawSDK {
       );
 
       const signedTransaction = await this.signTransaction(txBody);
-      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      let txHash: string;
+      try {
+        txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      } finally {
+        signedTransaction.free();
+      }
 
       this.logger.info(
         `Multi-token transfer successful: ${txHash} (fee: ${feeFormatted.value} ADA)`
@@ -1722,7 +1883,7 @@ export class FireblocksCardanoRawSDK {
     this.logger.info(`Consolidating UTxOs at address index ${index}: ${senderAddress}`);
 
     const rawUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
-    const initialUtxos = rawUtxos.filter(
+    const initialUtxos = filterSpendableUtxos(rawUtxos, "consolidation").filter(
       (u) => !utxoLocks.isLocked(u.transaction_id, u.output_index)
     );
 
@@ -1757,6 +1918,9 @@ export class FireblocksCardanoRawSDK {
     senderAddress: string,
     utxos: UtxoData[]
   ): Promise<ConsolidateUtxosResult> {
+    // Lock the inputs for the sign+submit+confirm window so a concurrent request cannot
+    // select the same UTxOs and cause a double-spend attempt.
+    const release = utxoLocks.lock(utxos);
     try {
       const txInputs = createTransactionInputs(utxos);
       const ttl = await this.fetchCurrentTtl();
@@ -1776,10 +1940,28 @@ export class FireblocksCardanoRawSDK {
       );
 
       const signedTransaction = await this.signTransaction(txBody);
-      const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      let txHash: string;
+      try {
+        txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+      } finally {
+        signedTransaction.free();
+      }
       this.logger.info(`UTxO consolidation successful: ${txHash}`);
 
       const { lovelace: outputLovelace, tokenPolicies } = this.extractOutputMetadata(outputs[0]);
+
+      // Wait for the spend to settle on-chain before releasing the lock, so a concurrent
+      // request cannot grab the just-spent (but not-yet-settled) inputs and build a doomed
+      // transaction. On timeout, leave the lock to expire via TTL rather than releasing
+      // potentially-unsettled inputs, and report it via partialError (audit finding OC-2).
+      const confirmed = await this.waitForUtxosSpent(senderAddress, utxos);
+      let partialError: string | undefined;
+      if (confirmed) {
+        release();
+      } else {
+        partialError = `Consolidation ${txHash} submitted but its inputs were not confirmed spent on-chain within ${CardanoConstants.TX_CONFIRM_TIMEOUT_MS}ms; the UTxO lock will expire via TTL`;
+        this.logger.warn(partialError);
+      }
 
       return {
         txHash,
@@ -1788,10 +1970,74 @@ export class FireblocksCardanoRawSDK {
         lovelace: outputLovelace,
         fee: { lovelace: fee.toString(), ada: feeFormatted.value },
         tokenPolicies,
+        ...(partialError ? { partialError } : {}),
       };
     } catch (error) {
+      // Build/sign/submit failed: the transaction did not land, so its inputs are still
+      // unspent — release the lock immediately so they can be retried.
+      release();
       this.logAndRethrow("Consolidation", error);
     }
+  }
+
+  /**
+   * Polls the address's UTxO set until none of the given `spentUtxos` remain,
+   * i.e. the transaction that consumed them has settled on-chain (as reflected by
+   * the indexer). Returns true once confirmed, or false if the timeout elapses.
+   *
+   * Used to gate batched consolidation so the next batch never re-selects UTxOs
+   * that a prior batch already spent (audit finding OC-2).
+   */
+  private async waitForUtxosSpent(
+    address: string,
+    spentUtxos: UtxoData[],
+    timeoutMs: number = CardanoConstants.TX_CONFIRM_TIMEOUT_MS,
+    pollIntervalMs: number = CardanoConstants.TX_CONFIRM_POLL_INTERVAL_MS
+  ): Promise<boolean> {
+    const spentKeys = new Set(spentUtxos.map((u) => `${u.transaction_id}#${u.output_index}`));
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      let current: UtxoData[];
+      try {
+        current = await fetchUtxos(this.iagonApiService, address);
+      } catch (error) {
+        // `fetchUtxos` throws on a transient query/API failure. That failure is about
+        // *reading* the address, not the submitted transaction, so it must NOT abort the
+        // consolidation or release the batch's lock. Treat it as inconclusive and keep
+        // polling until the deadline.
+        this.logger.debug(
+          `waitForUtxosSpent: transient fetch error for ${address}, will retry: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        await new Promise((r) => setTimeout(r, pollIntervalMs));
+        continue;
+      }
+
+      // An empty result is treated as inconclusive, NOT as "all inputs spent": a
+      // successful consolidation always leaves its own output UTxO at this address, so a
+      // genuinely empty set right after one means the indexer has not caught up yet. This
+      // avoids mistaking indexer lag for a confirmed spend (which would release the lock
+      // early and let the next batch re-select still-unsettled inputs → double-spend).
+      if (current.length > 0) {
+        const stillPresent = current.some((u) =>
+          spentKeys.has(`${u.transaction_id}#${u.output_index}`)
+        );
+        if (!stillPresent) {
+          this.logger.info(
+            `Confirmed ${spentKeys.size} input UTxO(s) spent on-chain for ${address}`
+          );
+          return true;
+        }
+      }
+      await new Promise((r) => setTimeout(r, pollIntervalMs));
+    }
+
+    this.logger.warn(
+      `Timed out after ${timeoutMs}ms waiting for ${spentKeys.size} UTxO(s) to be spent on-chain`
+    );
+    return false;
   }
 
   /** Batched consolidation for dust-attacked addresses */
@@ -1808,8 +2054,23 @@ export class FireblocksCardanoRawSDK {
     let partialError: string | undefined;
 
     for (let batchNum = 0; batchNum < maxBatches; batchNum++) {
-      // re-fetch UTxOs after each batch to get fresh state
-      const utxos = await fetchUtxos(this.iagonApiService, senderAddress);
+      // Re-fetch UTxOs after each batch to get fresh state, applying the same
+      // spendability and lock filters as the single-batch path, and excluding any
+      // still locked by a concurrent request or an unconfirmed prior batch.
+      // A fetch failure after submitted batches must preserve the partial result
+      // rather than discard already-confirmed txHashes (fetchUtxos now throws).
+      let utxos: UtxoData[];
+      try {
+        const rawUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
+        utxos = filterSpendableUtxos(rawUtxos, "consolidation-batch").filter(
+          (u) => !utxoLocks.isLocked(u.transaction_id, u.output_index)
+        );
+      } catch (error) {
+        partialError =
+          error instanceof Error ? error.message : "UTxO re-fetch failed between batches";
+        this.logger.error(`Batch ${batchNum + 1} UTxO fetch failed: ${partialError}`);
+        break;
+      }
 
       // stop if we've consolidated enough (only 1 UTxO left or below threshold)
       if (utxos.length < minUtxoCount) {
@@ -1819,6 +2080,10 @@ export class FireblocksCardanoRawSDK {
 
       // take up to batchSize UTxOs for this batch
       const batchUtxos = utxos.slice(0, batchSize);
+
+      // Lock this batch's inputs so neither a concurrent request nor the next batch
+      // can re-select them before the spend is confirmed on-chain.
+      const releaseBatch = utxoLocks.lock(batchUtxos);
 
       try {
         const txInputs = createTransactionInputs(batchUtxos);
@@ -1839,7 +2104,12 @@ export class FireblocksCardanoRawSDK {
         );
 
         const signedTransaction = await this.signTransaction(txBody);
-        const txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+        let txHash: string;
+        try {
+          txHash = await submitTransaction(this.iagonApiService, signedTransaction);
+        } finally {
+          signedTransaction.free();
+        }
 
         batches.push({
           txHash,
@@ -1853,11 +2123,29 @@ export class FireblocksCardanoRawSDK {
 
         this.logger.info(`Batch ${batchNum + 1} successful: ${txHash}`);
 
-        // brief pause between batches to let chain register the tx
-        if (batchNum < maxBatches - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
+        // Always wait for this batch's inputs to be observed as spent on-chain before
+        // continuing, instead of a fixed delay. This prevents the next batch from fetching
+        // stale UTxOs that were already spent, AND ensures the final metadata read below
+        // (lovelace/tokenPolicies) reflects settled state rather than the just-spent inputs
+        // — including on the final batch when maxBatches is exhausted (audit finding OC-2).
+        const confirmed = await this.waitForUtxosSpent(senderAddress, batchUtxos);
+        if (confirmed) {
+          // Inputs are gone from the chain; safe to release the lock.
+          releaseBatch();
+        } else {
+          // Submission succeeded but the spend has not settled within the timeout.
+          // Leave the inputs locked (the TTL will expire them) and stop. Record a
+          // partialError so the caller knows consolidation stopped early and unconfirmed
+          // (and that the final metadata may still include the unsettled inputs), rather
+          // than treating the truncated result as a clean success.
+          partialError = `Batch ${batchNum + 1} submitted (tx ${txHash}) but its inputs were not confirmed spent on-chain within ${CardanoConstants.TX_CONFIRM_TIMEOUT_MS}ms; stopping batched consolidation`;
+          this.logger.warn(partialError);
+          break;
         }
       } catch (error) {
+        // The transaction did not land, so its inputs are still unspent — release the
+        // lock immediately so they can be retried by this or another request.
+        releaseBatch();
         partialError =
           error instanceof Error ? error.message : "Unknown error during batch consolidation";
         this.logger.error(`Batch ${batchNum + 1} failed: ${partialError}`);
@@ -1875,10 +2163,21 @@ export class FireblocksCardanoRawSDK {
       );
     }
 
-    // get final state for output metadata
-    const finalUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
-    const tokenPolicies = this.extractTokenPoliciesFromUtxos(finalUtxos);
-    const totalLovelace = finalUtxos.reduce((sum, u) => sum + u.value.lovelace, 0);
+    // get final state for output metadata. The metadata is informational:
+    // a fetch failure here must not discard the submitted batches' result.
+    let tokenPolicies: string[] = [];
+    let totalLovelace = 0;
+    try {
+      const finalUtxos = await fetchUtxos(this.iagonApiService, senderAddress);
+      tokenPolicies = this.extractTokenPoliciesFromUtxos(finalUtxos);
+      totalLovelace = finalUtxos.reduce((sum, u) => sum + u.value.lovelace, 0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Final UTxO state fetch failed after consolidation: ${message}`);
+      partialError = partialError
+        ? `${partialError}; final UTxO state unavailable: ${message}`
+        : `Final UTxO state unavailable: ${message}`;
+    }
     const totalFeeFormatted = formatWithDecimals(totalFeeLovelace, CardanoConstants.ADA_DECIMALS);
 
     const result: ConsolidateUtxosResult = {

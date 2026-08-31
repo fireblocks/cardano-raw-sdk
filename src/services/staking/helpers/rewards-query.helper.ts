@@ -14,12 +14,14 @@ export class RewardsQueryService {
   ) {}
 
   async queryRewards(stakeAddress: string): Promise<RewardsData> {
-    const [accountInfo, rewardsResponse] = await Promise.all([
+    // Fetch the COMPLETE rewards list (all pages), not just the first (M-14). Summary
+    // totals below still come from the account-info endpoint's aggregate fields.
+    const [accountInfo, allRewards] = await Promise.all([
       this.iagonApiService.getStakeAccountInfo(stakeAddress),
-      this.iagonApiService.getStakeAccountRewards(stakeAddress),
+      this.iagonApiService.getAllStakeAccountRewards(stakeAddress),
     ]);
 
-    const rewards = rewardsResponse.data.map((reward) => ({
+    const rewards = allRewards.map((reward) => ({
       poolId: reward.pool_id,
       amount: reward.amount,
       epoch: reward.epoch,

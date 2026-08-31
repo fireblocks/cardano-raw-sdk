@@ -62,6 +62,9 @@ interface SdkPoolItem {
  */
 export class SdkManager {
   private sdkPool: Map<string, SdkPoolItem> = new Map();
+  // Tracks in-flight SDK factory calls per vault key so concurrent cache
+  // misses share a single allocation instead of each producing their own.
+  private pendingSdkCreations: Map<string, Promise<FireblocksCardanoRawSDK>> = new Map();
   private baseConfig: ConfigurationOptions;
   private poolConfig: PoolConfig;
   private cleanupInterval: NodeJS.Timeout;
@@ -162,6 +165,19 @@ export class SdkManager {
       return poolItem.sdk;
     }
 
+    // Concurrent cache-miss: join an in-flight creation for the same key
+    // instead of racing the factory and producing duplicate SDK instances.
+    const pending = this.pendingSdkCreations.get(key);
+    if (pending) {
+      const sdk = await pending;
+      const item = this.sdkPool.get(key);
+      if (item) {
+        item.lastUsed = new Date();
+        item.useCount++;
+      }
+      return sdk;
+    }
+
     // Check pool capacity
     if (this.sdkPool.size >= this.poolConfig.maxPoolSize) {
       const removed = this.removeOldestIdleSdk();
@@ -172,17 +188,20 @@ export class SdkManager {
       }
     }
 
-    // Create new SDK
+    // Create new SDK, registering the in-flight Promise so concurrent callers
+    // can wait on the same allocation instead of starting their own.
     this.logger.info(`Creating new SDK for Vault #${vaultAccountId}`);
-    const sdk = await this.sdkFactory(vaultAccountId, this.baseConfig, this.network);
-
-    this.sdkPool.set(key, {
-      sdk,
-      lastUsed: new Date(),
-      useCount: 1,
-    });
-
-    return sdk;
+    const creation = this.sdkFactory(vaultAccountId, this.baseConfig, this.network)
+      .then((sdk) => {
+        this.sdkPool.set(key, { sdk, lastUsed: new Date(), useCount: 1 });
+        return sdk;
+      });
+    this.pendingSdkCreations.set(key, creation);
+    try {
+      return await creation;
+    } finally {
+      this.pendingSdkCreations.delete(key);
+    }
   }
 
   /**

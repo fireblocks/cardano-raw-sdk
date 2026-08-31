@@ -7,8 +7,19 @@ export interface CardanoWitness {
 
 export interface CardanoRewardWithdrawal {
   certificate: Buffer;
-  reward: number; // in Lovelace
+  /**
+   * In Lovelace. Number inputs are bounded by JS integer precision
+   * (2^53); pass a BigInt to carry larger amounts exactly.
+   */
+  reward: number | bigint;
 }
+
+/**
+ * Withdrawal map for CBOR body key 5: reward account bytes to lovelace.
+ * Values are BigInt; construct via serializeWithdrawals so coin
+ * validation is applied.
+ */
+export type WithdrawalMap = Map<Uint8Array, bigint>;
 
 export interface RegisterStakingOptions {
   vaultAccountId: string;
@@ -179,7 +190,7 @@ export interface BuildPayloadOptions {
   feeAmount: number;
   ttl?: number; // Optional for Conway-era governance transactions
   certificates?: Array<unknown>;
-  withdrawals?: Map<Uint8Array, number>;
+  withdrawals?: WithdrawalMap;
   /** Conway-era voting procedures (key 19 in the TX body) */
   votingProcedures?: Map<unknown, unknown>;
   network: Networks;

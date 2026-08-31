@@ -19,7 +19,8 @@ export interface PoolInfoResponse {
     reward_account: string;
     owners: string[];
     registration: string[];
-    retirement: string[];
+    status: "active" | "retiring" | "retired";
+    retiring_epoch: number | null;
   };
 }
 

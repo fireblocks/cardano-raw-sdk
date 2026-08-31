@@ -176,20 +176,32 @@ export class FireblocksService {
     try {
       const addressesResponse = await this.getVaultAccountAddresses(vaultAccountId, assetId);
       if (!addressesResponse || addressesResponse.length === 0) {
-        throw new Error(`No ${assetId} addresses found for vault account ${vaultAccountId}`);
+        throw new SdkApiError(
+          `No ${assetId} addresses found for vault account ${vaultAccountId}`,
+          404,
+          "AddressNotFound",
+          { vaultAccountId, assetId },
+          "fireblocks-service"
+        );
       }
 
       const filteredAddresses = addressesResponse.filter(
         (addr) => addr.bip44AddressIndex === index
       );
       if (filteredAddresses.length === 0) {
-        throw new Error(
-          `No ${assetId} address found for vault account ${vaultAccountId} and index ${index}`
+        throw new SdkApiError(
+          `No ${assetId} address found for vault account ${vaultAccountId} and index ${index}`,
+          404,
+          "AddressNotFound",
+          { vaultAccountId, assetId, index },
+          "fireblocks-service"
         );
       }
 
       return filteredAddresses[0];
     } catch (error: unknown) {
+      // Preserve typed client-facing errors (e.g. 404 AddressNotFound) instead of masking as 500.
+      if (error instanceof SdkApiError) throw error;
       const message = error instanceof Error ? error.message : "Unknown error";
       throw new Error(
         `Failed to get ${assetId} address for vault account ${vaultAccountId}: ${message}`,
@@ -278,6 +290,8 @@ export class FireblocksService {
       }
       return addresses;
     } catch (error: unknown) {
+      // Preserve typed client-facing errors instead of masking them as a generic 500.
+      if (error instanceof SdkApiError) throw error;
       const message =
         error instanceof Error
           ? error.message

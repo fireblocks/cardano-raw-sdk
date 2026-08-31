@@ -6,7 +6,7 @@ on:
       network:
         description: 'Cardano network'
         required: true
-        default: 'mainnet'
+        default: 'preprod'
         type: choice
         options:
           - preprod

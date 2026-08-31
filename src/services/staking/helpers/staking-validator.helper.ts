@@ -50,7 +50,28 @@ export class StakingValidator implements IStakingValidator {
       this.logger.info(`Already delegated to pool ${poolId}`);
     }
 
-    await this.iagonApiService.getPoolInfo(poolId);
+    const poolInfo = await this.iagonApiService.getPoolInfo(poolId);
+    if (!poolInfo?.data) {
+      throw new SdkApiError(
+        `Pool ${poolId} not found`,
+        404,
+        "PoolNotFound",
+        { poolId },
+        "staking-service"
+      );
+    }
+    // The Iagon pool-info contract reports retirement as a status field
+    // ("active" | "retiring" | "retired") plus retiring_epoch.
+    const { status, retiring_epoch } = poolInfo.data;
+    if (status === "retiring" || status === "retired") {
+      throw new SdkApiError(
+        `Pool ${poolId} is ${status} and cannot accept new delegations`,
+        400,
+        "PoolRetired",
+        { poolId, status, retiringEpoch: retiring_epoch },
+        "staking-service"
+      );
+    }
   }
 
   async checkRegistrationStatus(vaultAccountId: string): Promise<boolean> {
@@ -58,9 +79,16 @@ export class StakingValidator implements IStakingValidator {
       const stakeAddress = await this.addressResolver.getStakeAddress(vaultAccountId);
       const accountInfo = await this.iagonApiService.getStakeAccountInfo(stakeAddress);
       return accountInfo.data.active;
-    } catch {
-      this.logger.info("Stake key not yet registered");
-      return false;
+    } catch (err) {
+      // 404 = the stake account legitimately does not exist on-chain.
+      // Any other failure (network, 5xx, parse error) must propagate so
+      // callers don't mistake an outage for "not registered" and skip a
+      // deregistration / submit a duplicate registration.
+      if (err instanceof SdkApiError && err.statusCode === 404) {
+        this.logger.info("Stake key not yet registered");
+        return false;
+      }
+      throw err;
     }
   }
 }

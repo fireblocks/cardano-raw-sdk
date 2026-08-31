@@ -1,5 +1,63 @@
 import { z } from "zod";
 import { Request, Response, NextFunction } from "express";
+import { bech32 } from "bech32";
+
+import { getProtocolParams } from "../utils/protocolParams.js";
+
+/**
+ * Validate a DRep ID. Accepts:
+ * - a 56-char hex string (28-byte credential), or
+ * - CIP-105 bech32 (HRP "drep" or "drep_script", 28-byte payload), or
+ * - CIP-129 bech32 (HRP "drep", 29-byte payload = header + 28-byte hash).
+ * Verifies the bech32 checksum and payload length.
+ */
+const isValidDrepId = (id: string): boolean => {
+  if (/^[0-9a-fA-F]{56}$/.test(id)) return true;
+  if (!id.startsWith("drep1") && !id.startsWith("drep_script1")) return false;
+  try {
+    const decoded = bech32.decode(id, 1000);
+    if (decoded.prefix !== "drep" && decoded.prefix !== "drep_script") return false;
+    const bytes = bech32.fromWords(decoded.words);
+    // CIP-105 = 28 bytes (raw hash); CIP-129 = 29 bytes (header byte + hash).
+    // CIP-129 only uses HRP "drep", and its header byte must be exactly
+    // 0x22 (key hash) or 0x23 (script hash) - mirrors decodeDRepId.
+    if (bytes.length === 28) return true;
+    if (
+      bytes.length === 29 &&
+      decoded.prefix === "drep" &&
+      (bytes[0] === 0x22 || bytes[0] === 0x23)
+    ) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Fee validation bounds.
+ * MIN_PROTOCOL_FEE: Minimum fee per Cardano protocol (minFeeB constant, configurable)
+ * MAX_REASONABLE_FEE: Upper bound to prevent accidental loss-of-funds (10 ADA)
+ */
+const getMinProtocolFee = () => getProtocolParams().minFeeB; // Default: 155,381 lovelace
+const MAX_REASONABLE_FEE = 10_000_000; // 10 ADA - covers even complex multi-asset tx
+
+/**
+ * Reusable schema for optional fee parameter with bounds validation.
+ * Prevents loss-of-funds from excessive fees while ensuring minimum protocol requirements.
+ * Note: Uses a function to get min fee to support configurable protocol params.
+ */
+const optionalFeeSchema = z
+  .number()
+  .int("fee must be an integer")
+  .refine((fee) => fee >= getMinProtocolFee(), {
+    message: `fee must be at least the protocol minimum (minFeeB)`,
+  })
+  .refine((fee) => fee <= MAX_REASONABLE_FEE, {
+    message: `fee cannot exceed ${MAX_REASONABLE_FEE} lovelace (10 ADA)`,
+  })
+  .optional();
 
 /**
  * Generic validation middleware that validates request body against a Zod schema
@@ -309,12 +367,12 @@ export const delegateToDRepRequestSchema = z
     }),
     drepId: z
       .string()
-      .regex(
-        /^(drep1|drep_script1)[a-z0-9]+$|^[0-9a-fA-F]{56}$/,
-        "drepId must be bech32 (drep1... or drep_script1...) or a 56-character hex string"
+      .refine(
+        isValidDrepId,
+        "drepId must be a 56-character hex string or a valid bech32 string with HRP drep/drep_script decoding to 28 bytes"
       )
       .optional(),
-    fee: z.number().int().positive().optional(),
+    fee: optionalFeeSchema,
   })
   .refine((data) => data.drepAction !== "custom-drep" || !!data.drepId, {
     message: "drepId is required when drepAction is custom-drep",
@@ -339,7 +397,7 @@ export const registerAsDRepRequestSchema = z.object({
     })
     .optional(),
   depositAmount: z.number().int().positive().optional(),
-  fee: z.number().int().positive().optional(),
+  fee: optionalFeeSchema,
 });
 
 export type RegisterAsDRepRequest = z.infer<typeof registerAsDRepRequestSchema>;
@@ -363,11 +421,15 @@ export const castVoteRequestSchema = z.object({
       .string()
       .length(64, "governanceActionId.txHash must be a 64-character hex string")
       .regex(/^[0-9a-fA-F]{64}$/, "governanceActionId.txHash must be hex"),
-    index: z.number().int().nonnegative("governanceActionId.index must be a non-negative integer"),
+    index: z
+      .number()
+      .int()
+      .min(0, "governanceActionId.index must be a non-negative integer")
+      .max(65535, "governanceActionId.index must fit in uint16 (0-65535) per Conway CDDL"),
   }),
   vote: z.enum(["yes", "no", "abstain"], { message: 'vote must be "yes", "no", or "abstain"' }),
   anchor: anchorSchema.optional(),
-  fee: z.number().int().positive().optional(),
+  fee: optionalFeeSchema,
 });
 
 export type CastVoteRequest = z.infer<typeof castVoteRequestSchema>;

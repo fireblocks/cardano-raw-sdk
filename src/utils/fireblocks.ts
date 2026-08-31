@@ -5,6 +5,7 @@ import {
   TransactionStateEnum,
 } from "@fireblocks/ts-sdk";
 import { Logger } from "./logger.js";
+import { CardanoConstants } from "../constants.js";
 
 const logger = new Logger("utils:fireblocks");
 
@@ -17,7 +18,9 @@ const logger = new Logger("utils:fireblocks");
  * @param txId - The Fireblocks transaction ID to monitor
  * @param fireblocks - Initialized Fireblocks SDK instance for API calls
  * @param pollingInterval - Optional interval between status checks in milliseconds (default: 1000ms)
- * @param maxWaitMs - Maximum total time to wait before throwing a timeout error (default: 30 minutes, matching Fireblocks RAW signing timeout)
+ * @param maxWaitMs - Maximum total time to wait before throwing a timeout error (default:
+ *   CardanoConstants.FIREBLOCKS_RAW_SIGN_MAX_MS — the Fireblocks RAW signing timeout, the
+ *   single source of truth also used to size the UTxO lock TTL)
  *
  * @returns Promise resolving to the final TransactionResponse when completed or broadcasting
  *
@@ -56,7 +59,9 @@ export const getTxStatus = async (
   txId: string,
   fireblocks: Fireblocks,
   pollingInterval: number = 1000,
-  maxWaitMs: number = 30 * 60 * 1000 // 30 minutes (Fireblocks RAW signing default timeout)
+  // 30 min — the Fireblocks RAW signing timeout. Sourced from the shared constant so it
+  // stays in lock-step with UTXO_LOCK_TTL_MS (which is sized as signing max + confirmation).
+  maxWaitMs: number = CardanoConstants.FIREBLOCKS_RAW_SIGN_MAX_MS
 ): Promise<TransactionResponse> => {
   try {
     let txResponse: FireblocksResponse<TransactionResponse> =

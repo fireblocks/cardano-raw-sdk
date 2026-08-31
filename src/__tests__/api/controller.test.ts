@@ -1,7 +1,9 @@
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeAll, afterAll } from '@jest/globals';
 import { Request, Response } from 'express';
 import { BasePath } from '@fireblocks/ts-sdk';
 import { SdkApiError } from '../../types/errors.js';
+import { ApiController } from '../../api/controllers/controller.js';
+import { initConfig, resetConfig } from '../../utils/config.js';
 
 // We'll test the exported getWebhookEnvironment function by importing the module
 // For private methods, we'll test them indirectly through public methods
@@ -361,6 +363,151 @@ describe('Response Format Consistency', () => {
       (res.status as jest.Mock)(error.statusCode!);
       expect(res.status).toHaveBeenCalledWith(expectedStatus);
     });
+  });
+});
+
+// M-01: webhook signature must be verified against the RAW request body BEFORE
+// any JSON parsing of untrusted input.
+describe('ApiController.enrichWebhookPayload - M-01 signature-before-parse', () => {
+  beforeAll(() => {
+    initConfig({
+      FIREBLOCKS: {
+        apiKey: 'test-key',
+        secretKey: 'test-secret',
+        basePath: BasePath.US,
+      },
+    });
+  });
+
+  afterAll(() => {
+    resetConfig();
+  });
+
+
+  type SdkStub = {
+    verifyWebhook: jest.Mock<(...args: unknown[]) => Promise<boolean>>;
+    enrichWebhookPayload: jest.Mock<(...args: unknown[]) => Promise<unknown>>;
+  };
+
+  const buildController = (sdk: SdkStub) => {
+    const sdkManager = {
+      withSdk: jest.fn(async (_vault: string, fn: (s: SdkStub) => Promise<unknown>) => fn(sdk)),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+    return new ApiController(sdkManager);
+  };
+
+  const validPayload = { id: 'tx-1', data: { destination: { id: '7' } } };
+  const validJson = JSON.stringify(validPayload);
+
+  it('returns 400 when the body is not a Buffer', async () => {
+    const sdk: SdkStub = {
+      verifyWebhook: jest.fn(async () => true),
+      enrichWebhookPayload: jest.fn(async () => ({})),
+    };
+    const controller = buildController(sdk);
+    const req = { body: validPayload, headers: {} } as unknown as Request;
+    const res = createMockResponse();
+
+    await controller.enrichWebhookPayload(req, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(sdk.verifyWebhook).not.toHaveBeenCalled();
+    expect(sdk.enrichWebhookPayload).not.toHaveBeenCalled();
+  });
+
+  it('returns 400 when the body Buffer is empty', async () => {
+    const sdk: SdkStub = {
+      verifyWebhook: jest.fn(async () => true),
+      enrichWebhookPayload: jest.fn(async () => ({})),
+    };
+    const controller = buildController(sdk);
+    const req = { body: Buffer.alloc(0), headers: {} } as unknown as Request;
+    const res = createMockResponse();
+
+    await controller.enrichWebhookPayload(req, res as Response);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(sdk.verifyWebhook).not.toHaveBeenCalled();
+  });
+
+  it('passes the RAW Buffer (not a parsed object) to verifyWebhook', async () => {
+    const rawBody = Buffer.from(validJson, 'utf8');
+    const sdk: SdkStub = {
+      verifyWebhook: jest.fn(async () => true),
+      enrichWebhookPayload: jest.fn(async () => ({ enriched: true })),
+    };
+    const controller = buildController(sdk);
+    const req = {
+      body: rawBody,
+      headers: { 'fireblocks-signature': 'sig-abc' },
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await controller.enrichWebhookPayload(req, res as Response);
+
+    expect(sdk.verifyWebhook).toHaveBeenCalledTimes(1);
+    const firstArg = sdk.verifyWebhook.mock.calls[0][0];
+    expect(Buffer.isBuffer(firstArg)).toBe(true);
+    expect((firstArg as Buffer).equals(rawBody)).toBe(true);
+  });
+
+  it('returns 401 when verifyWebhook returns false and does NOT parse JSON or enrich', async () => {
+    const sdk: SdkStub = {
+      verifyWebhook: jest.fn(async () => false),
+      enrichWebhookPayload: jest.fn(async () => ({})),
+    };
+    const controller = buildController(sdk);
+    const req = {
+      body: Buffer.from(validJson, 'utf8'),
+      headers: {},
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await controller.enrichWebhookPayload(req, res as Response);
+
+    expect(sdk.verifyWebhook).toHaveBeenCalled();
+    expect(sdk.enrichWebhookPayload).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('returns 400 on signature-valid but malformed JSON, without enriching', async () => {
+    const sdk: SdkStub = {
+      verifyWebhook: jest.fn(async () => true),
+      enrichWebhookPayload: jest.fn(async () => ({})),
+    };
+    const controller = buildController(sdk);
+    const req = {
+      body: Buffer.from('not json{', 'utf8'),
+      headers: {},
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await controller.enrichWebhookPayload(req, res as Response);
+
+    expect(sdk.verifyWebhook).toHaveBeenCalled();
+    expect(sdk.enrichWebhookPayload).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('parses JSON and enriches only after signature verification succeeds', async () => {
+    const sdk: SdkStub = {
+      verifyWebhook: jest.fn(async () => true),
+      enrichWebhookPayload: jest.fn(async () => ({ enriched: true })),
+    };
+    const controller = buildController(sdk);
+    const req = {
+      body: Buffer.from(validJson, 'utf8'),
+      headers: {},
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await controller.enrichWebhookPayload(req, res as Response);
+
+    expect(sdk.verifyWebhook).toHaveBeenCalled();
+    expect(sdk.enrichWebhookPayload).toHaveBeenCalledTimes(1);
+    expect(sdk.enrichWebhookPayload.mock.calls[0][0]).toEqual(validPayload);
+    expect(res.status).toHaveBeenCalledWith(200);
   });
 });
 

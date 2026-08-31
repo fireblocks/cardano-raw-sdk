@@ -27,7 +27,7 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 - 🔄 **Connection Pooling**: Efficient SDK instance management with automatic cleanup
 - 🌐 **Multi-Network Support**: Works with Cardano mainnet, preprod, and preview networks
 - 🚀 **REST API Server**: Optional Express server for HTTP-based operations
-- 🐳 **Docker Support**: Easy deployment with Docker and Docker Compose
+- 🐳 **Docker Support**: Easy deployment with Docker
 
 ## Table of Contents
 
@@ -45,7 +45,7 @@ A TypeScript SDK for managing Cardano token transfers through Fireblocks, with i
 ### Prerequisites
 
 - Node.js 18+ (for SDK usage)
-- Docker & Docker Compose (for API service deployment)
+- Docker (for API service deployment)
 - Fireblocks API credentials
 - Iagon API key (required for balance queries, transaction history, and transfers)
 
@@ -379,7 +379,15 @@ Run the SDK as a REST API service using Docker or Node.js directly.
 3. **Start the service**:
 
    ```bash
-   docker-compose up -d
+   # Build the image
+   docker build -t cardano-raw-sdk .
+
+   # Run the container (mounts the local .env and Fireblocks secret key)
+   docker run -d --name cardano-raw-sdk \
+     --env-file .env \
+     -p 8000:8000 \
+     -v "$PWD/secrets:/app/secrets:ro" \
+     cardano-raw-sdk
    ```
 
 4. **Access the API**:
@@ -791,15 +799,23 @@ Copy `.env.example` to `.env` and fill in your values:
 cp .env.example .env
 ```
 
-| Variable                              | Required | Default                     | Description                                                    |
-| ------------------------------------- | -------- | --------------------------- | -------------------------------------------------------------- |
-| `PORT`                                | No       | `8000`                      | HTTP server port                                               |
-| `NODE_ENV`                            | No       | `production`                | Set to `development` only when using self-signed certs locally |
-| `FIREBLOCKS_API_USER_KEY`             | Yes      | -                           | Fireblocks API key UUID                                        |
-| `FIREBLOCKS_API_USER_SECRET_KEY_PATH` | Yes      | -                           | Absolute path to the Fireblocks RSA secret key file            |
-| `FIREBLOCKS_BASE_PATH`                | No       | `https://api.fireblocks.io` | Fireblocks workspace URL - also controls webhook JWKS region   |
-| `IAGON_API_KEY`                       | Yes      | -                           | Iagon API key for blockchain data queries                      |
-| `CARDANO_NETWORK`                     | No       | `mainnet`                   | `mainnet` or `preprod`                                         |
+| Variable                              | Required | Default                                     | Description                                                     |
+| ------------------------------------- | -------- | ------------------------------------------- | --------------------------------------------------------------- |
+| `PORT`                                | No       | `8000`                                      | HTTP server port                                                |
+| `NODE_ENV`                            | No       | `production`                                | Set to `development` only when using self-signed certs locally  |
+| `FIREBLOCKS_API_USER_KEY`             | Yes      | -                                           | Fireblocks API key UUID                                         |
+| `FIREBLOCKS_API_USER_SECRET_KEY_PATH` | Yes      | -                                           | Absolute path to the Fireblocks RSA secret key file             |
+| `FIREBLOCKS_BASE_PATH`                | No       | `https://api.fireblocks.io`                 | Fireblocks workspace URL - also controls webhook JWKS region    |
+| `IAGON_API_KEY`                       | Yes      | -                                           | Iagon API key for blockchain data queries                       |
+| `IAGON_BASE_URL`                      | No       | `https://api.fireblocks.partners.iagon.com` | Override the Iagon API base URL (staging / private deployments) |
+| `CARDANO_NETWORK`                     | No       | `mainnet`                                   | `mainnet` or `preprod`                                          |
+| `MAX_BODY_SIZE`                       | No       | `1mb`                                       | Maximum request body size                                       |
+| `RATE_LIMIT_WINDOW_MS`                | No       | `900000`                                    | Rate limit time window (ms)                                     |
+| `RATE_LIMIT_MAX_REQUESTS`             | No       | `100`                                       | Max requests per rate limit window                              |
+| `TRUST_PROXY`                         | No       | `false`                                     | Express `trust proxy` setting (hop count, preset, or boolean)   |
+| `CORS_ORIGINS`                        | No       | unset (CORS disabled)                       | Allowed CORS origins (comma-separated, or `*`)                  |
+| `API_KEY_ENABLED`                     | No       | `false`                                     | Enable API key authentication                                   |
+| `API_KEY`                             | No       | -                                           | API key value (required if `API_KEY_ENABLED=true`)              |
 
 **Fireblocks base path options:**
 
@@ -849,6 +865,112 @@ export FIREBLOCKS_API_USER_SECRET_KEY=$(cat key.b64)
 ```
 
 **Priority:** If both `FIREBLOCKS_API_USER_SECRET_KEY` and `FIREBLOCKS_API_USER_SECRET_KEY_PATH` are set, the direct key content takes precedence.
+
+### Security Configuration
+
+The API server includes configurable security middleware for CORS, rate limiting, and optional API key authentication. All settings are configured via environment variables.
+
+| Variable                  | Default  | Description                                                                                                                    |
+| ------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `MAX_BODY_SIZE`           | `1mb`    | Maximum request body size (e.g., `1mb`, `500kb`)                                                                               |
+| `RATE_LIMIT_WINDOW_MS`    | `900000` | Rate limiting time window in milliseconds (default: 15 minutes)                                                                |
+| `RATE_LIMIT_MAX_REQUESTS` | `100`    | Maximum requests allowed per window                                                                                            |
+| `TRUST_PROXY`             | `false`  | Express `trust proxy` setting: number of reverse-proxy hops (e.g., `1`), a preset/subnet (`loopback`, `10.0.0.0/8`), or `true` |
+| `CORS_ORIGINS`            | unset    | Allowed CORS origins: comma-separated list, or `*` for all. Unset: no CORS headers are sent (browsers enforce same-origin)     |
+| `API_KEY_ENABLED`         | `false`  | Enable API key authentication                                                                                                  |
+| `API_KEY`                 | -        | Required API key value when `API_KEY_ENABLED=true`                                                                             |
+
+#### CORS Configuration
+
+CORS is disabled by default: no CORS headers are sent, so browsers block cross-origin calls. Enable it only if browser clients call this API directly. A wildcard origin is served without credentials (as the CORS specification requires) and logs a startup warning.
+
+```bash
+# Allow specific origins (production)
+CORS_ORIGINS=https://myapp.com,https://admin.myapp.com
+
+# Allow all origins (development only)
+CORS_ORIGINS=*
+```
+
+#### Rate Limiting
+
+Rate limiting protects against abuse. The `/health` endpoint is exempt to support load balancer health checks.
+
+```bash
+# 100 requests per 15 minutes (default)
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
+
+# Stricter: 50 requests per 5 minutes
+RATE_LIMIT_WINDOW_MS=300000
+RATE_LIMIT_MAX_REQUESTS=50
+```
+
+#### Running Behind a Reverse Proxy
+
+When the server runs behind a reverse proxy (nginx, AWS ALB, Docker ingress), set `TRUST_PROXY` to the number of proxy hops so rate limiting keys on the client IP rather than the proxy's:
+
+```bash
+# One proxy hop (single nginx or load balancer)
+TRUST_PROXY=1
+
+# Two hops (e.g., CDN in front of nginx)
+TRUST_PROXY=2
+
+# Only trust proxies on the local machine
+TRUST_PROXY=loopback
+```
+
+The proxy must forward the client address via the `X-Forwarded-For` header (nginx: `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`; managed load balancers do this automatically). With the default `TRUST_PROXY=false`, requests arriving through a proxy are rate-limited by the proxy's address, so all clients share one limit bucket.
+
+#### API Key Authentication
+
+When enabled, all requests require the `X-API-Key` header, except `/health`, `/api-docs`, `/docs`, and `/api/webhook` (authenticated by Fireblocks signature verification instead).
+
+```bash
+# Enable API key authentication
+API_KEY_ENABLED=true
+API_KEY=your-secret-api-key-here
+```
+
+Client requests must include the header:
+
+```bash
+curl -H "X-API-Key: your-secret-api-key-here" http://localhost:8000/api/balance/123
+```
+
+### Protocol Parameters Configuration
+
+Cardano protocol parameter overrides can be supplied at SDK initialization.
+
+**Current scope of effect:** the overrides are consumed only by the API layer's fee validation floor (`minFeeB`). Transaction building, minimum-UTxO calculation, and staking/governance deposits use compiled-in constants; wiring them to runtime parameters is tracked as audit finding H-04, pending the Iagon protocol-parameters endpoint. The store is also process-global: the last override wins across all SDK instances in the process, and conflicting overrides log a warning.
+
+| Parameter          | Default     | Description                                     | Consumed today       |
+| ------------------ | ----------- | ----------------------------------------------- | -------------------- |
+| `minFeeA`          | `44`        | Fee coefficient: lovelace per transaction byte  | No (constants)       |
+| `minFeeB`          | `155381`    | Fee constant: base lovelace fee                 | API validation floor |
+| `coinsPerUtxoByte` | `4310`      | Lovelace per UTxO byte for min-ADA calculations | No (constants)       |
+| `stakeKeyDeposit`  | `2000000`   | Stake key registration deposit (2 ADA)          | No (constants)       |
+| `drepDeposit`      | `500000000` | DRep registration deposit (500 ADA)             | No (constants)       |
+
+#### SDK Usage
+
+```typescript
+const sdk = await FireblocksCardanoRawSDK.createInstance({
+  fireblocksConfig: { apiKey, secretKey, basePath },
+  vaultAccountId: "123",
+  network: Networks.MAINNET,
+  iagonApiKey: "...",
+  // Override the Iagon API base URL (optional - falls back to IAGON_BASE_URL env, then default)
+  iagonBaseUrl: "https://staging.iagon.example.com",
+  // Override protocol parameters (optional; see scope of effect above)
+  protocolParams: {
+    minFeeB: 155381,
+  },
+});
+```
+
+You only need to specify parameters that have changed - unspecified parameters keep their defaults.
 
 ## API Documentation
 
@@ -1271,7 +1393,6 @@ cardano-raw-sdk/
 │   └── server.ts                 # Express server setup
 ├── docs/                         # Generated documentation
 ├── Dockerfile                    # Docker configuration
-├── docker-compose.yml            # Docker Compose setup
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -1285,46 +1406,24 @@ cardano-raw-sdk/
 docker build -t cardano-raw-sdk:latest .
 ```
 
-#### Run with Docker Compose
+#### Run the Container
 
 ```bash
-# Start services
-docker-compose up -d
+# Start the service
+docker run -d --name cardano-raw-sdk \
+  --env-file .env \
+  -p 8000:8000 \
+  -v "$PWD/secrets:/app/secrets:ro" \
+  cardano-raw-sdk:latest
 
 # View logs
-docker-compose logs -f
+docker logs -f cardano-raw-sdk
 
-# Stop services
-docker-compose down
+# Stop the service
+docker stop cardano-raw-sdk
 
-# Restart services
-docker-compose restart
-```
-
-#### Docker Compose Configuration
-
-```yaml
-version: "3.8"
-
-services:
-  fireblocks-sdk:
-    build: .
-    ports:
-      - "8000:8000"
-    environment:
-      - PORT=8000
-      - CARDANO_NETWORK=mainnet
-      - POOL_MAX_SIZE=100
-    env_file:
-      - .env
-    volumes:
-      - ./fireblocks_secret.key:/app/fireblocks_secret.key:ro
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+# Restart the service
+docker restart cardano-raw-sdk
 ```
 
 ## Advanced Features
@@ -1418,7 +1517,34 @@ await sdk.shutdown(); // Clean up resources and clear cache
 3. **Docker container fails to start**
    - Check that the secret key path is correct and file is readable
    - Verify all required environment variables are set
-   - Check Docker logs: `docker-compose logs -f`
+   - Check Docker logs: `docker logs -f cardano-raw-sdk`
+
+## Deployment Considerations
+
+### UTXO Locking Limitation
+
+The SDK uses **in-memory UTXO locking** to prevent double-spend within a single process. When a UTXO is selected for a transaction, it is temporarily locked (default: 2 minutes) to prevent concurrent transactions from selecting the same UTXO.
+
+**Important for multi-replica deployments:**
+
+This in-memory lock only works within a single Node.js process. If you run multiple replicas/instances of the API service (e.g., in Kubernetes, Docker Swarm, or behind a load balancer), concurrent requests to different replicas may select the same UTXO, causing one transaction to fail.
+
+**Mitigation strategies:**
+
+1. **Sticky Sessions**: Route requests for the same vault account to the same replica using session affinity (e.g., based on `vaultAccountId`)
+
+2. **External Locking**: Implement distributed locking using Redis, a database, or another external coordination service
+
+3. **Single Replica**: For low-traffic deployments, run a single replica to ensure in-memory locks are effective
+
+4. **Sequential Processing**: Queue transactions for the same vault account to process them sequentially
+
+```typescript
+// Example: The SDK locks UTXOs automatically
+const result1 = await sdk.transferAda({ ... }); // UTXO locked during tx
+const result2 = await sdk.transferAda({ ... }); // Different UTXO selected
+// Locks automatically release after transaction completes or TTL expires
+```
 
 ## Security Considerations
 
